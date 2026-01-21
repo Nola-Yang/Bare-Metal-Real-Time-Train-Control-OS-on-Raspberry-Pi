@@ -3,6 +3,7 @@
 #include "task.h"
 #include "task_manager.h"
 #include "uart.h"
+#include <stdint.h>
 
 
 static const uint32_t FIRST_USER_TASK_PRIORITY = 1;
@@ -16,6 +17,30 @@ void syscall_dispatch(trapframe_t *tf) {
 }
 
 extern void setup_mmu(); // in mmu.S
+
+
+//Todo
+static void user_entry(void) {
+    for (;;) {
+        __asm__ volatile("svc #0");
+    }
+}
+
+static TaskDescriptor_t *create_first_task(void) {
+    TaskDescriptor_t *t = &first_task;
+
+    memset(t, 0, sizeof(*t));
+    t->tid = 1;
+    t->parent_tid = 0;
+    t->priority = 0;
+    t->state = TASK_STATE_READY;
+
+    t->tf.elr_el1 = (uint64_t)user_entry;
+    t->tf.sp_el0 = (uint64_t)(user_stack + sizeof(user_stack));
+    t->tf.spsr_el1 = SPSR_FOR_EL0t;
+
+    return t;
+}
 
 
 void child_task() {
