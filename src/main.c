@@ -18,13 +18,7 @@ static uint8_t user_stack[4096] __attribute__((aligned(16)));
 static const uint32_t FIRST_USER_TASK_PRIORITY = 1;
 
 
-/*
- * Temporary syscall_dispatch for compilation.
- */
-void syscall_dispatch(trapframe_t *tf) {
-    (void)tf;  
-}
-
+extern void syscall_dispatch(void);
 extern void setup_mmu(); // in mmu.S
 
 

@@ -1,5 +1,14 @@
 #include "task_manager.h"
+#include "trapframe.h"
 #include "util.h"
+
+
+// Syscall numbers
+#define SYSCALL_CREATE       0
+#define SYSCALL_MYTID        1
+#define SYSCALL_MYPARENTTID  2
+#define SYSCALL_YIELD        3
+#define SYSCALL_EXIT         4
 
 
 TaskManager_t GlobalTaskManager; 
@@ -11,8 +20,12 @@ void init_global_task_manager(TaskDescriptor_t *tasks) {
     GlobalTaskManager.current_task_id = 0;
 }
 
-void activate(TaskDescriptor_t *current_task) {
-    // TODO: Resume the execution of the task
+extern void return_to_task(void);
+
+void activate(TaskDescriptor_t *task) {
+    set_current_task(task);
+    task->state = TASK_STATE_RUNNING;
+    return_to_task();
 }
 
 static bool is_valid_priority(int priority) {
@@ -79,4 +92,39 @@ void Exit() {
 
     current_task->state = TASK_STATE_EXITED;
     global_task_scheduler_remove_task(current_task);
+}
+
+
+// =============================
+
+
+void syscall_dispatch() {
+    TaskDescriptor_t *current_task = get_current_task();
+    trapframe_t *tf = &current_task->tf;
+
+    uint64_t syscall_num = tf->x[8];
+    int64_t ret = 0;
+
+    switch (syscall_num) {
+        case SYSCALL_CREATE:
+            ret = Create((int)tf->x[0], (void (*)())tf->x[1]);
+            break;
+        case SYSCALL_MYTID:
+            ret = MyTid();
+            break;
+        case SYSCALL_MYPARENTTID:
+            ret = MyParentTid();
+            break;
+        case SYSCALL_YIELD:
+            Yield();
+            break;
+        case SYSCALL_EXIT:
+            Exit();
+            break;
+        default:
+            ret = -1;
+            break;
+    }
+
+    tf->x[0] = (uint64_t)ret;
 }
