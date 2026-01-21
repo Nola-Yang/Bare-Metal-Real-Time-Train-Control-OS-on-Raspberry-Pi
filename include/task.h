@@ -17,31 +17,36 @@
 #define TASK_STATE_RUNNING  2
 #define TASK_STATE_EXITED   3
 
-struct task_descriptor;
+struct TaskDescriptor;
 
-typedef struct task_descriptor {
+typedef struct TaskDescriptor {
     trapframe_t tf;                     
 
     int tid;                            
     int parent_tid;                     
     int priority;                      
-    int state;                          
-    struct task_descriptor *next;       
-} task_descriptor_t;
+    int state;
+    
+    void (*function)();
+    struct TaskDescriptor *next;       
+} TaskDescriptor_t;
 
 /* Verify trapframe is at offset 0 */
-_Static_assert(__builtin_offsetof(task_descriptor_t, tf) == 0,
+_Static_assert(__builtin_offsetof(TaskDescriptor_t, tf) == 0,
                "trapframe must be at offset 0 in task_descriptor");
 
 
-static inline void set_current_task(task_descriptor_t *td) {
+static inline void set_current_task(TaskDescriptor_t *td) {
     __asm__ volatile("msr tpidr_el1, %0" :: "r"(td) : "memory");
 }
 
-static inline task_descriptor_t *get_current_task(void) {
-    task_descriptor_t *td;
+static inline TaskDescriptor_t *get_current_task(void) {
+    TaskDescriptor_t *td;
     __asm__ volatile("mrs %0, tpidr_el1" : "=r"(td));
     return td;
 }
+
+
+void init_task_descriptor(TaskDescriptor_t *task_descriptor, int tid, int parent_tid, int priority, int state, void (*function)());
 
 #endif /* TASK_H */

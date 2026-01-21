@@ -1,0 +1,28 @@
+#ifndef _task_scheduler_h_
+#define _task_scheduler_h_ 1
+
+#include "ring_buffer.h"
+#include "task.h"
+
+
+#define PRIORITY_LEVELS 32
+
+
+typedef struct {
+    RingBuffer_t *queues;
+    uint32_t size;
+} TaskScheduler_t;
+
+
+extern TaskScheduler_t GlobalTaskScheduler;
+
+
+void init_global_task_scheduler(RingBuffer_t *queues, uint32_t size);
+
+void global_task_scheduler_add_task(TaskDescriptor_t *task);
+
+void global_task_scheduler_remove_task(TaskDescriptor_t *task);
+
+TaskDescriptor_t *schedule();
+
+#endif
