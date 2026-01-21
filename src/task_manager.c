@@ -154,10 +154,13 @@ static void kern_Exit(void) {
     free_task_descriptor(current_task);
 
     TaskDescriptor_t *next_task = schedule();
-    if (next_task == current_task) {
+    if (next_task == NULL) {
         // No runnable tasks left; stop here.
         for (;;) {
             __asm__ volatile("wfi");
+            // for interrupts
+            next_task = schedule();                                                                                                               
+            if (next_task) break;   
         }
     }
     set_current_task(next_task);
