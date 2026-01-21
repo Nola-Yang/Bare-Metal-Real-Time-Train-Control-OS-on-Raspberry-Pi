@@ -10,6 +10,11 @@
 #define SYSCALL_YIELD        3
 #define SYSCALL_EXIT         4
 
+// SPSR for EL0t 
+#define SPSR_MASK_ALL 0x3C0
+#define SPSR_EL0t     0x0
+#define SPSR_FOR_EL0t (SPSR_MASK_ALL | SPSR_EL0t)
+
 
 TaskManager_t GlobalTaskManager; 
 
@@ -41,7 +46,7 @@ static bool no_more_task_descriptors() {
 // =============================
 
 
-int Create(int priority, void (*function)()) {
+int kern_Create(int priority, void (*function)()) {
     if (!is_valid_priority(priority)) return -1;
     if (no_more_task_descriptors()) return -2;
 
@@ -54,22 +59,25 @@ int Create(int priority, void (*function)()) {
         parent_id = current_task->tid;
     }
 
-    init_task_descriptor(new_task, task_id, parent_id, priority, TASK_STATE_FREE, function);
-    memcpy(&(GlobalTaskManager.tasks[task_id]), new_task, sizeof(TaskDescriptor_t));
+    init_task_descriptor(new_task, task_id, parent_id, priority, TASK_STATE_READY, function);
+
+    new_task->tf.elr_el1 = (uint64_t)function;
+    new_task->tf.sp_el0 = (uint64_t)(new_task->stack + TASK_STACK_SIZE);
+    new_task->tf.spsr_el1 = SPSR_FOR_EL0t;
+
+    global_task_scheduler_add_task(new_task);
 
     GlobalTaskManager.current_task_id++;
 
-    // TODO: There probably is more stuff to add into the trap frame
-
-    return 0;
+    return task_id;
 }
 
-int MyTid() {
+static int kern_MyTid(void) {
     TaskDescriptor_t *current_task = get_current_task();
     return current_task->tid;
 }
 
-int MyParentTid() {
+static int kern_MyParentTid(void) {
     TaskDescriptor_t *current_task = get_current_task();
 
     int parent_id = current_task->parent_tid;
@@ -81,17 +89,29 @@ int MyParentTid() {
     return parent_id;
 }
 
-void Yield() {
-    // TODO: Implement context switch for yield
-}
-
-void Exit() {
+static void kern_Yield(void) {
     TaskDescriptor_t *current_task = get_current_task();
 
-    // TODO: Any cleanup for trapframe needed?
+    
+    current_task->state = TASK_STATE_READY;
+    global_task_scheduler_add_task(current_task);
+
+    
+    TaskDescriptor_t *next_task = schedule();
+    set_current_task(next_task);
+    next_task->state = TASK_STATE_RUNNING;
+}
+
+static void kern_Exit(void) {
+    TaskDescriptor_t *current_task = get_current_task();
 
     current_task->state = TASK_STATE_EXITED;
     global_task_scheduler_remove_task(current_task);
+
+    
+    TaskDescriptor_t *next_task = schedule();
+    set_current_task(next_task);
+    next_task->state = TASK_STATE_RUNNING;
 }
 
 
@@ -107,19 +127,19 @@ void syscall_dispatch() {
 
     switch (syscall_num) {
         case SYSCALL_CREATE:
-            ret = Create((int)tf->x[0], (void (*)())tf->x[1]);
+            ret = kern_Create((int)tf->x[0], (void (*)())tf->x[1]);
             break;
         case SYSCALL_MYTID:
-            ret = MyTid();
+            ret = kern_MyTid();
             break;
         case SYSCALL_MYPARENTTID:
-            ret = MyParentTid();
+            ret = kern_MyParentTid();
             break;
         case SYSCALL_YIELD:
-            Yield();
+            kern_Yield();
             break;
         case SYSCALL_EXIT:
-            Exit();
+            kern_Exit();
             break;
         default:
             ret = -1;

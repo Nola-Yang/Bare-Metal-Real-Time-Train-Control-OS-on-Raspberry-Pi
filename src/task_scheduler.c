@@ -12,12 +12,12 @@ void init_global_task_scheduler(RingBuffer_t *queues, uint32_t size) {
 }
 
 void global_task_scheduler_add_task(TaskDescriptor_t *task) {
-    ring_buf_append(&(GlobalTaskScheduler.queues[task->tid]), &task);
+    ring_buf_append(&(GlobalTaskScheduler.queues[task->priority]), &task);
 }
 
 // Note: assume the task being removed is the current task being ran
 void global_task_scheduler_remove_task(TaskDescriptor_t *task) {
-    RingBuffer_t *queue = &(GlobalTaskScheduler.queues[task->tid]);
+    RingBuffer_t *queue = &(GlobalTaskScheduler.queues[task->priority]);
     
     TaskDescriptor_t *removed_task;
     ring_buf_pop(queue, &removed_task);

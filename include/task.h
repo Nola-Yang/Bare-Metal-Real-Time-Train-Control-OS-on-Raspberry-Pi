@@ -17,6 +17,9 @@
 #define TASK_STATE_RUNNING  2
 #define TASK_STATE_EXITED   3
 
+/* Task stack size */
+#define TASK_STACK_SIZE 4096
+
 struct TaskDescriptor;
 
 typedef struct TaskDescriptor {
@@ -28,7 +31,8 @@ typedef struct TaskDescriptor {
     int state;
     
     void (*function)();
-    struct TaskDescriptor *next;       
+    struct TaskDescriptor *next;
+    uint8_t stack[TASK_STACK_SIZE] __attribute__((aligned(16)));
 } TaskDescriptor_t;
 
 /* Verify trapframe is at offset 0 */
