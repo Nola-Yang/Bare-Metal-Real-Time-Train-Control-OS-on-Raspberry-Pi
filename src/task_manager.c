@@ -1,6 +1,7 @@
 #include "task_manager.h"
 #include "trapframe.h"
 #include "util.h"
+#include "uart.h"
 #include <string.h>
 
 
@@ -69,6 +70,25 @@ static void free_task_descriptor(TaskDescriptor_t *task) {
 
 // =============================
 
+static void check_stack_canary(TaskDescriptor_t *task) {
+    if (task->stack_canary != STACK_CANARY_VALUE) {
+        uart_printf(CONSOLE, "PANIC: User stack overflow detected! tid=%d canary=0x%lx\r\n",
+                    task->tid, task->stack_canary);
+        for (;;) __asm__ volatile("wfi");
+    }
+}
+
+static void check_user_stack_bounds(TaskDescriptor_t *task) {
+    uint64_t sp = task->tf.sp_el0;
+    uint64_t stack_bottom = (uint64_t)task->stack;
+    uint64_t stack_top = stack_bottom + TASK_STACK_SIZE;
+
+    if (sp < stack_bottom || sp > stack_top) {
+        uart_printf(CONSOLE, "PANIC: User stack out of bounds! tid=%d sp=0x%lx bounds=[0x%lx, 0x%lx]\r\n",
+                    task->tid, sp, stack_bottom, stack_top);
+        for (;;) __asm__ volatile("wfi");
+    }
+}
 
 int kern_Create(int priority, void (*function)()) {
     if (!is_valid_priority(priority)) return -1;
@@ -84,8 +104,11 @@ int kern_Create(int priority, void (*function)()) {
     }
 
     init_task_descriptor(new_task, task_id, parent_id, priority, TASK_STATE_READY, function);
-    
+
     memset(&new_task->tf, 0, sizeof(trapframe_t));
+
+    /* Initialize stack canary for overflow detection */
+    new_task->stack_canary = STACK_CANARY_VALUE;
 
     new_task->tf.elr_el1 = (uint64_t)function;
     new_task->tf.sp_el0 = (uint64_t)(new_task->stack + TASK_STACK_SIZE);
@@ -148,6 +171,10 @@ static void kern_Exit(void) {
 void syscall_dispatch() {
     TaskDescriptor_t *current_task = get_current_task();
     trapframe_t *tf = &current_task->tf;
+
+    /* Check for user stack overflow on every syscall entry */
+    check_stack_canary(current_task);
+    check_user_stack_bounds(current_task);
 
     uint64_t syscall_num = tf->x[8];
     int64_t ret = 0;

@@ -17,8 +17,10 @@
 #define TASK_STATE_RUNNING  2
 #define TASK_STATE_EXITED   3
 
-/* Task stack size */
 #define TASK_STACK_SIZE 4096
+
+/* Stack canary magic value for overflow detection */
+#define STACK_CANARY_VALUE 0xDEADBEEFCAFEBABEULL
 
 struct TaskDescriptor;
 
@@ -32,6 +34,7 @@ typedef struct TaskDescriptor {
     
     void (*function)();
     struct TaskDescriptor *next;
+    uint64_t stack_canary;  /* Canary for overflow detection */
     uint8_t stack[TASK_STACK_SIZE] __attribute__((aligned(16)));
 } TaskDescriptor_t;
 
