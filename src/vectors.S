@@ -58,52 +58,52 @@
 exception_vector_table:
 
 
-VECTOR_ENTRY vec_curr_el_sp0_sync
+VECTOR_ENTRY curr_el_sp0_sync
     b unhandled_exception
 
-VECTOR_ENTRY vec_curr_el_sp0_irq
+VECTOR_ENTRY curr_el_sp0_irq
     b unhandled_exception
 
-VECTOR_ENTRY vec_curr_el_sp0_fiq
+VECTOR_ENTRY curr_el_sp0_fiq
     b unhandled_exception
 
-VECTOR_ENTRY vec_curr_el_sp0_serror
+VECTOR_ENTRY curr_el_sp0_serror
     b unhandled_exception
 
-VECTOR_ENTRY vec_curr_el_spx_sync
+VECTOR_ENTRY curr_el_spx_sync
     b unhandled_exception
 
-VECTOR_ENTRY vec_curr_el_spx_irq
+VECTOR_ENTRY curr_el_spx_irq
     b unhandled_exception
 
-VECTOR_ENTRY vec_curr_el_spx_fiq
+VECTOR_ENTRY curr_el_spx_fiq
     b unhandled_exception
 
-VECTOR_ENTRY vec_curr_el_spx_serror
+VECTOR_ENTRY curr_el_spx_serror
     b unhandled_exception
 
-VECTOR_ENTRY vec_lower_el_a64_sync
+VECTOR_ENTRY lower_el_a64_sync
     b svc_entry
 
-VECTOR_ENTRY vec_lower_el_a64_irq
+VECTOR_ENTRY lower_el_a64_irq
     b unhandled_exception
 
-VECTOR_ENTRY vec_lower_el_a64_fiq
+VECTOR_ENTRY lower_el_a64_fiq
     b unhandled_exception
 
-VECTOR_ENTRY vec_lower_el_a64_serror
+VECTOR_ENTRY lower_el_a64_serror
     b unhandled_exception
 
-VECTOR_ENTRY vec_lower_el_a32_sync
+VECTOR_ENTRY lower_el_a32_sync
     b unhandled_exception
 
-VECTOR_ENTRY vec_lower_el_a32_irq
+VECTOR_ENTRY lower_el_a32_irq
     b unhandled_exception
 
-VECTOR_ENTRY vec_lower_el_a32_fiq
+VECTOR_ENTRY lower_el_a32_fiq
     b unhandled_exception
 
-VECTOR_ENTRY vec_lower_el_a32_serror
+VECTOR_ENTRY lower_el_a32_serror
     b unhandled_exception
 
 
