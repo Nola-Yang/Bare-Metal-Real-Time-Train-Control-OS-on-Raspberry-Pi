@@ -3,9 +3,18 @@
 #include "task.h"
 #include "task_manager.h"
 #include "uart.h"
+#include "util.h"
 #include <stdint.h>
 
 
+#define SPSR_MASK_ALL 0x3C0
+#define SPSR_EL0t     0x0
+#define SPSR_FOR_EL0t (SPSR_MASK_ALL | SPSR_EL0t)
+
+extern void activate_first_task(void);
+
+static TaskDescriptor_t first_task;
+static uint8_t user_stack[4096] __attribute__((aligned(16)));
 static const uint32_t FIRST_USER_TASK_PRIORITY = 1;
 
 

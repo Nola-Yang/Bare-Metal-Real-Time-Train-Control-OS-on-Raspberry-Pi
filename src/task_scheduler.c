@@ -24,10 +24,10 @@ void global_task_scheduler_remove_task(TaskDescriptor_t *task) {
 }
 
 static bool get_next_task(TaskScheduler_t *task_scheduler, TaskDescriptor_t **result) {
-    uint32_t queue_count = task_scheduler->size;
+    int32_t queue_count = task_scheduler->size;
     RingBuffer_t *queues = task_scheduler->queues;
 
-    for (uint32_t i = queue_count - 1; i >= 0; --i) {
+    for (int32_t i = queue_count - 1; i >= 0; --i) {
         if (is_ring_buf_empty(&queues[i])) continue;
 
         RingBuffer_t *queue = &(queues[i]);
