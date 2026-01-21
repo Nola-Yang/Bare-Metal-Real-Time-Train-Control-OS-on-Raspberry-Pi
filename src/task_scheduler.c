@@ -15,15 +15,15 @@ void global_task_scheduler_add_task(TaskDescriptor_t *task) {
     ring_buf_append(&(GlobalTaskScheduler.queues[task->priority]), &task);
 }
 
-// Note: assume the task being removed is the current task being ran
+// Remove task from front of its priority queue (current running task)
 void global_task_scheduler_remove_task(TaskDescriptor_t *task) {
     RingBuffer_t *queue = &(GlobalTaskScheduler.queues[task->priority]);
     
     TaskDescriptor_t *removed_task;
-    ring_buf_pop(queue, &removed_task);
+    ring_buf_pop_left(queue, &removed_task);
 }
 
-static bool get_next_task(TaskScheduler_t *task_scheduler, TaskDescriptor_t **result) {
+bool get_next_task(TaskScheduler_t *task_scheduler, TaskDescriptor_t **result) {
     int32_t queue_count = task_scheduler->size;
     RingBuffer_t *queues = task_scheduler->queues;
 

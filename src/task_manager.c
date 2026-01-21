@@ -90,13 +90,7 @@ static int kern_MyParentTid(void) {
 }
 
 static void kern_Yield(void) {
-    TaskDescriptor_t *current_task = get_current_task();
-
-    
-    current_task->state = TASK_STATE_READY;
-    global_task_scheduler_add_task(current_task);
-
-    
+    // Task is already in queue at front, schedule() will rotate it to back
     TaskDescriptor_t *next_task = schedule();
     set_current_task(next_task);
     next_task->state = TASK_STATE_RUNNING;
@@ -108,8 +102,8 @@ static void kern_Exit(void) {
     current_task->state = TASK_STATE_EXITED;
     global_task_scheduler_remove_task(current_task);
 
-    
-    TaskDescriptor_t *next_task = schedule();
+    TaskDescriptor_t *next_task;
+    get_next_task(&GlobalTaskScheduler, &next_task);
     set_current_task(next_task);
     next_task->state = TASK_STATE_RUNNING;
 }

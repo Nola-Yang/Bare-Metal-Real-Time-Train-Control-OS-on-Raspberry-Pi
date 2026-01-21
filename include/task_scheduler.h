@@ -23,6 +23,10 @@ void global_task_scheduler_add_task(TaskDescriptor_t *task);
 
 void global_task_scheduler_remove_task(TaskDescriptor_t *task);
 
+// Get highest priority ready task (does not rotate)
+bool get_next_task(TaskScheduler_t *task_scheduler, TaskDescriptor_t **result);
+
+// Rotate current task to back of queue, return next task
 TaskDescriptor_t *schedule();
 
 #endif
