@@ -1,4 +1,4 @@
-#include "include/trapframe.h"
+#include "trapframe.h"
 
 /*
  * Temporary syscall_dispatch for compilation.

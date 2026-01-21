@@ -75,8 +75,8 @@ el1_entry:
 	ldr x0, =exception_vector_table
 	msr vbar_el1, x0
 
-	// initialize SP (initial stack below text here)
-	ldr x2, =_start
+	// initialize SP_EL1 to kernel stack top
+	ldr x2, =__kernel_stack_top
 	mov sp, x2
 
 	// clear BSS segment 
