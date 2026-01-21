@@ -21,13 +21,13 @@ static RingBuffer_t queues[PRIORITY_LEVELS];
 void child_task() {
 	uint32_t child_id = MyTid();
 	uint32_t parent_id = MyParentTid();
-	uart_printf(CONSOLE, "Child tid: %u, Parent tid: %u\r\n", child_id, parent_id);
+	uart_printf(CONSOLE, "Child tid: %d, Parent tid: %d\r\n", (int32_t)child_id, (int32_t)parent_id);
 
 	Yield();
 
 	child_id = MyTid();
 	parent_id = MyParentTid();
-	uart_printf(CONSOLE, "Child tid: %u, Parent tid: %u\r\n", child_id, parent_id);
+	uart_printf(CONSOLE, "Child tid: %d, Parent tid: %d\r\n", (int32_t)child_id, (int32_t)parent_id);
 
 	Exit();
 }
