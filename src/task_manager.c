@@ -1,6 +1,7 @@
 #include "task_manager.h"
 #include "trapframe.h"
 #include "util.h"
+#include <string.h>
 
 
 // Syscall numbers
@@ -28,6 +29,7 @@ void init_global_task_manager(TaskDescriptor_t *tasks) {
 extern void return_to_task(void);
 
 void activate(TaskDescriptor_t *task) {
+    global_task_scheduler_remove_task(task);
     set_current_task(task);
     task->state = TASK_STATE_RUNNING;
     return_to_task();
@@ -60,6 +62,8 @@ int kern_Create(int priority, void (*function)()) {
     }
 
     init_task_descriptor(new_task, task_id, parent_id, priority, TASK_STATE_READY, function);
+    
+    memset(&new_task->tf, 0, sizeof(trapframe_t));
 
     new_task->tf.elr_el1 = (uint64_t)function;
     new_task->tf.sp_el0 = (uint64_t)(new_task->stack + TASK_STACK_SIZE);
@@ -90,7 +94,10 @@ static int kern_MyParentTid(void) {
 }
 
 static void kern_Yield(void) {
-    // Task is already in queue at front, schedule() will rotate it to back
+    // Put current running task back into ready queue, then pick next to run.
+    TaskDescriptor_t *current_task = get_current_task();
+    current_task->state = TASK_STATE_READY;
+    global_task_scheduler_add_task(current_task);
     TaskDescriptor_t *next_task = schedule();
     set_current_task(next_task);
     next_task->state = TASK_STATE_RUNNING;
@@ -100,10 +107,14 @@ static void kern_Exit(void) {
     TaskDescriptor_t *current_task = get_current_task();
 
     current_task->state = TASK_STATE_EXITED;
-    global_task_scheduler_remove_task(current_task);
 
-    TaskDescriptor_t *next_task;
-    get_next_task(&GlobalTaskScheduler, &next_task);
+    TaskDescriptor_t *next_task = schedule();
+    if (next_task == current_task) {
+        // No runnable tasks left; stop here.
+        for (;;) {
+            __asm__ volatile("wfi");
+        }
+    }
     set_current_task(next_task);
     next_task->state = TASK_STATE_RUNNING;
 }

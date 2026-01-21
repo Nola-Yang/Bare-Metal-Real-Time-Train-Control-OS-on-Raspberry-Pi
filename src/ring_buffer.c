@@ -23,6 +23,7 @@ void init_custom_ring_buffer(RingBuffer_t* buf, void *buffer, uint32_t size, uin
 void ring_buf_clear(RingBuffer_t *buf) {
     buf->head = 0;
     buf->tail = 0;
+    buf->count = 0;
 }
 
 bool is_ring_buf_full(RingBuffer_t* buf) {
