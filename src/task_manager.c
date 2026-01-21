@@ -11,10 +11,7 @@
 #define SYSCALL_YIELD        3
 #define SYSCALL_EXIT         4
 
-// SPSR for EL0t 
-#define SPSR_MASK_ALL 0x3C0
-#define SPSR_EL0t     0x0
-#define SPSR_FOR_EL0t (SPSR_MASK_ALL | SPSR_EL0t)
+#define SPSR_FOR_EL0t 0x0
 
 
 TaskManager_t GlobalTaskManager; 
@@ -46,20 +43,20 @@ static bool no_more_task_descriptors() {
 }
 
 static TaskDescriptor_t *alloc_task_descriptor(int32_t *task_id) {
-    if (GlobalTaskManager.free_list != NULL) {
-        TaskDescriptor_t *td = GlobalTaskManager.free_list;
-        GlobalTaskManager.free_list = td->next;
+    if (!no_more_task_descriptors()) {
+        *task_id = GlobalTaskManager.current_task_id;
+        TaskDescriptor_t *td = &(GlobalTaskManager.tasks[GlobalTaskManager.current_task_id]);
+        GlobalTaskManager.current_task_id++;
         td->next = NULL;
-        *task_id = td->tid;
         return td;
     }
 
-    if (no_more_task_descriptors()) return NULL;
+    if (GlobalTaskManager.free_list == NULL) return NULL;
 
-    *task_id = GlobalTaskManager.current_task_id;
-    TaskDescriptor_t *td = &(GlobalTaskManager.tasks[GlobalTaskManager.current_task_id]);
-    GlobalTaskManager.current_task_id++;
+    TaskDescriptor_t *td = GlobalTaskManager.free_list;
+    GlobalTaskManager.free_list = td->next;
     td->next = NULL;
+    *task_id = td->tid;
     return td;
 }
 
@@ -177,4 +174,14 @@ void syscall_dispatch() {
     }
 
     tf->x[0] = (uint64_t)ret;
+
+    if (syscall_num == SYSCALL_YIELD || syscall_num == SYSCALL_EXIT) {
+        return;
+    }
+
+    current_task->state = TASK_STATE_READY;
+    global_task_scheduler_add_task(current_task);
+    TaskDescriptor_t *next_task = schedule();
+    set_current_task(next_task);
+    next_task->state = TASK_STATE_RUNNING;
 }
