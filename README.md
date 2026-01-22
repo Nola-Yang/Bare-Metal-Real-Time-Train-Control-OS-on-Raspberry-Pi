@@ -6,7 +6,7 @@
 <br>
 
 
-## Author
+## Authors
 |     |     |     |
 | --- | --- | --- |
 | Alex Au | 20887300 | a32au@uwaterloo.ca |
