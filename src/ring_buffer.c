@@ -23,6 +23,7 @@ void init_custom_ring_buffer(RingBuffer_t* buf, void *buffer, uint32_t size, uin
 void ring_buf_clear(RingBuffer_t *buf) {
     buf->head = 0;
     buf->tail = 0;
+    buf->count = 0;
 }
 
 bool is_ring_buf_full(RingBuffer_t* buf) {
@@ -47,10 +48,11 @@ bool ring_buf_append(RingBuffer_t* buf, void *item) {
 bool ring_buf_append_left(RingBuffer_t* buf, void *item) {
     if (is_ring_buf_full(buf)) return false;
 
+    buf->tail = (buf->tail - 1 + buf->size) % buf->size;
+
     void *target = (char *)buf->buffer + (buf->tail * buf->element_size);
     memcpy(target, item, buf->element_size);
 
-    buf->tail = (buf->tail - 1) % buf->size;
     buf->count += 1;
     return true;
 }
@@ -58,10 +60,11 @@ bool ring_buf_append_left(RingBuffer_t* buf, void *item) {
 bool ring_buf_pop(RingBuffer_t* buf, void* result) {
     if (is_ring_buf_empty(buf)) return false;
 
+    buf->head = (buf->head - 1 + buf->size) % buf->size;
+
     void *found = (char *)buf->buffer + (buf->head * buf->element_size);
     memcpy(result, found, buf->element_size);
 
-    buf->head = (buf->head - 1) % buf->size;
     buf->count -= 1;
     return true;
 }
@@ -78,12 +81,11 @@ bool ring_buf_pop_left(RingBuffer_t* buf, void* result) {
 }
 
 bool ring_buf_from_head(RingBuffer_t *buf, void *result, uint32_t ind, bool decreasing) {
-    if (ind >= buf->count - 1) return false;
+    if (ind >= buf->count) return false;
 
     int32_t newInd = (decreasing) ? buf->head - ind - 1 : buf->head + ind;
-    if (newInd < 0) {
-        newInd = buf->size + newInd;
-    }
+    // negative and positive wraparound
+    newInd = ((newInd % (int32_t)buf->size) + buf->size) % buf->size;
 
     void *found = (char *)buf->buffer + (newInd * buf->element_size);
     memcpy(result, found, buf->element_size);
@@ -92,12 +94,10 @@ bool ring_buf_from_head(RingBuffer_t *buf, void *result, uint32_t ind, bool decr
 }
 
 bool ring_buf_from_tail(RingBuffer_t *buf, void *result, uint32_t ind, bool increasing) {
-    if (ind >= buf->count - 1) return false;
+    if (ind >= buf->count) return false;
 
-    int32_t newInd = (increasing) ? buf->tail + ind : buf->tail - ind + 1;
-    if (newInd < 0) {
-        newInd = buf->size + newInd;
-    }
+    int32_t newInd = (increasing) ? buf->tail + ind : buf->tail - ind - 1;
+    newInd = ((newInd % (int32_t)buf->size) + buf->size) % buf->size;
 
     void *found = (char *)buf->buffer + (newInd * buf->element_size);
     memcpy(result, found, buf->element_size);

@@ -112,6 +112,13 @@ unhandled_exception:
 
 
 /*
+ * Kernel stack overflow handler
+ */
+kernel_stack_overflow:
+    b .
+
+
+/*
  * Entry conditions:
  *   - Running in EL1 using SP_EL1
  *   - ELR_EL1 = user return address
@@ -122,9 +129,14 @@ unhandled_exception:
 svc_entry:
     
     stp x0, x1, [sp, #-16]!
+
+    // Check kernel stack bounds
+    ldr x0, =__kernel_stack_bottom
+    cmp sp, x0
+    b.lt kernel_stack_overflow  // SP < stack_bottom means overflow
+
     mrs x0, tpidr_el1           // x0 = current task = trapframe pointer
 
-    
     // Save x2-x30 
     stp x2, x3, [x0, #TF_X2]
     stp x4, x5, [x0, #TF_X4]
@@ -193,7 +205,7 @@ return_to_task:
     ldp x24, x25, [x0, #TF_X24]
     ldp x26, x27, [x0, #TF_X26]
     ldp x28, x29, [x0, #TF_X28]
-    ldr x30, [x0, #TF_X30]      // x30 = LR
+    ldr x30, [x0, #TF_X30]      
 
     // Reset SP_EL1 to kernel stack top
     ldr x1, =__kernel_stack_top

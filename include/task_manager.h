@@ -10,6 +10,7 @@
 typedef struct {
     int32_t current_task_id;
     TaskDescriptor_t *tasks;
+    TaskDescriptor_t *free_list;
     TaskScheduler_t *task_scheduler;
 } TaskManager_t;
 
@@ -20,16 +21,7 @@ void init_global_task_manager(TaskDescriptor_t *tasks);
 
 void activate(TaskDescriptor_t *current_task);
 
-// =========================
-
-int Create(int priority, void (*function)());
-
-int MyTid();
-
-int MyParentTid();
-
-void Yield();
-
-void Exit();
+// Kernel-side Create for bootstrap 
+int kern_Create(int priority, void (*function)());
 
 #endif
