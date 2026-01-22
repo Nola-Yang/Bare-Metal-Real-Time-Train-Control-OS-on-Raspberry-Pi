@@ -2,6 +2,7 @@
 #include "task.h"
 #include "ring_buffer.h"
 #include "util.h"
+#include <stddef.h>
 
 
 TaskScheduler_t GlobalTaskScheduler;
