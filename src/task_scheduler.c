@@ -1,6 +1,7 @@
 #include "task_scheduler.h"
 #include "task.h"
 #include "ring_buffer.h"
+#include "util.h"
 
 
 TaskScheduler_t GlobalTaskScheduler;
@@ -67,5 +68,5 @@ TaskDescriptor_t * schedule() {
         return next_task;
     }
 
-    return get_current_task();
+    return NULL;
 }
