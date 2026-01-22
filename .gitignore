@@ -61,6 +61,4 @@ dkms.conf
 
 # build flags / local config
 .build_flags
-
-*.md
 *upload.sh

@@ -12,7 +12,7 @@ OBJDUMP:=$(XBINDIR)/$(TRIPLE)-objdump
 OPT?=-O3
 
 WARNINGS:=-Wall -Wextra -Wpedantic -Wno-unused-const-variable
-CFLAGS:=-g -pipe -static -march=armv8-a -mcpu=cortex-a72 $(OPT) -mstrict-align -mgeneral-regs-only $(WARNINGS) -I$(INCLUDE_DIR)
+CFLAGS:=-O3 -g -pipe -static -march=armv8-a -mcpu=cortex-a72 $(OPT) -mstrict-align -mgeneral-regs-only $(WARNINGS) -I$(INCLUDE_DIR)
 
 # -Wl,option tells gcc to pass 'option' to the linker with commas replaced by spaces
 LDFLAGS:=-Wl,-nmagic -Wl,-Tlinker.ld -Wl,--no-warn-rwx-segments -nostartfiles
