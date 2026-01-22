@@ -42,4 +42,6 @@ Compile the program by running:
 make
 ```
 
+<br>
+
 An image file should be created at `build/kernel.img`
