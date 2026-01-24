@@ -45,3 +45,20 @@ make
 <br>
 
 An image file should be created at `build/kernel.img`
+
+<br>
+<br>
+
+## How to Run
+
+## STEP 1.
+Upload the image at `build/kernel.img` into a specific Raspberry Pi using the web interface at: https://cs452.student.cs.private.uwaterloo.ca
+
+<br>
+
+## STEP 2.
+Restart the selected Raspberry Pi that you have uploaded the image into.
+
+<br>
+
+Once the Raspberry Pi has restarted, output will be printed onto the screen as the kernel runs the specific tasks. 
