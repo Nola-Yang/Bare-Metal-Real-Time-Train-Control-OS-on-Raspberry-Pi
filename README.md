@@ -27,7 +27,7 @@ git clone https://git.uwaterloo.ca/cs-452-nolex/k1.git
 
 ### STEP 2:
 Checkout the specific commit hash for the submission.
-The commit hash to checkout is: `bba6853c5ad0cbd5a423d86a1d60210d3c5a5457`
+The commit hash to checkout is: `f34c1f05233449297f409afaad75c1d94c688c01`
 
 ```bash
 git checkout <commit_hash>
@@ -45,3 +45,20 @@ make
 <br>
 
 An image file should be created at `build/kernel.img`
+
+<br>
+<br>
+
+## How to Run
+
+### STEP 1.
+Upload the image at `build/kernel.img` into a specific Raspberry Pi using the web interface at: https://cs452.student.cs.private.uwaterloo.ca
+
+<br>
+
+### STEP 2.
+Restart the selected Raspberry Pi that you have uploaded the image into.
+
+<br>
+
+Once the Raspberry Pi has restarted, output will be printed onto the screen as the kernel runs the specific tasks. 
