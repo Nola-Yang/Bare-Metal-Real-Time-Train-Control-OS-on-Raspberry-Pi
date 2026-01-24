@@ -27,7 +27,7 @@ git clone https://git.uwaterloo.ca/cs-452-nolex/k1.git
 
 ### STEP 2:
 Checkout the specific commit hash for the submission.
-The commit hash to checkout is: `2c399cd16063505035edfcbf68cd9ae2d478c80b`
+The commit hash to checkout is: `69a750144650f4bf2928072201993eb1a0306170`
 
 ```bash
 git checkout <commit_hash>
