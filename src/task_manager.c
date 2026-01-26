@@ -11,6 +11,9 @@
 #define SYSCALL_MYPARENTTID  2
 #define SYSCALL_YIELD        3
 #define SYSCALL_EXIT         4
+#define SYSCALL_SEND         5
+#define SYSCALL_RECEIVE      6
+#define SYSCALL_REPLY        7
 
 #define SPSR_FOR_EL0t 0x0
 
@@ -103,7 +106,7 @@ int kern_Create(int priority, void (*function)()) {
         parent_id = current_task->tid;
     }
 
-    init_task_descriptor(new_task, task_id, parent_id, priority, TASK_STATE_READY, function);
+    init_task_descriptor(new_task, task_id, parent_id, priority, TASK_STATE_READY);
 
     memset(&new_task->tf, 0, sizeof(trapframe_t));
 
@@ -167,6 +170,148 @@ static void kern_Exit(void) {
     next_task->state = TASK_STATE_RUNNING;
 }
 
+// Message Passing 
+
+static inline int min_int(int a, int b) {
+    return (a < b) ? a : b;
+}
+
+static TaskDescriptor_t *get_task_by_tid(int tid) {
+    if ((tid < 0) || (tid >= GlobalTaskManager.current_task_id)) return NULL;
+
+    TaskDescriptor_t *task = &GlobalTaskManager.tasks[tid];
+    if (task->state == TASK_STATE_FREE || task->state == TASK_STATE_EXITED) {
+        return NULL;
+    }
+    return task;
+}
+
+// Add sender to receiver's send queue
+static void enqueue_sender(TaskDescriptor_t *receiver, TaskDescriptor_t *sender) {
+    sender->next = NULL;
+    if (receiver->send_queue_tail == NULL) {
+        receiver->send_queue_head = sender;
+        receiver->send_queue_tail = sender;
+    } else {
+        receiver->send_queue_tail->next = sender;
+        receiver->send_queue_tail = sender;
+    }
+}
+
+// Remove sender from receiver's send queue
+static TaskDescriptor_t *dequeue_sender(TaskDescriptor_t *receiver) {
+    TaskDescriptor_t *sender = receiver->send_queue_head;
+    if (sender == NULL) return NULL;
+
+    receiver->send_queue_head = sender->next;
+    if (receiver->send_queue_head == NULL) {
+        receiver->send_queue_tail = NULL;
+    }
+    sender->next = NULL;
+    return sender;
+}
+
+// kern_Send: Send message to tid, block until reply
+// Returns: size of reply on success, -1 if tid invalid, -2 on failure
+static int kern_Send(int tid, const char *msg, int msglen, char *reply, int rplen) {
+    TaskDescriptor_t *sender = get_current_task();
+    TaskDescriptor_t *receiver = get_task_by_tid(tid);
+
+    if (receiver == NULL) {
+        return -1;  
+    }
+
+    sender->msg_buf = msg;
+    sender->msg_len = msglen;
+    sender->reply_buf = reply;
+    sender->reply_len = rplen;
+
+    if (receiver->state == TASK_STATE_RECEIVE_BLOCKED) {
+        int copy_len = min_int(msglen, (int)receiver->tf.x[2]);
+        memcpy((char *)receiver->tf.x[1], msg, copy_len);
+
+        *((int *)receiver->tf.x[0]) = sender->tid;
+        sender->state = TASK_STATE_REPLY_BLOCKED;
+
+        receiver->state = TASK_STATE_READY;
+        receiver->tf.x[0] = (uint64_t)msglen;
+        global_task_scheduler_add_task(receiver);
+    } else {
+        sender->state = TASK_STATE_SEND_BLOCKED;
+        enqueue_sender(receiver, sender);
+    }
+
+    // Schedule next task (sender is blocked)
+    TaskDescriptor_t *next_task = schedule();
+    if (next_task == NULL) {
+        for (;;) {
+            __asm__ volatile("wfi");
+            next_task = schedule();
+            if (next_task) break;
+        }
+    }
+    set_current_task(next_task);
+    next_task->state = TASK_STATE_RUNNING;
+
+    return 0;
+}
+
+// kern_Receive: Block until a message arrives
+// Returns: size of message on success
+static int kern_Receive(int *tid, char *msg, int msglen) {
+    TaskDescriptor_t *receiver = get_current_task();
+
+    TaskDescriptor_t *sender = dequeue_sender(receiver);
+
+    if (sender != NULL) {
+        int copy_len = min_int(sender->msg_len, msglen);
+        memcpy(msg, sender->msg_buf, copy_len);
+        *tid = sender->tid;
+
+        sender->state = TASK_STATE_REPLY_BLOCKED;
+        return sender->msg_len;
+    }
+
+    receiver->state = TASK_STATE_RECEIVE_BLOCKED;
+    
+    TaskDescriptor_t *next_task = schedule();
+    if (next_task == NULL) {
+        for (;;) {
+            __asm__ volatile("wfi");
+            next_task = schedule();
+            if (next_task) break;
+        }
+    }
+    set_current_task(next_task);
+    next_task->state = TASK_STATE_RUNNING;
+
+    return 0;
+}
+
+// kern_Reply: Send reply to a task that sent a message
+// Returns: size of reply on success, -1 if tid invalid, -2 if not reply-blocked
+static int kern_Reply(int tid, const char *reply, int rplen) {
+    TaskDescriptor_t *replier = get_current_task();
+    TaskDescriptor_t *sender = get_task_by_tid(tid);
+
+    if (sender == NULL) {
+        return -1;  
+    }
+
+    if (sender->state != TASK_STATE_REPLY_BLOCKED) {
+        return -2;  
+    }
+
+    int copy_len = min_int(rplen, sender->reply_len);
+    memcpy(sender->reply_buf, reply, copy_len);
+
+    sender->tf.x[0] = (uint64_t)rplen;
+
+    sender->state = TASK_STATE_READY;
+    global_task_scheduler_add_task(sender);
+
+    return rplen;
+}
 
 // =============================
 
@@ -194,9 +339,22 @@ void syscall_dispatch() {
             break;
         case SYSCALL_YIELD:
             kern_Yield();
-            break;
+            return;  // kern_Yield handles scheduling
         case SYSCALL_EXIT:
             kern_Exit();
+            return;  // kern_Exit handles scheduling
+        case SYSCALL_SEND:
+            kern_Send((int)tf->x[0], (const char *)tf->x[1], (int)tf->x[2],
+                      (char *)tf->x[3], (int)tf->x[4]);
+            return;  // kern_Send handles scheduling, return value set by Reply
+        case SYSCALL_RECEIVE:
+            ret = kern_Receive((int *)tf->x[0], (char *)tf->x[1], (int)tf->x[2]);
+            if (get_current_task()->state == TASK_STATE_RECEIVE_BLOCKED) {
+                return;  // Blocked, scheduling done by kern_Receive
+            }
+            break;  // Not blocked, continue to reschedule
+        case SYSCALL_REPLY:
+            ret = kern_Reply((int)tf->x[0], (const char *)tf->x[1], (int)tf->x[2]);
             break;
         default:
             ret = -1;
@@ -204,10 +362,6 @@ void syscall_dispatch() {
     }
 
     tf->x[0] = (uint64_t)ret;
-
-    if (syscall_num == SYSCALL_YIELD || syscall_num == SYSCALL_EXIT) {
-        return;
-    }
 
     current_task->state = TASK_STATE_READY;
     global_task_scheduler_add_task(current_task);
