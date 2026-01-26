@@ -33,6 +33,14 @@ void first_user_task() {
 	uart_printf(CONSOLE, "========================================\r\n");
 
 	tid = Create(NAMESERVER_PRIORITY, nameserver_task); //tid == 1
+	
+	if (tid != NAMESERVER_TID) {
+		uart_printf(CONSOLE, "FirstUserTask: NameServer created with wrong tid %d (expected %d)\r\n",
+		            tid, NAMESERVER_TID);
+		Exit();
+	}
+
+
 	if (tid >= 0) {
 		uart_printf(CONSOLE, "FirstUserTask: Created NameServer, tid=%d\r\n", tid);
 	} else {
