@@ -218,6 +218,7 @@ static int kern_Send(int tid, const char *msg, int msglen, char *reply, int rple
     TaskDescriptor_t *receiver = get_task_by_tid(tid);
 
     if (receiver == NULL) {
+        uart_printf(CONSOLE, "kern_Send: Invalid tid %d\r\n", tid);
         return -1;  
     }
 
@@ -291,10 +292,10 @@ static int kern_Receive(int *tid, char *msg, int msglen) {
 // kern_Reply: Send reply to a task that sent a message
 // Returns: size of reply on success, -1 if tid invalid, -2 if not reply-blocked
 static int kern_Reply(int tid, const char *reply, int rplen) {
-    TaskDescriptor_t *replier = get_current_task();
     TaskDescriptor_t *sender = get_task_by_tid(tid);
 
     if (sender == NULL) {
+        uart_printf(CONSOLE, "kern_Reply: Invalid tid %d\r\n", tid);
         return -1;  
     }
 
@@ -305,12 +306,12 @@ static int kern_Reply(int tid, const char *reply, int rplen) {
     int copy_len = min_int(rplen, sender->reply_len);
     memcpy(sender->reply_buf, reply, copy_len);
 
-    sender->tf.x[0] = (uint64_t)rplen;
+    sender->tf.x[0] = (uint64_t)copy_len;
 
     sender->state = TASK_STATE_READY;
     global_task_scheduler_add_task(sender);
 
-    return rplen;
+    return copy_len;
 }
 
 // =============================
@@ -344,9 +345,12 @@ void syscall_dispatch() {
             kern_Exit();
             return;  // kern_Exit handles scheduling
         case SYSCALL_SEND:
-            kern_Send((int)tf->x[0], (const char *)tf->x[1], (int)tf->x[2],
-                      (char *)tf->x[3], (int)tf->x[4]);
-            return;  // kern_Send handles scheduling, return value set by Reply
+            ret = kern_Send((int)tf->x[0], (const char *)tf->x[1], (int)tf->x[2],
+                            (char *)tf->x[3], (int)tf->x[4]);
+            if (ret < 0) {
+                break;  
+            }
+            return;  
         case SYSCALL_RECEIVE:
             ret = kern_Receive((int *)tf->x[0], (char *)tf->x[1], (int)tf->x[2]);
             if (get_current_task()->state == TASK_STATE_RECEIVE_BLOCKED) {

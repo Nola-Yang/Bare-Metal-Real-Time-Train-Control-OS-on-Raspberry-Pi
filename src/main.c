@@ -56,7 +56,6 @@ void first_user_task() {
 		Exit();
 	}
 
-	// 3. Create RPS clients (must be even number for pairing)
 	for (int i = 0; i < NUM_RPS_CLIENTS; i++) {
 		tid = Create(RPS_CLIENT_PRIORITY, rps_client_task);
 		if (tid >= 0) {
