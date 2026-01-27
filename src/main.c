@@ -19,10 +19,10 @@ static TaskDescriptor_t *raw_buffers[PRIORITY_LEVELS][RING_BUFFER_SIZE];
 static RingBuffer_t queues[PRIORITY_LEVELS];
 
 
-// Priority levels for k2 tasks
-#define NAMESERVER_PRIORITY     0  // Highest priority
-#define RPS_SERVER_PRIORITY     2
-#define RPS_CLIENT_PRIORITY     3
+// Priority levels for k2 tasks 
+#define NAMESERVER_PRIORITY     31  // Highest priority - responds to all queries
+#define RPS_SERVER_PRIORITY     30  
+#define RPS_CLIENT_PRIORITY     29  
 
 void first_user_task() {
     int32_t tid;
