@@ -239,7 +239,7 @@ static void enqueue_sender(TaskDescriptor_t *receiver, TaskDescriptor_t *sender)
 
 
 // kern_Send: Send message to tid, block until reply
-// Returns: size of reply on success, -1 if tid invalid, -2 on failure
+// -1 if tid invalid, -2 on failure
 static int kern_Send(int tid, const char *msg, int msglen, char *reply, int rplen) {
     TaskDescriptor_t *sender = get_current_task();
     TaskDescriptor_t *receiver = get_task_by_tid(tid);
@@ -335,7 +335,7 @@ static int kern_Reply(int tid, const char *reply, int rplen) {
     int copy_len = min_int(rplen, sender->reply_len);
     memcpy(sender->reply_buf, reply, copy_len);
 
-    sender->tf.x[0] = (uint64_t)copy_len;
+    sender->tf.x[0] = (uint64_t)rplen;
     sender->reply_wait_tid = -1;
 
     sender->state = TASK_STATE_READY;
@@ -383,7 +383,7 @@ void syscall_dispatch() {
             return;  
         case SYSCALL_RECEIVE:
             ret = kern_Receive((int *)tf->x[0], (char *)tf->x[1], (int)tf->x[2]);
-            if (get_current_task()->state == TASK_STATE_RECEIVE_BLOCKED) {
+            if (current_task->state == TASK_STATE_RECEIVE_BLOCKED) {
                 return;  // Blocked, scheduling done by kern_Receive
             }
             break;  // Not blocked, continue to reschedule
