@@ -6,6 +6,7 @@
 #include "uart.h"
 #include "util.h"
 #include "nameserver.h"
+#include "rps.h"
 #include <stdint.h>
 
 

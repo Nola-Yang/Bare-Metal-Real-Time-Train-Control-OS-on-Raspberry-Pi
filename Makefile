@@ -2,7 +2,7 @@ FILENAME=kernel
 SRC_DIR:=src
 INCLUDE_DIR:=include
 BUILD_DIR:=build
-XDIR:=/mnt/e/Computer/xdev/xdev
+XDIR:=/u/cs452/public/xdev
 TRIPLE=aarch64-none-elf
 XBINDIR:=$(XDIR)/bin
 CC:=$(XBINDIR)/$(TRIPLE)-gcc -ffreestanding
@@ -46,5 +46,24 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.S Makefile
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c Makefile
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
+
+# =========================================
+# Simulate the raspberry pi on QEMU
+
+QEMU = qemu-system-aarch64
+QEMU_FLAGS = -M raspi4b -kernel $(BUILD_DIR)/$(FILENAME).img -nographic
+
+
+sim: $(BUILD_DIR)/$(FILENAME).img
+	$(QEMU) $(QEMU_FLAGS)
+
+sim-debug: $(BUILD_DIR)/$(FILENAME).img
+	$(QEMU) $(QEMU_FLAGS) -s -S
+
+sim-gui: $(BUILD_DIR)/$(FILENAME).img
+	$(QEMU) -M raspi4b -kernel $(BUILD_DIR)/$(FILENAME).img -serial stdio
+
+# =========================================
 
 -include $(DEPENDS)
