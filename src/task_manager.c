@@ -93,6 +93,36 @@ static void check_user_stack_bounds(TaskDescriptor_t *task) {
     }
 }
 
+// Remove sender from receiver's send queue
+static TaskDescriptor_t *dequeue_sender(TaskDescriptor_t *receiver) {
+    TaskDescriptor_t *sender = receiver->send_queue_head;
+    if (sender == NULL) return NULL;
+
+    receiver->send_queue_head = sender->next;
+    if (receiver->send_queue_head == NULL) {
+        receiver->send_queue_tail = NULL;
+    }
+    sender->next = NULL;
+    return sender;
+}
+
+
+static void unblock_sender_with_error(TaskDescriptor_t *sender, int err) {
+    sender->tf.x[0] = (uint64_t)err;
+    sender->reply_wait_tid = -1;
+    sender->state = TASK_STATE_READY;
+    global_task_scheduler_add_task(sender);
+}
+
+static void fail_all_senders(TaskDescriptor_t *receiver, int err) {
+    TaskDescriptor_t *sender = dequeue_sender(receiver);
+    while (sender != NULL) {
+        unblock_sender_with_error(sender, err);
+        sender = dequeue_sender(receiver);
+    }
+}
+
+
 int kern_Create(int priority, void (*function)()) {
     if (!is_valid_priority(priority)) return -1;
 
@@ -207,33 +237,6 @@ static void enqueue_sender(TaskDescriptor_t *receiver, TaskDescriptor_t *sender)
     }
 }
 
-// Remove sender from receiver's send queue
-static TaskDescriptor_t *dequeue_sender(TaskDescriptor_t *receiver) {
-    TaskDescriptor_t *sender = receiver->send_queue_head;
-    if (sender == NULL) return NULL;
-
-    receiver->send_queue_head = sender->next;
-    if (receiver->send_queue_head == NULL) {
-        receiver->send_queue_tail = NULL;
-    }
-    sender->next = NULL;
-    return sender;
-}
-
-static void unblock_sender_with_error(TaskDescriptor_t *sender, int err) {
-    sender->tf.x[0] = (uint64_t)err;
-    sender->reply_wait_tid = -1;
-    sender->state = TASK_STATE_READY;
-    global_task_scheduler_add_task(sender);
-}
-
-static void fail_all_senders(TaskDescriptor_t *receiver, int err) {
-    TaskDescriptor_t *sender = dequeue_sender(receiver);
-    while (sender != NULL) {
-        unblock_sender_with_error(sender, err);
-        sender = dequeue_sender(receiver);
-    }
-}
 
 // kern_Send: Send message to tid, block until reply
 // Returns: size of reply on success, -1 if tid invalid, -2 on failure
