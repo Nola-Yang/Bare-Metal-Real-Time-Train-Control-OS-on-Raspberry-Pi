@@ -12,10 +12,13 @@
 #include "trapframe.h"
 
 /* Task states */
-#define TASK_STATE_FREE     0
-#define TASK_STATE_READY    1
-#define TASK_STATE_RUNNING  2
-#define TASK_STATE_EXITED   3
+#define TASK_STATE_FREE           0
+#define TASK_STATE_READY          1
+#define TASK_STATE_RUNNING        2
+#define TASK_STATE_EXITED         3
+#define TASK_STATE_SEND_BLOCKED   4
+#define TASK_STATE_RECEIVE_BLOCKED 5
+#define TASK_STATE_REPLY_BLOCKED  6
 
 #define TASK_STACK_SIZE 4096
 
@@ -32,8 +35,17 @@ typedef struct TaskDescriptor {
     int priority;                      
     int state;
     
-    void (*function)();
     struct TaskDescriptor *next;
+
+    /* Message passing fields */
+    struct TaskDescriptor *send_queue_head;  
+    struct TaskDescriptor *send_queue_tail;
+    const char *msg_buf;        
+    int msg_len;               
+    char *reply_buf;            
+    int reply_len;            
+    int reply_wait_tid;
+
     uint64_t stack_canary;  /* Canary for overflow detection */
     uint8_t stack[TASK_STACK_SIZE] __attribute__((aligned(16)));
 } TaskDescriptor_t;
@@ -54,6 +66,6 @@ static inline TaskDescriptor_t *get_current_task(void) {
 }
 
 
-void init_task_descriptor(TaskDescriptor_t *task_descriptor, int tid, int parent_tid, int priority, int state, void (*function)());
+void init_task_descriptor(TaskDescriptor_t *task_descriptor, int tid, int parent_tid, int priority, int state);
 
 #endif /* TASK_H */

@@ -5,6 +5,7 @@
 #include "syscall.h"
 #include "uart.h"
 #include "util.h"
+#include "nameserver.h"
 #include <stdint.h>
 
 
@@ -12,42 +13,58 @@ static const uint32_t FIRST_USER_TASK_PRIORITY = 1;
 
 extern void setup_mmu(); // in mmu.S
 
-// Static allocation to avoid stack overflow (these are too large for 4KB kernel stack)
 static TaskDescriptor_t tasks[MAX_TASKS_COUNT];
 static TaskDescriptor_t *raw_buffers[PRIORITY_LEVELS][RING_BUFFER_SIZE];
 static RingBuffer_t queues[PRIORITY_LEVELS];
 
 
-void child_task() {
-	uint32_t child_id = MyTid();
-	uint32_t parent_id = MyParentTid();
-	uart_printf(CONSOLE, "Child tid: %d, Parent tid: %d\r\n", (int32_t)child_id, (int32_t)parent_id);
-
-	Yield();
-
-	child_id = MyTid();
-	parent_id = MyParentTid();
-	uart_printf(CONSOLE, "Child tid: %d, Parent tid: %d\r\n", (int32_t)child_id, (int32_t)parent_id);
-
-	Exit();
-}
+// Priority levels for k2 tasks
+#define NAMESERVER_PRIORITY     0  // Highest priority
+#define RPS_SERVER_PRIORITY     2
+#define RPS_CLIENT_PRIORITY     3
+#define NUM_RPS_CLIENTS         4
 
 void first_user_task() {
-	uint32_t priority;
-	int32_t child_id;
+	int32_t tid;
 
-	for (uint32_t i = 0; i < 4; ++i) {
-		priority = (i < 2) ? FIRST_USER_TASK_PRIORITY - 1 : FIRST_USER_TASK_PRIORITY + 1;
-		child_id = Create(priority, child_task);
+	uart_printf(CONSOLE, "========================================\r\n");
+	uart_printf(CONSOLE, "FirstUserTask: Starting K2 Test\r\n");
+	uart_printf(CONSOLE, "========================================\r\n");
 
-		if (child_id >= 0) {
-			uart_printf(CONSOLE, "Created: %u\r\n", child_id);
-		} else {
-			uart_printf(CONSOLE, "Error creating child task: %u\r\n", child_id);
-		}
+	tid = Create(NAMESERVER_PRIORITY, nameserver_task); //tid == 1
+	
+	if (tid != NAMESERVER_TID) {
+		uart_printf(CONSOLE, "FirstUserTask: NameServer created with wrong tid %d (expected %d)\r\n",
+		            tid, NAMESERVER_TID);
+		Exit();
 	}
 
-	uart_printf(CONSOLE, "FirstUserTask: exiting\r\n");
+	// if (tid >= 0) {
+	// 	uart_printf(CONSOLE, "FirstUserTask: Created NameServer, tid=%d\r\n", tid);
+	// } else {
+	// 	uart_printf(CONSOLE, "FirstUserTask: Failed to create NameServer: %d\r\n", tid);
+	// 	Exit();
+	// }
+
+	// tid = Create(RPS_SERVER_PRIORITY, rps_server_task);
+	// if (tid >= 0) {
+	// 	uart_printf(CONSOLE, "FirstUserTask: Created RPS Server, tid=%d\r\n", tid);
+	// } else {
+	// 	uart_printf(CONSOLE, "FirstUserTask: Failed to create RPS Server: %d\r\n", tid);
+	// 	Exit();
+	// }
+
+	// for (int i = 0; i < NUM_RPS_CLIENTS; i++) {
+	// 	tid = Create(RPS_CLIENT_PRIORITY, rps_client_task);
+	// 	if (tid >= 0) {
+	// 		uart_printf(CONSOLE, "FirstUserTask: Created RPS Client %d, tid=%d\r\n", i, tid);
+	// 	} else {
+	// 		uart_printf(CONSOLE, "FirstUserTask: Failed to create RPS Client %d: %d\r\n", i, tid);
+	// 	}
+	// }
+
+	// uart_printf(CONSOLE, "FirstUserTask: All tasks created, exiting\r\n");
+	// uart_printf(CONSOLE, "========================================\r\n");
 	Exit();
 }
 
@@ -73,7 +90,7 @@ int kmain() {
 
 	kern_Create(FIRST_USER_TASK_PRIORITY, first_user_task);
 
-	// After this, control flow is driven by syscalls, not this loop. not sure for now
+	// transfer control flow to the syscalls
 	activate(&tasks[0]);
 
     return 0;
