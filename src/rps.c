@@ -19,16 +19,7 @@ typedef struct {
     int opponent_quit_pending;
 } Player;
 
-// Game state
-typedef struct {
-    int player1_tid;
-    int player2_tid;
-    int active;
-} Game;
-
-
 static Player Players[MAX_PLAYERS];
-static Game Games[MAX_GAMES];
 static int Waiting_Tid = -1;  // Tid of player waiting for opponent
 static int Waiting_Ind = -1;
 
@@ -92,11 +83,6 @@ static void remove_player_by_ind(int ind) {
     player->in_game = 0;
 }
 
-static void remove_player_by_tid(int tid) {
-    int idx = find_player_ind(tid);
-    remove_player_by_ind(idx);
-}
-
 // Determine winner: returns result for player1
 // 0=tie, 1=player1 wins, 2=player2 wins
 static int determine_winner(int choice1, int choice2) {
@@ -113,9 +99,6 @@ static int determine_winner(int choice1, int choice2) {
 void rps_server_task(void) {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         Players[i].tid = 0;
-    }
-    for (int i = 0; i < MAX_GAMES; i++) {
-        Games[i].active = 0;
     }
 
     RegisterAs(RPS_SERVER_NAME);
