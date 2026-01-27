@@ -184,26 +184,45 @@ void rps_server_task(void) {
             case RPS_PLAY:
                 {
                     int player_ind = find_player_ind(sender_tid);
+                    Player *player;
 
-                    if (player_ind < 0 || !Players[player_ind].in_game) {
+                    if (player_ind < 0) {
                         uart_printf(CONSOLE, "RPS Server: Player %d not in game\r\n", sender_tid);
                         resp.status = RPS_ERROR;
                         Reply(sender_tid, (const char *)&resp, sizeof(RpsResponse));
                         break;
                     }
 
-                    Player *player = &(Players[player_ind]);
+                    player = &(Players[player_ind]);
+
+                    if (player->opponent_quit_pending) {
+                        resp.status = RPS_OK;
+                        resp.result = RPS_RESULT_OPPONENT_QUIT;
+                        resp.opponent_choice = -1;
+                        player->in_game = 0;
+                        player->partner_tid = -1;
+                        player->opponent_quit_pending = 0;
+                        uart_printf(CONSOLE, "RPS Server: Player %d's opponent had quit\r\n", sender_tid);
+                        Reply(sender_tid, (const char *)&resp, sizeof(RpsResponse));
+                        break;
+                    }
+
+                    if (!player->in_game) {
+                        uart_printf(CONSOLE, "RPS Server: Player %d not in game\r\n", sender_tid);
+                        resp.status = RPS_ERROR;
+                        Reply(sender_tid, (const char *)&resp, sizeof(RpsResponse));
+                        break;
+                    }
+
                     int partner_ind = player->partner_ind;
 
-                    if (player->opponent_quit_pending || partner_ind < 0) {
+                    if (partner_ind < 0) {
                         resp.status = RPS_OK;
                         resp.result = RPS_RESULT_OPPONENT_QUIT;
                         resp.opponent_choice = -1;
 
                         player->in_game = 0;
                         player->partner_tid = -1;
-                        player->opponent_quit_pending = 0;
-
                         uart_printf(CONSOLE, "RPS Server: Player %d's opponent had quit\r\n", sender_tid);
                         Reply(sender_tid, (const char *)&resp, sizeof(RpsResponse));
                         break;
@@ -268,6 +287,8 @@ void rps_server_task(void) {
                                 partner_resp.status = RPS_OK;
                                 partner_resp.result = RPS_RESULT_OPPONENT_QUIT;
                                 partner_resp.opponent_choice = -1;
+                                partner->opponent_quit_pending = 1;
+
                                 Reply(player->partner_tid, (const char *)&partner_resp, sizeof(RpsResponse));
 
                                 partner->has_played = 0;
