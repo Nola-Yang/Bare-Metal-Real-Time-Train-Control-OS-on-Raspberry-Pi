@@ -1,36 +1,30 @@
 #include "nameserver.h"
 #include "syscall.h"
 #include "uart.h"
+#include "text_util.h"
 
-// Simple string functions
-static int ns_strcmp(const char *s1, const char *s2) {
-    while (*s1 && (*s1 == *s2)) {
-        s1++;
-        s2++;
-    }
-    return *(unsigned char *)s1 - *(unsigned char *)s2;
-}
 
-static void ns_strncpy(char *dest, const char *src, int n) {
-    int i = 0;
-    while (i < n - 1 && src[i]) {
-        dest[i] = src[i];
-        i++;
-    }
-    dest[i] = '\0';
-}
-
+// NsEntry: Stores data about an entry in the name server
 typedef struct {
     char name[NS_MAX_NAME_LEN];
     int tid;
     int used;
 } NsEntry;
 
-static NsEntry ns_entries[NS_MAX_ENTRIES];
 
+// init_ns_entry: Default initializes an entry in the name server
+static void init_ns_entry(NsEntry *ns_entry) {
+    ns_entry->tid = 0;
+    ns_entry->used = 0;
+} 
+
+
+static NsEntry NS_Entries[NS_MAX_ENTRIES];
+
+// ns_find_name: Finds a name within the name server
 static int ns_find_name(const char *name) {
     for (int i = 0; i < NS_MAX_ENTRIES; i++) {
-        if (ns_entries[i].used && ns_strcmp(ns_entries[i].name, name) == 0) {
+        if (NS_Entries[i].used && strcmp(NS_Entries[i].name, name) == 0) {
             return i;
         }
     }
@@ -41,15 +35,15 @@ static int ns_find_name(const char *name) {
 static int ns_add_entry(const char *name, int tid) {
     int idx = ns_find_name(name);
     if (idx >= 0) {
-        ns_entries[idx].tid = tid;
+        NS_Entries[idx].tid = tid;
         return 0;
     }
 
     for (int i = 0; i < NS_MAX_ENTRIES; i++) {
-        if (!ns_entries[i].used) {
-            ns_strncpy(ns_entries[i].name, name, NS_MAX_NAME_LEN);
-            ns_entries[i].tid = tid;
-            ns_entries[i].used = 1;
+        if (!NS_Entries[i].used) {
+            strncpy(NS_Entries[i].name, name, NS_MAX_NAME_LEN);
+            NS_Entries[i].tid = tid;
+            NS_Entries[i].used = 1;
             return 0;
         }
     }
@@ -57,9 +51,8 @@ static int ns_add_entry(const char *name, int tid) {
 }
 
 void nameserver_task(void) {
-    
     for (int i = 0; i < NS_MAX_ENTRIES; i++) {
-        ns_entries[i].used = 0;
+        init_ns_entry(&(NS_Entries[i]));
     }
 
     int sender_tid;
@@ -69,7 +62,6 @@ void nameserver_task(void) {
     while (1) {
         int len = Receive(&sender_tid, (char *)&req, sizeof(NsRequest));
         if (len < 0) continue;
-
 
         resp.status = 0;
         resp.tid = -1;
@@ -83,7 +75,7 @@ void nameserver_task(void) {
                 {
                     int idx = ns_find_name(req.name);
                     if (idx >= 0) {
-                        resp.tid = ns_entries[idx].tid;
+                        resp.tid = NS_Entries[idx].tid;
                         resp.status = 0;
                     } else {
                         resp.status = -1;
@@ -106,7 +98,7 @@ int RegisterAs(const char *name) {
 
     req.type = NS_REGISTER;
     req.tid = MyTid();
-    ns_strncpy(req.name, name, NS_MAX_NAME_LEN);
+    strncpy(req.name, name, NS_MAX_NAME_LEN);
 
     int ret = Send(NAMESERVER_TID, (const char *)&req, sizeof(NsRequest),
                    (char *)&resp, sizeof(NsResponse));
@@ -120,7 +112,7 @@ int WhoIs(const char *name) {
     NsResponse resp;
 
     req.type = NS_WHOIS;
-    ns_strncpy(req.name, name, NS_MAX_NAME_LEN);
+    strncpy(req.name, name, NS_MAX_NAME_LEN);
 
     int ret = Send(NAMESERVER_TID, (const char *)&req, sizeof(NsRequest),
                    (char *)&resp, sizeof(NsResponse));

@@ -6,7 +6,6 @@
 #include "uart.h"
 #include "util.h"
 #include "nameserver.h"
-#include "rps.h"
 #include <stdint.h>
 
 
@@ -40,33 +39,32 @@ void first_user_task() {
 		Exit();
 	}
 
+	// if (tid >= 0) {
+	// 	uart_printf(CONSOLE, "FirstUserTask: Created NameServer, tid=%d\r\n", tid);
+	// } else {
+	// 	uart_printf(CONSOLE, "FirstUserTask: Failed to create NameServer: %d\r\n", tid);
+	// 	Exit();
+	// }
 
-	if (tid >= 0) {
-		uart_printf(CONSOLE, "FirstUserTask: Created NameServer, tid=%d\r\n", tid);
-	} else {
-		uart_printf(CONSOLE, "FirstUserTask: Failed to create NameServer: %d\r\n", tid);
-		Exit();
-	}
+	// tid = Create(RPS_SERVER_PRIORITY, rps_server_task);
+	// if (tid >= 0) {
+	// 	uart_printf(CONSOLE, "FirstUserTask: Created RPS Server, tid=%d\r\n", tid);
+	// } else {
+	// 	uart_printf(CONSOLE, "FirstUserTask: Failed to create RPS Server: %d\r\n", tid);
+	// 	Exit();
+	// }
 
-	tid = Create(RPS_SERVER_PRIORITY, rps_server_task);
-	if (tid >= 0) {
-		uart_printf(CONSOLE, "FirstUserTask: Created RPS Server, tid=%d\r\n", tid);
-	} else {
-		uart_printf(CONSOLE, "FirstUserTask: Failed to create RPS Server: %d\r\n", tid);
-		Exit();
-	}
+	// for (int i = 0; i < NUM_RPS_CLIENTS; i++) {
+	// 	tid = Create(RPS_CLIENT_PRIORITY, rps_client_task);
+	// 	if (tid >= 0) {
+	// 		uart_printf(CONSOLE, "FirstUserTask: Created RPS Client %d, tid=%d\r\n", i, tid);
+	// 	} else {
+	// 		uart_printf(CONSOLE, "FirstUserTask: Failed to create RPS Client %d: %d\r\n", i, tid);
+	// 	}
+	// }
 
-	for (int i = 0; i < NUM_RPS_CLIENTS; i++) {
-		tid = Create(RPS_CLIENT_PRIORITY, rps_client_task);
-		if (tid >= 0) {
-			uart_printf(CONSOLE, "FirstUserTask: Created RPS Client %d, tid=%d\r\n", i, tid);
-		} else {
-			uart_printf(CONSOLE, "FirstUserTask: Failed to create RPS Client %d: %d\r\n", i, tid);
-		}
-	}
-
-	uart_printf(CONSOLE, "FirstUserTask: All tasks created, exiting\r\n");
-	uart_printf(CONSOLE, "========================================\r\n");
+	// uart_printf(CONSOLE, "FirstUserTask: All tasks created, exiting\r\n");
+	// uart_printf(CONSOLE, "========================================\r\n");
 	Exit();
 }
 

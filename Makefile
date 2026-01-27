@@ -2,7 +2,7 @@ FILENAME=kernel
 SRC_DIR:=src
 INCLUDE_DIR:=include
 BUILD_DIR:=build
-XDIR:=/u/cs452/public/xdev
+XDIR:=/mnt/e/Computer/xdev/xdev
 TRIPLE=aarch64-none-elf
 XBINDIR:=$(XDIR)/bin
 CC:=$(XBINDIR)/$(TRIPLE)-gcc -ffreestanding
@@ -12,7 +12,7 @@ OBJDUMP:=$(XBINDIR)/$(TRIPLE)-objdump
 OPT?=-O3
 
 WARNINGS:=-Wall -Wextra -Wpedantic -Wno-unused-const-variable
-CFLAGS:=-O3 -g -pipe -static -march=armv8-a -mcpu=cortex-a72 $(OPT) -mstrict-align -mgeneral-regs-only $(WARNINGS) -I$(INCLUDE_DIR)
+CFLAGS:=-g -pipe -static -march=armv8-a -mcpu=cortex-a72 $(OPT) -mstrict-align -mgeneral-regs-only $(WARNINGS) -I$(INCLUDE_DIR)
 
 # -Wl,option tells gcc to pass 'option' to the linker with commas replaced by spaces
 LDFLAGS:=-Wl,-nmagic -Wl,-Tlinker.ld -Wl,--no-warn-rwx-segments -nostartfiles
