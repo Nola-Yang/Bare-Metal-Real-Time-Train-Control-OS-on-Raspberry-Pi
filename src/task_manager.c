@@ -152,6 +152,15 @@ static void kern_Yield(void) {
 static void kern_Exit(void) {
     TaskDescriptor_t *current_task = get_current_task();
 
+    fail_all_senders(current_task, -2);
+    for (int i = 0; i < GlobalTaskManager.current_task_id; i++) {
+        TaskDescriptor_t *task = &GlobalTaskManager.tasks[i];
+        if (task->state == TASK_STATE_REPLY_BLOCKED &&
+            task->reply_wait_tid == current_task->tid) {
+            unblock_sender_with_error(task, -2);
+        }
+    }
+
     current_task->state = TASK_STATE_EXITED;
     global_task_scheduler_remove_task(current_task);
     free_task_descriptor(current_task);
@@ -211,6 +220,21 @@ static TaskDescriptor_t *dequeue_sender(TaskDescriptor_t *receiver) {
     return sender;
 }
 
+static void unblock_sender_with_error(TaskDescriptor_t *sender, int err) {
+    sender->tf.x[0] = (uint64_t)err;
+    sender->reply_wait_tid = -1;
+    sender->state = TASK_STATE_READY;
+    global_task_scheduler_add_task(sender);
+}
+
+static void fail_all_senders(TaskDescriptor_t *receiver, int err) {
+    TaskDescriptor_t *sender = dequeue_sender(receiver);
+    while (sender != NULL) {
+        unblock_sender_with_error(sender, err);
+        sender = dequeue_sender(receiver);
+    }
+}
+
 // kern_Send: Send message to tid, block until reply
 // Returns: size of reply on success, -1 if tid invalid, -2 on failure
 static int kern_Send(int tid, const char *msg, int msglen, char *reply, int rplen) {
@@ -233,6 +257,7 @@ static int kern_Send(int tid, const char *msg, int msglen, char *reply, int rple
 
         *((int *)receiver->tf.x[0]) = sender->tid;
         sender->state = TASK_STATE_REPLY_BLOCKED;
+        sender->reply_wait_tid = receiver->tid;
 
         receiver->state = TASK_STATE_READY;
         receiver->tf.x[0] = (uint64_t)msglen;
@@ -270,6 +295,7 @@ static int kern_Receive(int *tid, char *msg, int msglen) {
         *tid = sender->tid;
 
         sender->state = TASK_STATE_REPLY_BLOCKED;
+        sender->reply_wait_tid = receiver->tid;
         return sender->msg_len;
     }
 
@@ -307,6 +333,7 @@ static int kern_Reply(int tid, const char *reply, int rplen) {
     memcpy(sender->reply_buf, reply, copy_len);
 
     sender->tf.x[0] = (uint64_t)copy_len;
+    sender->reply_wait_tid = -1;
 
     sender->state = TASK_STATE_READY;
     global_task_scheduler_add_task(sender);

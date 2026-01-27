@@ -44,6 +44,7 @@ typedef struct TaskDescriptor {
     int msg_len;               
     char *reply_buf;            
     int reply_len;            
+    int reply_wait_tid;
 
     uint64_t stack_canary;  /* Canary for overflow detection */
     uint8_t stack[TASK_STACK_SIZE] __attribute__((aligned(16)));

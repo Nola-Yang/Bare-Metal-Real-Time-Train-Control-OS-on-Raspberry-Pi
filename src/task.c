@@ -14,4 +14,5 @@ void init_task_descriptor(TaskDescriptor_t *task_descriptor, int tid, int parent
     task_descriptor->msg_len = 0;
     task_descriptor->reply_buf = 0;
     task_descriptor->reply_len = 0;
+    task_descriptor->reply_wait_tid = -1;
 }
