@@ -59,7 +59,18 @@ int kmain() {
 #endif
 
     #ifdef MEASURE
-    toggle_caches();
+	bool dcache_on = false;
+	bool icache_on = false;
+
+	#ifdef DCACHE
+	dcache_on = true;
+	#endif
+
+	#ifdef ICACHE
+	icache_on = true;
+	#endif
+
+    toggle_caches(dcache_on, icache_on);
     #endif
 
 	// set up GPIO pins for both console uart and canbus
