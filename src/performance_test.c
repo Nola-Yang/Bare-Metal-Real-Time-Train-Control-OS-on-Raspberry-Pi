@@ -68,8 +68,8 @@ static void print_csv_row(char first_drive, int msg_len, uint32_t time) {
 }
 
 // task_a_func: Task A (TID 3)
-// Phase 1 (Receive First): Acts as receiver
-// Phase 2 (Send First): Acts as sender
+// Phase 1 (Receive First)
+// Phase 2 (Send First)
 static void task_a_func() {
 	int sender_tid = 0;
 	int msg_len = 0;
@@ -78,29 +78,18 @@ static void task_a_func() {
 	char *reply;
 	char sync_reply[SYNC_MSG_LEN];
 
-	uint32_t start_time = 0;
-	uint32_t end_time = 0;
 	uint64_t avg_time = 0;
 	uint32_t time = 0;
 
-	// Receive First: measure from Receive() return to Reply() complete
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
-		avg_time = 0;
 		msg_len = Msg_Lens[i];
 		reply_len = msg_len;
 		reply = Msgs[i];
 
 		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
 			Receive(&sender_tid, msg, msg_len);
-			start_time = read_timer();
 			Reply(sender_tid, reply, reply_len);
-			end_time = read_timer();
-
-			avg_time += end_time - start_time;
 		}
-
-		avg_time /= TEST_COUNT;
-		print_csv_row(Receiver_First, msg_len, avg_time);
 	}
 
 	// Sync
@@ -133,8 +122,8 @@ static void task_a_func() {
 	Exit();
 }
 
-// Phase 1 (Receive First): Acts as sender
-// Phase 2 (Send First): Acts as receiver
+// Phase 1 (Receive First)
+// Phase 2 (Send First)
 static void task_b_func() {
 	int sender_tid = 0;
 	int msg_len = 0;
@@ -144,15 +133,25 @@ static void task_b_func() {
 	char sync_msg[SYNC_MSG_LEN];
 	char sync_reply[SYNC_MSG_LEN] = "ack";
 
-	// Receive First
+	uint64_t avg_time = 0;
+	uint32_t time = 0;
+
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
+		avg_time = 0;
 		msg_len = Msg_Lens[i];
 		reply_len = msg_len;
 		msg = Msgs[i];
 
 		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
+			time = read_timer();
 			Send(TASK_A_TID, msg, msg_len, reply, reply_len);
+			time = read_timer() - time;
+
+			avg_time += time;
 		}
+
+		avg_time /= TEST_COUNT;
+		print_csv_row(Receiver_First, msg_len, avg_time);
 	}
 
 	// Sync
