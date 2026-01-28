@@ -72,6 +72,7 @@ static int add_player(int tid) {
         player->in_game = 0;
         player->partner_tid = -1;
         player->partner_ind = -1;
+        player->choice = -1;
         player->has_played = 0;
         player->opponent_quit_pending = 0;
 
@@ -82,12 +83,25 @@ static int add_player(int tid) {
 
 // remove_player_by_ind: Removes a player based on their index in the
 //  Players array
+static void reset_player_state(Player *player) {
+    if (player == NULL) return;
+    player->in_game = 0;
+    player->partner_tid = -1;
+    player->partner_ind = -1;
+    player->choice = -1;
+    player->has_played = 0;
+    player->opponent_quit_pending = 0;
+}
+
+// remove_player_by_ind: Removes a player based on their index in the
+//  Players array
 static void remove_player_by_ind(int ind) {
     if (ind < 0) return;
 
     Player *player = &(Players[ind]);
     player->tid = 0;
-    player->in_game = 0;
+    player->ind = 0;
+    reset_player_state(player);
 }
 
 // Determine winner: returns result for player1
@@ -136,6 +150,8 @@ void rps_server_task(void) {
                         Reply(sender_tid, (const char *)&resp, sizeof(RpsResponse));
                         break;
                     }
+                } else {
+                    reset_player_state(&Players[sender_ind]);
                 }
 
                 if (Waiting_Tid < 0) {
