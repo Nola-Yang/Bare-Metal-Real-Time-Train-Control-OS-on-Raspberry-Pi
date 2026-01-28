@@ -25,6 +25,12 @@ void rps_client_3round_scissor();
 // rps_client_5round_paper: Plays 5 rounds of consecutive Paper
 void rps_client_5round_paper();
 
+// rps_client_double_signup_quick_paper: Tries to signup twice consecutively, then plays paper
+void rps_client_double_signup_quick_paper();
+
+// rps_client_play_again: Plays 2 different games 
+void rps_client_play_again();
+
 // Immediate quitter: signs up and immediately quits (edge case test)
 void rps_client_immediate_quit(void);
 

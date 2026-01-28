@@ -16,6 +16,32 @@ static int get_server_tid(int tid) {
     return server_tid;
 }
 
+// rps_client_play_moves(my_tid, server_tid, rounds, moves): Helper to play consecutive moves for multiple rounds
+static void rps_client_play_moves(int my_tid, int server_tid, uint32_t rounds, int8_t* moves) {
+    RpsRequest req;
+    RpsResponse resp;
+
+    for (uint32_t round = 0; round < rounds; round++) {
+        req.type = RPS_PLAY;
+        req.choice = moves[round];
+
+        uart_debug_printf(CONSOLE, "Client %d: Round %d - Playing %s\r\n",
+                    my_tid, round + 1, rps_choice_to_str(req.choice));
+
+        Send(server_tid, (const char *)&req, sizeof(RpsRequest),
+             (char *)&resp, sizeof(RpsResponse));
+
+        if (resp.result == RPS_RESULT_OPPONENT_QUIT) {
+            uart_printf(CONSOLE, "Client %d: Opponent quit!\r\n", my_tid);
+            break;
+        }
+
+        uart_debug_printf(CONSOLE, "Client %d: Round %d - Result: %s (opponent: %s)\r\n",
+                    my_tid, round + 1, rps_result_to_str(resp.result),
+                    rps_choice_to_str(resp.opponent_choice));
+    }
+}
+
 void rps_client_standard_player(uint32_t rounds, int8_t* moves) {
     int my_tid = MyTid();
     int server_tid = get_server_tid(my_tid);
@@ -36,26 +62,7 @@ void rps_client_standard_player(uint32_t rounds, int8_t* moves) {
 
     uart_debug_printf(CONSOLE, "Client %d: Signed up, game starting\r\n", my_tid);
 
-    // Play a few rounds
-    for (uint32_t round = 0; round < rounds; round++) {
-        req.type = RPS_PLAY;
-        req.choice = moves[round];
-
-        uart_debug_printf(CONSOLE, "Client %d: Round %d - Playing %s\r\n",
-                    my_tid, round + 1, rps_choice_to_str(req.choice));
-
-        Send(server_tid, (const char *)&req, sizeof(RpsRequest),
-             (char *)&resp, sizeof(RpsResponse));
-
-        if (resp.result == RPS_RESULT_OPPONENT_QUIT) {
-            uart_printf(CONSOLE, "Client %d: Opponent quit!\r\n", my_tid);
-            break;
-        }
-
-        uart_debug_printf(CONSOLE, "Client %d: Round %d - Result: %s (opponent: %s)\r\n",
-                    my_tid, round + 1, rps_result_to_str(resp.result),
-                    rps_choice_to_str(resp.opponent_choice));
-    }
+    rps_client_play_moves(my_tid, server_tid, rounds, moves);
 
     req.type = RPS_QUIT;
     Send(server_tid, (const char *)&req, sizeof(RpsRequest),
@@ -155,6 +162,62 @@ void rps_client_force_quit() {
 
     uart_printf(CONSOLE, "Client %d - Quitting Without Signup!\r\n", my_tid);
     Send(server_tid, (const char *)&req, sizeof(RpsRequest), (char *)&resp, sizeof(RpsResponse));
+
+    Exit();
+}
+
+void rps_client_double_signup_quick_paper() {
+    int my_tid = MyTid();
+    int server_tid = get_server_tid(my_tid);
+
+    uart_debug_printf(CONSOLE, "Double Signup Player %d: Found RPS server\r\n", my_tid);
+
+    RpsRequest req;
+    RpsResponse resp;
+    req.type = RPS_SIGNUP;
+
+    Send(server_tid, (const char *)&req, sizeof(RpsRequest), (char *)&resp, sizeof(RpsResponse));
+    uart_debug_printf(CONSOLE, "Client %d: Signed up, game starting\r\n", my_tid);
+
+    uart_debug_printf(CONSOLE, "Client %d: Tries to signup again!\r\n", my_tid);
+    Send(server_tid, (const char *)&req, sizeof(RpsRequest), (char *)&resp, sizeof(RpsResponse));
+
+    int8_t moves[1] = {RPS_PAPER};
+    rps_client_play_moves(my_tid, server_tid, 1, moves);
+
+    req.type = RPS_QUIT;
+    Send(server_tid, (const char *)&req, sizeof(RpsRequest), (char *)&resp, sizeof(RpsResponse));
+    uart_debug_printf(CONSOLE, "Client %d: Quit game, exiting\r\n", my_tid);
+
+    Exit();
+}
+
+void rps_client_play_again() {
+    int my_tid = MyTid();
+    int server_tid = get_server_tid(my_tid);
+
+    uart_debug_printf(CONSOLE, "Replay Player %d: Found RPS server\r\n", my_tid);
+
+    RpsRequest req;
+    RpsResponse resp;
+    req.type = RPS_SIGNUP;
+
+    Send(server_tid, (const char *)&req, sizeof(RpsRequest), (char *)&resp, sizeof(RpsResponse));
+    uart_debug_printf(CONSOLE, "Client %d: Signed up, game starting\r\n", my_tid);
+
+    int8_t moves[2] = {RPS_ROCK, RPS_PAPER};
+    rps_client_play_moves(my_tid, server_tid, 2, moves);
+
+    req.type = RPS_SIGNUP;
+    Send(server_tid, (const char *)&req, sizeof(RpsRequest), (char *)&resp, sizeof(RpsResponse));
+    uart_debug_printf(CONSOLE, "Client %d: Signed up again, game starting\r\n", my_tid);
+
+    int8_t new_moves[1] = {RPS_SCISSORS};
+    rps_client_play_moves(my_tid, server_tid, 1, new_moves);
+
+    req.type = RPS_QUIT;
+    Send(server_tid, (const char *)&req, sizeof(RpsRequest), (char *)&resp, sizeof(RpsResponse));
+    uart_debug_printf(CONSOLE, "Client %d: Quit game, exiting\r\n", my_tid);
 
     Exit();
 }
