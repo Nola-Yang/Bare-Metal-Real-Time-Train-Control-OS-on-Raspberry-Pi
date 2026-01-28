@@ -6,7 +6,9 @@
 #include "uart.h"
 #include "util.h"
 #include "nameserver.h"
-#include "rps.h"
+#include "rps_server.h"
+#include "rps_client.h"
+#include "rps_test.h"
 #include <stdint.h>
 
 
@@ -18,11 +20,6 @@ static TaskDescriptor_t tasks[MAX_TASKS_COUNT];
 static TaskDescriptor_t *raw_buffers[PRIORITY_LEVELS][RING_BUFFER_SIZE];
 static RingBuffer_t queues[PRIORITY_LEVELS];
 
-
-// Priority levels for k2 tasks 
-#define NAMESERVER_PRIORITY     31  // Highest priority - responds to all queries
-#define RPS_SERVER_PRIORITY     30  
-#define RPS_CLIENT_PRIORITY     29  
 
 void first_user_task() {
     int32_t tid;
@@ -39,38 +36,23 @@ void first_user_task() {
     }
     uart_printf(CONSOLE, "Created NameServer, tid=%d\r\n", tid);
 
-    tid = Create(RPS_SERVER_PRIORITY, rps_server_task);
-    if (tid < 0) {
-        uart_printf(CONSOLE, "ERROR: Failed to create RPS Server\r\n");
-        Exit();
-    }
-    uart_printf(CONSOLE, "Created RPS Server, tid=%d\r\n", tid);
+    rps_test_run();
 
-    // Test 1: Basic gameplay (2 pairs of normal clients)
-    uart_printf(CONSOLE, "\r\n--- Test 1: Basic Gameplay (4 clients) ---\r\n");
-    for (int i = 0; i < 4; i++) {
-        tid = Create(RPS_CLIENT_PRIORITY, rps_client_task);
-        uart_printf(CONSOLE, "Created RPS Client %d, tid=%d\r\n", i, tid);
-    }
+    // // Test 1: Basic gameplay (2 pairs of normal clients)
+    // uart_printf(CONSOLE, "\r\n--- Test 1: Basic Gameplay (4 clients) ---\r\n");
+    // for (int i = 0; i < 4; i++) {
+    //     tid = Create(RPS_CLIENT_PRIORITY, rps_client_standard_task);
+    //     uart_printf(CONSOLE, "Created RPS Client %d, tid=%d\r\n", i, tid);
+    // }
     
-    // Test 2: Opponent quit scenario
-    uart_printf(CONSOLE, "\r\n--- Test 2: Opponent Quit Scenario ---\r\n");
+    // // Test 2: Opponent quit scenario
+    // uart_printf(CONSOLE, "\r\n--- Test 2: Opponent Quit Scenario ---\r\n");
 
-    tid = Create(RPS_CLIENT_PRIORITY, rps_client_early_quit);
-    uart_printf(CONSOLE, "Created EarlyQuitter, tid=%d\r\n", tid);
+    // tid = Create(RPS_CLIENT_PRIORITY, rps_client_early_quit);
+    // uart_printf(CONSOLE, "Created EarlyQuitter, tid=%d\r\n", tid);
 
-    tid = Create(RPS_CLIENT_PRIORITY, rps_client_long_player);
-    uart_printf(CONSOLE, "Created LongPlayer, tid=%d\r\n", tid);
-
-    
-    // Test 3: Immediate quit (edge case)
-    uart_printf(CONSOLE, "\r\n--- Test 3: Immediate Quit Edge Case ---\r\n");
-
-    tid = Create(RPS_CLIENT_PRIORITY, rps_client_immediate_quit);
-    uart_printf(CONSOLE, "Created ImmediateQuitter 1, tid=%d\r\n", tid);
-
-    tid = Create(RPS_CLIENT_PRIORITY, rps_client_immediate_quit);
-    uart_printf(CONSOLE, "Created ImmediateQuitter 2, tid=%d\r\n", tid);
+    // tid = Create(RPS_CLIENT_PRIORITY, rps_client_long_player);
+    // uart_printf(CONSOLE, "Created LongPlayer, tid=%d\r\n", tid);
 
     Exit();
 }

@@ -1,5 +1,5 @@
-#ifndef RPS_H
-#define RPS_H
+#ifndef RPS_SERVER_H
+#define RPS_SERVER_H
 
 #define RPS_SERVER_NAME "rps_server"
 
@@ -36,18 +36,14 @@ typedef struct {
     int opponent_choice;  
 } RpsResponse;
 
+
+// rps_server_task: Runs the RPS server
 void rps_server_task(void);
 
-// Standard client: plays multiple rounds
-void rps_client_task(void);
+// rps_choice_to_str: Converts an RPS game choice to its string representation
+const char *rps_choice_to_str(int choice);
 
-// Early quitter: plays 2 rounds then quits (tests opponent quit scenario)
-void rps_client_early_quit(void);
+// rps_result_to_str: Converts the result of a RPS game to its string representation
+const char *rps_result_to_str(int result);
 
-// Long player: plays many rounds (paired with early quitter to test opponent quit)
-void rps_client_long_player(void);
-
-// Immediate quitter: signs up and immediately quits (edge case test)
-void rps_client_immediate_quit(void);
-
-#endif /* RPS_H */
+#endif
