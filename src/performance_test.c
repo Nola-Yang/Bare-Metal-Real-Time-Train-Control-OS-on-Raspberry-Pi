@@ -9,7 +9,7 @@
 #define TEST_COUNT 5000
 #define MSG_TYPE_COUNT 3
 #define MAX_MSG_LEN 256
-#define TIMER_MSG_LEN 12
+#define SYNC_MSG_LEN 4
 
 
 static const char Sender_First = 'S';
@@ -67,27 +67,57 @@ static void print_csv_row(char first_drive, int msg_len, uint32_t time) {
 	uart_printf(CONSOLE, "%s,%s,%c,%d,%d\r\n", opt, cache, first_drive, msg_len, time);
 }
 
-// send_first_func: Sending task for the "send first" execution order
-static void send_first_func() {
+// task_a_func: Task A (TID 3)
+// Phase 1 (Receive First): Acts as receiver
+// Phase 2 (Send First): Acts as sender
+static void task_a_func() {
+	int sender_tid = 0;
+	int msg_len = 0;
+	int reply_len = 0;
+	char msg[MAX_MSG_LEN];
+	char *reply;
+	char sync_reply[SYNC_MSG_LEN];
+
+	uint32_t start_time = 0;
+	uint32_t end_time = 0;
 	uint64_t avg_time = 0;
 	uint32_t time = 0;
 
-	int msg_len = 0;
-	int reply_len = 0;
-	char *msg;
-	char reply[MAX_MSG_LEN] = {0};
+	// Receive First: measure from Receive() return to Reply() complete
+	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
+		avg_time = 0;
+		msg_len = Msg_Lens[i];
+		reply_len = msg_len;
+		reply = Msgs[i];
+
+		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
+			Receive(&sender_tid, msg, msg_len);
+			start_time = read_timer();
+			Reply(sender_tid, reply, reply_len);
+			end_time = read_timer();
+
+			avg_time += end_time - start_time;
+		}
+
+		avg_time /= TEST_COUNT;
+		print_csv_row(Receiver_First, msg_len, avg_time);
+	}
+
+	// Sync
+	Send(TASK_B_TID, "sync", SYNC_MSG_LEN, sync_reply, SYNC_MSG_LEN);
+
+	//Send First 
+	char reply_buf[MAX_MSG_LEN] = {0};
 
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
 		avg_time = 0;
 		msg_len = Msg_Lens[i];
 		reply_len = msg_len;
-		msg = Msgs[i];
+		reply = Msgs[i];
 
 		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
-			Yield();
-
 			time = read_timer();
-			Send(RECV_AFT_TASK_ID, msg, msg_len, reply, reply_len);
+			Send(TASK_B_TID, reply, msg_len, reply_buf, reply_len);
 			time = read_timer() - time;
 
 			avg_time += time;
@@ -97,91 +127,40 @@ static void send_first_func() {
 		print_csv_row(Sender_First, msg_len, avg_time);
 	}
 
-	Exit();
-}
-
-// recv_after_func: Receiving task for the "send first" execution order
-static void recv_after_func() {
-	int send_task_tid = 0;
-	int msg_len = 0;
-	int reply_len = 0;
-	char msg[MAX_MSG_LEN];
-	char *reply;
-
-	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
-		msg_len = Msg_Lens[i];
-		reply_len = msg_len;
-		reply = Msgs[i];
-
-		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
-			Yield();
-
-			Receive(&send_task_tid, msg, msg_len);
-			Reply(SEND_FIRST_TASK_ID, reply, reply_len);
-		}
-	}
+	// Sync
+	Send(TASK_B_TID, "done", SYNC_MSG_LEN, sync_reply, SYNC_MSG_LEN);
 
 	Exit();
 }
 
-// recv_first_func: Receving task for the "receive first" execution order
-static void recv_first_func() {
-	int send_task_tid = 0;
-	int msg_len = 0;
-	int reply_len = 0;
-	char msg[MAX_MSG_LEN];
-	char *reply;
-	char timer_msg[TIMER_MSG_LEN];
-	char *timer_msg_ptr;
-	char timer_msg_first_char;
-
-	uint32_t start_time = 0;
-	uint32_t end_time = 0;
-	uint64_t avg_time = 0;
-
-	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
-		avg_time = 0;
-		msg_len = Msg_Lens[i];
-		reply_len = msg_len;
-		reply = Msgs[i];
-
-		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
-			Yield();
-
-			start_time = read_timer();
-			Receive(&send_task_tid, msg, msg_len);
-			Reply(SEND_AFT_TASK_ID, reply, reply_len);
-
-			// get back the end time from the sender
-			Receive(&send_task_tid, timer_msg, TIMER_MSG_LEN);
-			char ack_msg[TIMER_MSG_LEN] = "acked";
-			Reply(SEND_AFT_TASK_ID, ack_msg, TIMER_MSG_LEN);
-			
-			timer_msg_ptr = timer_msg;
-			timer_msg_first_char = timer_msg_ptr[0];
-			timer_msg_ptr++;
-			a2ui(timer_msg_first_char, &timer_msg_ptr, 10, &end_time);
-
-			avg_time += end_time - start_time;
-		}
-
-		avg_time /= TEST_COUNT;
-		print_csv_row(Receiver_First, msg_len, avg_time);
-	}
-
-	Exit();
-}
-
-// send_after_func: Sending task for the "receive first" execution order
-static void send_after_func() {
-	uint32_t end_time = 0;
-	char end_time_msg[TIMER_MSG_LEN];
-	char end_time_ack_msg[TIMER_MSG_LEN] = "acked";
-
+// Phase 1 (Receive First): Acts as sender
+// Phase 2 (Send First): Acts as receiver
+static void task_b_func() {
+	int sender_tid = 0;
 	int msg_len = 0;
 	int reply_len = 0;
 	char *msg;
 	char reply[MAX_MSG_LEN] = {0};
+	char sync_msg[SYNC_MSG_LEN];
+	char sync_reply[SYNC_MSG_LEN] = "ack";
+
+	// Receive First
+	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
+		msg_len = Msg_Lens[i];
+		reply_len = msg_len;
+		msg = Msgs[i];
+
+		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
+			Send(TASK_A_TID, msg, msg_len, reply, reply_len);
+		}
+	}
+
+	// Sync
+	Receive(&sender_tid, sync_msg, SYNC_MSG_LEN);
+	Reply(sender_tid, sync_reply, SYNC_MSG_LEN);
+
+	//Send First 
+	char msg_buf[MAX_MSG_LEN];
 
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
 		msg_len = Msg_Lens[i];
@@ -189,30 +168,22 @@ static void send_after_func() {
 		msg = Msgs[i];
 
 		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
-			Yield();
-
-			Send(RECV_FIRST_TASK_ID, msg, msg_len, reply, reply_len);
-			end_time = read_timer();
-
-			// send the end time
-			ui2a(end_time, 10, end_time_msg);
-			Send(RECV_FIRST_TASK_ID, end_time_msg, TIMER_MSG_LEN, end_time_ack_msg, TIMER_MSG_LEN);
-			Yield();
+			Receive(&sender_tid, msg_buf, msg_len);
+			Reply(sender_tid, msg, reply_len);
 		}
 	}
+
+	// Sync
+	Receive(&sender_tid, sync_msg, SYNC_MSG_LEN);
+	Reply(sender_tid, sync_reply, SYNC_MSG_LEN);
 
 	Exit();
 }
 
-// perform_test_task: Task for the overall performance test
 static void perform_test_task() {
-	Create(RPS_CLIENT_PRIORITY, send_first_func);
-	Create(RPS_CLIENT_PRIORITY, recv_after_func);
+	Create(RPS_CLIENT_PRIORITY + 1, task_a_func);
+	Create(RPS_CLIENT_PRIORITY, task_b_func);
 
-	int recv_first_priority = RPS_CLIENT_PRIORITY - 1;
-
-	Create(recv_first_priority, recv_first_func);
-	Create(recv_first_priority, send_after_func);
 	Exit();
 }
 
