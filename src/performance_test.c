@@ -47,7 +47,7 @@ static void print_test_spec() {
 }
 
 // print_csv_row: Prints a row for the CSV file
-static void print_csv_row(char first_drive, int msg_len, uint64_t time) {
+static void print_csv_row(char first_drive, int msg_len, uint32_t time) {
 	#ifdef OPT
 	char *opt = "opt";
 	#else
@@ -131,7 +131,8 @@ static void recv_first_func() {
 	int reply_len = 0;
 	char msg[MAX_MSG_LEN];
 	char *reply;
-	char *timer_msg;
+	char timer_msg[TIMER_MSG_LEN];
+	char *timer_msg_ptr;
 	char timer_msg_first_char;
 
 	uint32_t start_time = 0;
@@ -153,11 +154,13 @@ static void recv_first_func() {
 
 			// get back the end time from the sender
 			Receive(&send_task_tid, timer_msg, TIMER_MSG_LEN);
-			Reply(SEND_AFT_TASK_ID, "acked", TIMER_MSG_LEN);
+			char ack_msg[TIMER_MSG_LEN] = "acked";
+			Reply(SEND_AFT_TASK_ID, ack_msg, TIMER_MSG_LEN);
 			
-			timer_msg_first_char = timer_msg[0];
-			timer_msg++;
-			a2ui(timer_msg_first_char, &timer_msg, 10, &end_time);
+			timer_msg_ptr = timer_msg;
+			timer_msg_first_char = timer_msg_ptr[0];
+			timer_msg_ptr++;
+			a2ui(timer_msg_first_char, &timer_msg_ptr, 10, &end_time);
 
 			avg_time += end_time - start_time;
 		}
@@ -173,7 +176,7 @@ static void recv_first_func() {
 static void send_after_func() {
 	uint32_t end_time = 0;
 	char end_time_msg[TIMER_MSG_LEN];
-	char end_time_ack_msg[TIMER_MSG_LEN];
+	char end_time_ack_msg[TIMER_MSG_LEN] = "acked";
 
 	int msg_len = 0;
 	int reply_len = 0;
