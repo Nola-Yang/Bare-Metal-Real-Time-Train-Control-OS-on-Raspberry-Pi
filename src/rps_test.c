@@ -19,7 +19,6 @@ static void setup_test_suite() {
     uart_printf(CONSOLE, "Created RPS Server, tid=%d\r\n", tid);
 }
 
-
 static Task_Func get_quick_func(int8_t rps_move) {
     switch (rps_move){
         case RPS_ROCK:
@@ -33,15 +32,72 @@ static Task_Func get_quick_func(int8_t rps_move) {
     }
 }
 
-static void test_immediatequit_nogameplayed() {
+// ============= Test Cases ==========================
+
+static void test_playwithoutsignup_nomoveplayed() {
+    int32_t tid = 0;
+    uart_printf(CONSOLE, "\r\n-------- Test: Play Without Signup --------\r\n");
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_force_play);
+    uart_debug_printf(CONSOLE, "Created Force Player, tid=%d\r\n", tid);
+}
+
+static void test_quitwithoutsignup_noplayerremoved() {
+    int32_t tid = 0;
+    uart_printf(CONSOLE, "\r\n-------- Test: Quit Without Signup --------\r\n");
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_force_quit);
+    uart_debug_printf(CONSOLE, "Created Force Quitter, tid=%d\r\n", tid);
+}
+
+static void test_gamestartedimmediatequit_nogameplayed() {
     int32_t tid = 0;
     uart_printf(CONSOLE, "\r\n-------- Test: Immediate Quitters --------\r\n");
 
     tid = Create(RPS_CLIENT_PRIORITY, rps_client_immediate_quit);
-    uart_printf(CONSOLE, "Created ImmediateQuitter 1, tid=%d\r\n", tid);
+    uart_debug_printf(CONSOLE, "Created Immediate Quitter 1, tid=%d\r\n", tid);
 
     tid = Create(RPS_CLIENT_PRIORITY, rps_client_immediate_quit);
-    uart_printf(CONSOLE, "Created ImmediateQuitter 2, tid=%d\r\n", tid);
+    uart_debug_printf(CONSOLE, "Created Immediate Quitter 2, tid=%d\r\n", tid);
+}
+
+static void test_1stplayerquitmidway_gameends() {
+    int32_t tid = 0;
+    uart_printf(CONSOLE, "\r\n-------- Test: 1st Player Early Quit --------\r\n");
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_immediate_quit);
+    uart_debug_printf(CONSOLE, "Created Immediate Quitter, tid=%d\r\n", tid);
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_3round_rock);
+    uart_debug_printf(CONSOLE, "Created Standard Player, tid=%d\r\n", tid);
+}
+
+static void test_2ndplayerquitmidway_gameends() {
+    int32_t tid = 0;
+    uart_printf(CONSOLE, "\r\n-------- Test: 2nd Player Early Quit --------\r\n");
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_3round_rock);
+    uart_debug_printf(CONSOLE, "Created Standard Player, tid=%d\r\n", tid);
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_immediate_quit);
+    uart_debug_printf(CONSOLE, "Created ImmediateQuitter, tid=%d\r\n", tid);
+}
+
+static void test_multiroundgames_playuntilaplayerquits() {
+    int32_t tid = 0;
+    uart_printf(CONSOLE, "\r\n-------- Test: Play for multiple rounds --------\r\n");
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_3round_rock);
+    uart_debug_printf(CONSOLE, "Created 3 Round Player, tid=%d\r\n", tid);
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_5round_paper);
+    uart_debug_printf(CONSOLE, "Created 5 Round Player, tid=%d\r\n", tid);
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_3round_scissor);
+    uart_debug_printf(CONSOLE, "Created 3 Round Player, tid=%d\r\n", tid);
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_quick_scissor);
+    uart_debug_printf(CONSOLE, "Created 1 Round Player, tid=%d\r\n", tid);
 }
 
 static void test_1roundallpossiblemoves_winorlose() {
@@ -61,21 +117,30 @@ static void test_1roundallpossiblemoves_winorlose() {
             uart_printf(CONSOLE, "~~~~~ %s vs %s ~~~~~\r\n", rps_choice_to_str(p1_move), rps_choice_to_str(p2_move));
 
             tid = Create(RPS_CLIENT_PRIORITY, p1_func);
-            uart_printf(CONSOLE, "Created RPS Player 1, tid=%d\r\n", tid);
+            uart_debug_printf(CONSOLE, "Created Standard Player 1, tid=%d\r\n", tid);
 
             tid = Create(RPS_CLIENT_PRIORITY, p2_func);
-            uart_printf(CONSOLE, "Created RPS Player 2, tid=%d\r\n", tid);
+            uart_debug_printf(CONSOLE, "Created Standard Player 2, tid=%d\r\n", tid);
 
             uart_puts(CONSOLE, "\r\n");
         }
     }
 }
 
+// ===================================================
 
 
 void rps_test_run() {
     setup_test_suite();
 
-    test_immediatequit_nogameplayed();
-    //test_1roundallpossiblemoves_winorlose();
+    test_playwithoutsignup_nomoveplayed();
+    test_quitwithoutsignup_noplayerremoved();
+    test_gamestartedimmediatequit_nogameplayed();
+    test_1stplayerquitmidway_gameends();
+    test_2ndplayerquitmidway_gameends();
+    test_multiroundgames_playuntilaplayerquits();
+
+    #ifdef FULLTEST
+    test_1roundallpossiblemoves_winorlose();
+    #endif
 }

@@ -9,13 +9,63 @@ CC:=$(XBINDIR)/$(TRIPLE)-gcc -ffreestanding
 OBJCOPY:=$(XBINDIR)/$(TRIPLE)-objcopy
 OBJDUMP:=$(XBINDIR)/$(TRIPLE)-objdump
 
-OPT?=-O3
-
 WARNINGS:=-Wall -Wextra -Wpedantic -Wno-unused-const-variable
-CFLAGS:=-g -pipe -static -march=armv8-a -mcpu=cortex-a72 $(OPT) -mstrict-align -mgeneral-regs-only $(WARNINGS) -I$(INCLUDE_DIR)
+CFLAGS:=-g -pipe -static -march=armv8-a -mcpu=cortex-a72 -mstrict-align -mgeneral-regs-only $(WARNINGS) -I$(INCLUDE_DIR)
 
 # -Wl,option tells gcc to pass 'option' to the linker with commas replaced by spaces
 LDFLAGS:=-Wl,-nmagic -Wl,-Tlinker.ld -Wl,--no-warn-rwx-segments -nostartfiles
+
+
+# ========== Compile Modes ================
+
+MEASURE?=0
+VERBOSE?=0
+FULLTEST?=0
+OPT?=1
+CACHE?=b
+
+MAKESPEC:=.make_spec
+MAKESPEC_FORMAT:=$(MEASURE) $(VERBOSE) $(FULLTEST) $(OPT) $(CACHE)
+
+# clean up the built files, if the passed arguments have changed
+ifneq ($(shell cat $(MAKESPEC) 2>/dev/null), $(MAKESPEC_FORMAT))
+$(shell rm -rf $(BUILD_DIR))
+$(shell echo $(MAKESPEC_FORMAT) > $(MAKESPEC))
+endif
+
+
+# MEASURE (0, 1): Whether we are doing performance measurements
+ifeq ($(MEASURE),1)
+	CFLAGS += -DMEASURE
+endif
+
+# VERBOSE (0, 1): Whether to print more verbose debug flags
+ifeq ($(VERBOSE),1)
+	CFLAGS += -DVERBOSE
+endif
+
+# FULLTEST (0, 1): Whether to run a more comprehensive test. Only
+# 	in effect when MEASURE=1
+ifeq ($(FULLTEST),1)
+	CFLAGS += -DFULLTEST
+endif
+
+# OPT (0, 1): Whether to 03 optimization
+ifeq ($(OPT),1)
+	CFLAGS += -O3 -DOPT
+endif
+
+# CACHE (n, i, d, b): Whether to enable the data caches or instruction caches
+ifeq ($(CACHE),b)
+	CFLAGS += -DICACHE
+	CFLAGS += -DDCACHE
+else ifeq ($(CACHE),i)
+	CFLAGS += -DICACHE
+else ifeq ($(CACHE),d)
+	CFLAGS += -DDCACHE
+endif
+
+# =========================================
 
 # Source files
 SRCS := $(shell find $(SRC_DIR) -name '*.c')

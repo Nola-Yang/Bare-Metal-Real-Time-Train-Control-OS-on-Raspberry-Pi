@@ -7,6 +7,9 @@ char a2i(char ch, char **src, int base, int *nump);
 void ui2a(unsigned int num, unsigned int base, char *bf);
 void i2a(int num, char *bf);
 
+// toggle_caches: Toggles the data/instruction caches according to the build arguments
+void toggle_caches();
+
 
 #if !defined(MMU)
 #include <stddef.h>

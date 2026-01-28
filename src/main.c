@@ -9,6 +9,7 @@
 #include "rps_server.h"
 #include "rps_client.h"
 #include "rps_test.h"
+#include "performance_test.h"
 #include <stdint.h>
 
 
@@ -25,7 +26,13 @@ void first_user_task() {
     int32_t tid;
 
     uart_printf(CONSOLE, "========================================\r\n");
+
+    #ifndef MEASURE
     uart_printf(CONSOLE, "K2 Test Suite\r\n");
+    #else
+    uart_printf(CONSOLE, "K2 Performance Test\r\n");
+    #endif
+
     uart_printf(CONSOLE, "========================================\r\n");
 
     tid = Create(NAMESERVER_PRIORITY, nameserver_task);
@@ -34,25 +41,13 @@ void first_user_task() {
         uart_printf(CONSOLE, "ERROR: NameServer tid=%d (expected %d)\r\n", tid, NAMESERVER_TID);
         Exit();
     }
+
+    #ifndef MEASURE
     uart_printf(CONSOLE, "Created NameServer, tid=%d\r\n", tid);
-
     rps_test_run();
-
-    // // Test 1: Basic gameplay (2 pairs of normal clients)
-    // uart_printf(CONSOLE, "\r\n--- Test 1: Basic Gameplay (4 clients) ---\r\n");
-    // for (int i = 0; i < 4; i++) {
-    //     tid = Create(RPS_CLIENT_PRIORITY, rps_client_standard_task);
-    //     uart_printf(CONSOLE, "Created RPS Client %d, tid=%d\r\n", i, tid);
-    // }
-    
-    // // Test 2: Opponent quit scenario
-    // uart_printf(CONSOLE, "\r\n--- Test 2: Opponent Quit Scenario ---\r\n");
-
-    // tid = Create(RPS_CLIENT_PRIORITY, rps_client_early_quit);
-    // uart_printf(CONSOLE, "Created EarlyQuitter, tid=%d\r\n", tid);
-
-    // tid = Create(RPS_CLIENT_PRIORITY, rps_client_long_player);
-    // uart_printf(CONSOLE, "Created LongPlayer, tid=%d\r\n", tid);
+    #else
+    perform_test_run();
+    #endif
 
     Exit();
 }
@@ -62,6 +57,10 @@ int kmain() {
 #if defined(MMU)
 	setup_mmu();
 #endif
+
+    #ifdef MEASURE
+    toggle_caches();
+    #endif
 
 	// set up GPIO pins for both console uart and canbus
 	gpio_init();

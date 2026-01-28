@@ -24,11 +24,13 @@ static int Waiting_Tid = -1;  // Tid of player waiting for opponent
 static int Waiting_Ind = -1;
 
 
+// clear_waiting: Resets the waiting seat for a match to be vacant
 static void clear_waiting() {
     Waiting_Ind = -1;
     Waiting_Tid = -1;
 }
 
+// rps_choice_to_str: Converts a move taken in RPS to a string
 const char *rps_choice_to_str(int choice) {
     switch (choice) {
         case RPS_ROCK: return "Rock";
@@ -38,6 +40,7 @@ const char *rps_choice_to_str(int choice) {
     }
 }
 
+// rps_result_to_str: Converts the result from a RPS match to a string
 const char *rps_result_to_str(int result) {
     switch (result) {
         case RPS_RESULT_WIN: return "Win";
@@ -48,6 +51,7 @@ const char *rps_result_to_str(int result) {
     }
 }
 
+// find_player_ind: Finds a new player
 static int find_player_ind(int tid) {
     for (int i = 0; i < MAX_PLAYERS; i++) {
         if (Players[i].tid == tid) return i;
@@ -55,6 +59,7 @@ static int find_player_ind(int tid) {
     return -1;
 }
 
+// add_player: Adds a new player
 static int add_player(int tid) {
     Player *player;
 
@@ -75,6 +80,8 @@ static int add_player(int tid) {
     return -1;
 }
 
+// remove_player_by_ind: Removes a player based on their index in the
+//  Players array
 static void remove_player_by_ind(int ind) {
     if (ind < 0) return;
 
@@ -238,11 +245,17 @@ void rps_server_task(void) {
                     }
 
                     partner_resp.opponent_choice = player->choice;
-                    Reply(Players[player_ind].partner_tid, (const char *)&partner_resp, sizeof(RpsResponse));
+                    Reply(player->partner_tid, (const char *)&partner_resp, sizeof(RpsResponse));
 
-                    uart_printf(CONSOLE, "RPS Server: Round result - P%d %s vs P%d %s\r\n",
-                                sender_tid, rps_choice_to_str(Players[player_ind].choice),
-                                Players[player_ind].partner_tid, rps_choice_to_str(Players[partner_ind].choice));
+                    uart_printf(CONSOLE, "RPS Server: Round result - P%d %s vs P%d %s -",
+                                sender_tid, rps_choice_to_str(player->choice),
+                                player->partner_tid, rps_choice_to_str(partner->choice));
+
+                    if (result == RPS_RESULT_TIE) {
+                        uart_printf(CONSOLE, "Tie\r\n");
+                    } else {
+                        uart_printf(CONSOLE, "P%d Wins!\r\n", (result == RPS_RESULT_WIN) ? sender_tid : player->partner_tid);
+                    }
 
                     player->has_played = 0;
                     player->choice = -1;
@@ -253,10 +266,14 @@ void rps_server_task(void) {
 
             case RPS_QUIT:
                 {
-                    uart_printf(CONSOLE, "RPS Server: Player %d quitting\r\n", sender_tid);
-
                     int player_ind = find_player_ind(sender_tid);
                     Player *player;
+
+                    if (player_ind < 0) {
+                        uart_printf(CONSOLE, "RPS Server: Player %d tries to quit, but has not signed up\r\n", sender_tid);
+                    } else {
+                        uart_printf(CONSOLE, "RPS Server: Player %d quitting\r\n", sender_tid);
+                    }
 
                     if (player_ind >= 0 && Players[player_ind].in_game) {
                         player = &(Players[player_ind]);
@@ -285,7 +302,7 @@ void rps_server_task(void) {
                                 partner->partner_tid = -1;
                             }
                         }
-                    }
+                    } 
 
                     // Clear waiting if this player was waiting
                     if (Waiting_Tid == sender_tid) {

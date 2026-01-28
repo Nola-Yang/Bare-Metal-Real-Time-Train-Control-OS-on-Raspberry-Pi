@@ -16,13 +16,22 @@ void rps_client_quick_paper();
 // rps_client_quick_scissor: Plays only 1 round with Scissor
 void rps_client_quick_scissor();
 
-// Early quitter: plays 2 rounds then quits (tests opponent quit scenario)
-void rps_client_early_quit(void);
+// rps_client_3round_rock: Plays 3 rounds of consecutive Rock
+void rps_client_3round_rock();
 
-// Long player: plays many rounds (paired with early quitter to test opponent quit)
-void rps_client_long_player(void);
+// rps_client_3round_scissor: Plays 3 rounds of consecutive Scissor
+void rps_client_3round_scissor();
+
+// rps_client_5round_paper: Plays 5 rounds of consecutive Paper
+void rps_client_5round_paper();
 
 // Immediate quitter: signs up and immediately quits (edge case test)
 void rps_client_immediate_quit(void);
+
+// Force player: trys to play a move even if they have not signed up yet
+void rps_client_force_play();
+
+// Force quitter: trys to quit even if they have not signed up yet
+void rps_client_force_quit();
 
 #endif

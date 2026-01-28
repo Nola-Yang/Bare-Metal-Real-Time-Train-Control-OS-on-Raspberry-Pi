@@ -86,11 +86,9 @@ void uart_puts(size_t line, const char* buf) {
 	}
 }
 
-void uart_printf(size_t line, const char *fmt, ... ) {
-	va_list va;
+static void uart_internal_printf(size_t line, const char *fmt, va_list va) {
 	char ch, buf[12];
 
-	va_start(va, fmt);
 	while ((ch = *(fmt++))) {
 		if (ch != '%')
 			uart_putc(line, ch);
@@ -123,5 +121,22 @@ void uart_printf(size_t line, const char *fmt, ... ) {
 			}
 		}
 	}
+}
+
+void uart_printf(size_t line, const char *fmt, ... ) {
+	va_list va;
+
+	va_start(va, fmt);
+	uart_internal_printf(line, fmt, va);
 	va_end(va);
+}
+
+void uart_debug_printf(size_t line, const char *fmt, ... ) {
+	#ifdef VERBOSE
+	va_list va;
+
+	va_start(va, fmt);
+	uart_internal_printf(line, fmt, va);
+	va_end(va);
+	#endif
 }
