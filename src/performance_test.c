@@ -178,15 +178,8 @@ static void task_b_func() {
 
 	Exit();
 }
-
-static void perform_test_task() {
-	Create(RPS_CLIENT_PRIORITY + 1, task_a_func);
-	Create(RPS_CLIENT_PRIORITY, task_b_func);
-
-	Exit();
-}
-
 void perform_test_run() {
 	print_test_spec();
-	Create(RPS_SERVER_PRIORITY, perform_test_task);
+	Create(RPS_CLIENT_PRIORITY + 1, task_a_func);
+	Create(RPS_CLIENT_PRIORITY, task_b_func);
 }
