@@ -180,6 +180,16 @@ static void task_b_func() {
 }
 void perform_test_run() {
 	print_test_spec();
-	Create(RPS_CLIENT_PRIORITY + 1, task_a_func);
-	Create(RPS_CLIENT_PRIORITY, task_b_func);
+
+	int tid_a = Create(RPS_CLIENT_PRIORITY + 1, task_a_func);
+	if (tid_a != TASK_A_TID) {
+		uart_printf(CONSOLE, "ERROR: Task A tid=%d (expected %d)\r\n", tid_a, TASK_A_TID);
+		Exit();
+	}
+
+	int tid_b = Create(RPS_CLIENT_PRIORITY, task_b_func);
+	if (tid_b != TASK_B_TID) {
+		uart_printf(CONSOLE, "ERROR: Task B tid=%d (expected %d)\r\n", tid_b, TASK_B_TID);
+		Exit();
+	}
 }
