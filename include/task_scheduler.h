@@ -7,6 +7,11 @@
 
 #define PRIORITY_LEVELS 32
 
+// Priority levels for k2 tasks 
+#define NAMESERVER_PRIORITY     31  // Highest priority - responds to all queries
+#define RPS_SERVER_PRIORITY     30  
+#define RPS_CLIENT_PRIORITY     29  
+
 
 typedef struct {
     RingBuffer_t *queues;

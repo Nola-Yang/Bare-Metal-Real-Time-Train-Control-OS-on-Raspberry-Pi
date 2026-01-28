@@ -1,4 +1,4 @@
-#include "rps.h"
+#include "rps_server.h"
 #include "nameserver.h"
 #include "syscall.h"
 #include "uart.h"
@@ -29,7 +29,7 @@ static void clear_waiting() {
     Waiting_Tid = -1;
 }
 
-static const char *choice_to_string(int choice) {
+const char *rps_choice_to_str(int choice) {
     switch (choice) {
         case RPS_ROCK: return "Rock";
         case RPS_PAPER: return "Paper";
@@ -38,7 +38,7 @@ static const char *choice_to_string(int choice) {
     }
 }
 
-static const char *result_to_string(int result) {
+const char *rps_result_to_str(int result) {
     switch (result) {
         case RPS_RESULT_WIN: return "Win";
         case RPS_RESULT_LOSE: return "Lose";
@@ -215,7 +215,7 @@ void rps_server_task(void) {
                     player->choice = req.choice;
                     player->has_played = 1;
 
-                    uart_printf(CONSOLE, "RPS Server: Player %d plays %s\r\n", sender_tid, choice_to_string(req.choice));
+                    uart_printf(CONSOLE, "RPS Server: Player %d plays %s\r\n", sender_tid, rps_choice_to_str(req.choice));
 
                     if (!(partner->has_played)) break;
 
@@ -241,8 +241,8 @@ void rps_server_task(void) {
                     Reply(Players[player_ind].partner_tid, (const char *)&partner_resp, sizeof(RpsResponse));
 
                     uart_printf(CONSOLE, "RPS Server: Round result - P%d %s vs P%d %s\r\n",
-                                sender_tid, choice_to_string(Players[player_ind].choice),
-                                Players[player_ind].partner_tid, choice_to_string(Players[partner_ind].choice));
+                                sender_tid, rps_choice_to_str(Players[player_ind].choice),
+                                Players[player_ind].partner_tid, rps_choice_to_str(Players[partner_ind].choice));
 
                     player->has_played = 0;
                     player->choice = -1;
@@ -304,200 +304,4 @@ void rps_server_task(void) {
                 break;
         }
     }
-}
-
-
-void rps_client_task(void) {
-    int my_tid = MyTid();
-
-    int server_tid = WhoIs(RPS_SERVER_NAME);
-    if (server_tid < 0) {
-        uart_printf(CONSOLE, "Client %d: Failed to find RPS server\r\n", my_tid);
-        Exit();
-    }
-
-    uart_printf(CONSOLE, "Client %d: Found RPS server at tid %d\r\n", my_tid, server_tid);
-
-    RpsRequest req;
-    RpsResponse resp;
-
-    req.type = RPS_SIGNUP;
-    Send(server_tid, (const char *)&req, sizeof(RpsRequest),
-         (char *)&resp, sizeof(RpsResponse));
-
-    if (resp.status == RPS_ERROR) {
-        uart_printf(CONSOLE, "Client %d: Signup failed\r\n", my_tid);
-        Exit();
-    }
-
-    uart_printf(CONSOLE, "Client %d: Signed up, game starting\r\n", my_tid);
-
-    // Play a few rounds
-    int choices[] = {RPS_ROCK, RPS_PAPER, RPS_SCISSORS, RPS_ROCK, RPS_SCISSORS};
-    int num_rounds = 5;
-
-    for (int round = 0; round < num_rounds; round++) {
-        req.type = RPS_PLAY;
-        req.choice = choices[round % 5];
-
-        uart_printf(CONSOLE, "Client %d: Round %d - Playing %s\r\n",
-                    my_tid, round + 1, choice_to_string(req.choice));
-
-        Send(server_tid, (const char *)&req, sizeof(RpsRequest),
-             (char *)&resp, sizeof(RpsResponse));
-
-        if (resp.result == RPS_RESULT_OPPONENT_QUIT) {
-            uart_printf(CONSOLE, "Client %d: Opponent quit!\r\n", my_tid);
-            break;
-        }
-
-        uart_printf(CONSOLE, "Client %d: Round %d - Result: %s (opponent: %s)\r\n",
-                    my_tid, round + 1, result_to_string(resp.result),
-                    choice_to_string(resp.opponent_choice));
-    }
-
-    req.type = RPS_QUIT;
-    Send(server_tid, (const char *)&req, sizeof(RpsRequest),
-         (char *)&resp, sizeof(RpsResponse));
-
-    uart_printf(CONSOLE, "Client %d: Quit game, exiting\r\n", my_tid);
-    Exit();
-}
-
-void rps_client_early_quit(void) {
-    int my_tid = MyTid();
-
-    int server_tid = WhoIs(RPS_SERVER_NAME);
-    if (server_tid < 0) {
-        uart_printf(CONSOLE, "EarlyQuit %d: Failed to find RPS server\r\n", my_tid);
-        Exit();
-    }
-
-    uart_printf(CONSOLE, "EarlyQuit %d: Found RPS server\r\n", my_tid);
-
-    RpsRequest req;
-    RpsResponse resp;
-
-    req.type = RPS_SIGNUP;
-    Send(server_tid, (const char *)&req, sizeof(RpsRequest),
-         (char *)&resp, sizeof(RpsResponse));
-
-    if (resp.status == RPS_ERROR) {
-        uart_printf(CONSOLE, "EarlyQuit %d: Signup failed\r\n", my_tid);
-        Exit();
-    }
-
-    uart_printf(CONSOLE, "EarlyQuit %d: Signed up\r\n", my_tid);
-
-    for (int round = 0; round < 2; round++) {
-        req.type = RPS_PLAY;
-        req.choice = RPS_ROCK;
-
-        uart_printf(CONSOLE, "EarlyQuit %d: Round %d - Playing Rock\r\n", my_tid, round + 1);
-
-        Send(server_tid, (const char *)&req, sizeof(RpsRequest),
-             (char *)&resp, sizeof(RpsResponse));
-
-        if (resp.result == RPS_RESULT_OPPONENT_QUIT) {
-            uart_printf(CONSOLE, "EarlyQuit %d: Opponent quit first!\r\n", my_tid);
-            break;
-        }
-
-        uart_printf(CONSOLE, "EarlyQuit %d: Round %d - Result: %s\r\n",
-                    my_tid, round + 1, result_to_string(resp.result));
-    }
-
-    // Quit early
-    req.type = RPS_QUIT;
-    Send(server_tid, (const char *)&req, sizeof(RpsRequest),
-         (char *)&resp, sizeof(RpsResponse));
-
-    uart_printf(CONSOLE, "EarlyQuit %d: Quit early, exiting\r\n", my_tid);
-    Exit();
-}
-
-void rps_client_long_player(void) {
-    int my_tid = MyTid();
-
-    int server_tid = WhoIs(RPS_SERVER_NAME);
-    if (server_tid < 0) {
-        uart_printf(CONSOLE, "LongPlayer %d: Failed to find RPS server\r\n", my_tid);
-        Exit();
-    }
-
-    uart_printf(CONSOLE, "LongPlayer %d: Found RPS server\r\n", my_tid);
-
-    RpsRequest req;
-    RpsResponse resp;
-
-    // Sign up
-    req.type = RPS_SIGNUP;
-    Send(server_tid, (const char *)&req, sizeof(RpsRequest),
-         (char *)&resp, sizeof(RpsResponse));
-
-    if (resp.status == RPS_ERROR) {
-        uart_printf(CONSOLE, "LongPlayer %d: Signup failed\r\n", my_tid);
-        Exit();
-    }
-
-    uart_printf(CONSOLE, "LongPlayer %d: Signed up\r\n", my_tid);
-
-    // Try to play 10 rounds
-    int choices[] = {RPS_PAPER, RPS_SCISSORS, RPS_ROCK};
-    for (int round = 0; round < 10; round++) {
-        req.type = RPS_PLAY;
-        req.choice = choices[round % 3];
-
-        uart_printf(CONSOLE, "LongPlayer %d: Round %d - Playing %s\r\n",
-                    my_tid, round + 1, choice_to_string(req.choice));
-
-        Send(server_tid, (const char *)&req, sizeof(RpsRequest),
-             (char *)&resp, sizeof(RpsResponse));
-
-        if (resp.result == RPS_RESULT_OPPONENT_QUIT) {
-            uart_printf(CONSOLE, "LongPlayer %d: Opponent quit!\r\n", my_tid);
-            break;
-        }
-
-        uart_printf(CONSOLE, "LongPlayer %d: Round %d - Result: %s\r\n",
-                    my_tid, round + 1, result_to_string(resp.result));
-    }
-
-    // Quit
-    req.type = RPS_QUIT;
-    Send(server_tid, (const char *)&req, sizeof(RpsRequest),
-         (char *)&resp, sizeof(RpsResponse));
-
-    uart_printf(CONSOLE, "LongPlayer %d: Quit game, exiting\r\n", my_tid);
-    Exit();
-}
-
-void rps_client_immediate_quit(void) {
-    int my_tid = MyTid();
-
-    int server_tid = WhoIs(RPS_SERVER_NAME);
-    if (server_tid < 0) {
-        uart_printf(CONSOLE, "ImmediateQuit %d: Failed to find RPS server\r\n", my_tid);
-        Exit();
-    }
-
-    uart_printf(CONSOLE, "ImmediateQuit %d: Found RPS server\r\n", my_tid);
-
-    RpsRequest req;
-    RpsResponse resp;
-
-    // Sign up
-    req.type = RPS_SIGNUP;
-    Send(server_tid, (const char *)&req, sizeof(RpsRequest),
-         (char *)&resp, sizeof(RpsResponse));
-
-    uart_printf(CONSOLE, "ImmediateQuit %d: Signed up, status=%d\r\n", my_tid, resp.status);
-
-    // Immediately quit without playing
-    req.type = RPS_QUIT;
-    Send(server_tid, (const char *)&req, sizeof(RpsRequest),
-         (char *)&resp, sizeof(RpsResponse));
-
-    uart_printf(CONSOLE, "ImmediateQuit %d: Quit immediately, exiting\r\n", my_tid);
-    Exit();
 }
