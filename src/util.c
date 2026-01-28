@@ -53,6 +53,28 @@ void i2a(int num, char *buf) {
 	ui2a(num, 10, buf);
 }
 
+void toggle_caches() {
+	uint64_t sctlr_el1;
+
+	__asm__ volatile("mrs %0, sctlr_el1" : "=r" (sctlr_el1));
+
+	#ifdef DCACHE
+	sctlr_el1 |= (1 << 2);
+	#else
+	sctlr_el1 &= ~(1 << 2);
+	#endif
+
+	#ifdef ICACHE
+	sctlr_el1 |= (1 << 12);
+	#else
+	sctlr_el1 |= ~(1 << 12);
+	#endif
+
+	// Write back and synchronize to barriers
+    asm volatile("msr sctlr_el1, %0" : : "r" (sctlr_el1));
+    asm volatile("isb" : : : "memory");
+    asm volatile("dsb sy" : : : "memory");
+}
 
 
 #if !defined(MMU)

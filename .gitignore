@@ -61,4 +61,9 @@ dkms.conf
 
 # build flags / local config
 .build_flags
+
+# custom upload script to the Raspberry Pi
 *upload.sh
+
+# hidden saved MakeFile arguments
+.make_spec

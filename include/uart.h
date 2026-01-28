@@ -12,4 +12,6 @@ void uart_putl(size_t line, const char *buf, size_t blen);
 void uart_puts(size_t line, const char *buf);
 void uart_printf(size_t line, const char *fmt, ...);
 
+void uart_debug_printf(size_t line, const char *fmt, ... );
+
 #endif /* uart.h */
