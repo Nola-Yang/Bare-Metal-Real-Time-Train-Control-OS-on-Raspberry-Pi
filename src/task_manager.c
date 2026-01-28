@@ -320,6 +320,7 @@ static int kern_Receive(int *tid, char *msg, int msglen) {
 // Returns: size of reply on success, -1 if tid invalid, -2 if not reply-blocked
 static int kern_Reply(int tid, const char *reply, int rplen) {
     TaskDescriptor_t *sender = get_task_by_tid(tid);
+    TaskDescriptor_t *current = get_current_task();
 
     if (sender == NULL) {
         uart_printf(CONSOLE, "kern_Reply: Invalid tid %d\r\n", tid);
@@ -328,6 +329,10 @@ static int kern_Reply(int tid, const char *reply, int rplen) {
 
     if (sender->state != TASK_STATE_REPLY_BLOCKED) {
         return -2;  
+    }
+
+    if (sender->reply_wait_tid != current->tid) {
+        return -2;
     }
 
     int copy_len = min_int(rplen, sender->reply_len);
