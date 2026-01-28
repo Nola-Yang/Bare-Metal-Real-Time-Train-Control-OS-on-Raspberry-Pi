@@ -22,6 +22,7 @@ char a2ui(char ch, char **src, unsigned int base, unsigned int *nump) {
 		num = num * base + digit;
 		ch = *p++;
 	}
+
 	*src = p; *nump = num;
 	return ch;
 }
@@ -53,22 +54,22 @@ void i2a(int num, char *buf) {
 	ui2a(num, 10, buf);
 }
 
-void toggle_caches() {
+void toggle_caches(bool dcache_on, bool icache_on) {
 	uint64_t sctlr_el1;
 
 	__asm__ volatile("mrs %0, sctlr_el1" : "=r" (sctlr_el1));
 
-	#ifdef DCACHE
-	sctlr_el1 |= (1 << 2);
-	#else
-	sctlr_el1 &= ~(1 << 2);
-	#endif
+	if (dcache_on) {
+		sctlr_el1 |= (1 << 2);
+	} else {
+		sctlr_el1 &= ~(1 << 2);
+	}
 
-	#ifdef ICACHE
-	sctlr_el1 |= (1 << 12);
-	#else
-	sctlr_el1 |= ~(1 << 12);
-	#endif
+	if (icache_on) {
+		sctlr_el1 |= (1 << 12);
+	} else {
+		sctlr_el1 &= ~(1 << 12);
+	}
 
 	// Write back and synchronize to barriers
     asm volatile("msr sctlr_el1, %0" : : "r" (sctlr_el1));

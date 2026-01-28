@@ -1,14 +1,16 @@
 #ifndef _util_h_
 #define _util_h_ 1
 
+#include <stdbool.h>
+
 
 int a2d(char ch);
-char a2i(char ch, char **src, int base, int *nump);
+char a2ui(char ch, char **src, unsigned int base, unsigned int *nump);
 void ui2a(unsigned int num, unsigned int base, char *bf);
 void i2a(int num, char *bf);
 
 // toggle_caches: Toggles the data/instruction caches according to the build arguments
-void toggle_caches();
+void toggle_caches(bool dcache_on, bool icache_on);
 
 
 #if !defined(MMU)
