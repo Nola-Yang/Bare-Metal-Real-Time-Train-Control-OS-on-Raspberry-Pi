@@ -61,6 +61,31 @@ static void test_gamestartedimmediatequit_nogameplayed() {
     uart_debug_printf(CONSOLE, "Created Immediate Quitter 2, tid=%d\r\n", tid);
 }
 
+static void test_playerdoublesignup_playerisalreadyingame() {
+    int32_t tid = 0;
+    uart_printf(CONSOLE, "\r\n-------- Test: Double Signup --------\r\n");
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_double_signup_quick_paper);
+    uart_debug_printf(CONSOLE, "Created Double Signup Player, tid=%d\r\n", tid);
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_quick_scissor);
+    uart_debug_printf(CONSOLE, "Created Standard Player, tid=%d\r\n", tid);
+}
+
+static void test_playsagain_2gamesplayed() {
+    int32_t tid = 0;
+    uart_printf(CONSOLE, "\r\n-------- Test: Player Plays Again --------\r\n");
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_play_again);
+    uart_debug_printf(CONSOLE, "Created Replay Player, tid=%d\r\n", tid);
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_quick_scissor);
+    uart_debug_printf(CONSOLE, "Created Standard Player, tid=%d\r\n", tid);
+
+    tid = Create(RPS_CLIENT_PRIORITY, rps_client_quick_rock);
+    uart_debug_printf(CONSOLE, "Created Standard Player, tid=%d\r\n", tid);
+}
+
 static void test_1stplayerquitmidway_gameends() {
     int32_t tid = 0;
     uart_printf(CONSOLE, "\r\n-------- Test: 1st Player Early Quit --------\r\n");
@@ -136,6 +161,8 @@ void rps_test_run() {
     test_playwithoutsignup_nomoveplayed();
     test_quitwithoutsignup_noplayerremoved();
     test_gamestartedimmediatequit_nogameplayed();
+    test_playerdoublesignup_playerisalreadyingame();
+    test_playsagain_2gamesplayed();
     test_1stplayerquitmidway_gameends();
     test_2ndplayerquitmidway_gameends();
     test_multiroundgames_playuntilaplayerquits();

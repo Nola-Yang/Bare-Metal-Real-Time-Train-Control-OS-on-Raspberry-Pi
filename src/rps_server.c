@@ -139,7 +139,7 @@ void rps_server_task(void) {
 
         switch (req.type) {
             case RPS_SIGNUP:
-                uart_printf(CONSOLE, "RPS Server: Player %d signing up\r\n", sender_tid);
+                uart_debug_printf(CONSOLE, "RPS Server: Player %d signing up\r\n", sender_tid);
                 int sender_ind = find_player_ind(sender_tid);
 
                 if (sender_ind < 0) {
@@ -150,8 +150,18 @@ void rps_server_task(void) {
                         Reply(sender_tid, (const char *)&resp, sizeof(RpsResponse));
                         break;
                     }
-                } else {
-                    reset_player_state(&Players[sender_ind]);
+                }
+
+                Player *player = &(Players[sender_ind]);
+
+                if (player->in_game) {
+                    uart_printf(CONSOLE, "RPS Server: Player %d tries to signup, but they are already in a game\r\n", sender_tid);
+                    resp.status = RPS_ERROR;
+                    Reply(sender_tid, (const char *)&resp, sizeof(RpsResponse));
+                    break;
+                } else if (Waiting_Tid == sender_tid) {
+                    uart_printf(CONSOLE, "RPS Server: Player %d is already signed up and waiting for an opponent\r\n", sender_tid);
+                    break;
                 }
 
                 if (Waiting_Tid < 0) {
@@ -159,21 +169,18 @@ void rps_server_task(void) {
                     Waiting_Ind = sender_ind;
                     uart_printf(CONSOLE, "RPS Server: Player %d waiting for opponent\r\n", sender_tid);
                 } else {
+
                     // Match with waiting player
-                    int p1_ind = Waiting_Ind;
-                    int p2_ind = sender_ind;
+                    if (Waiting_Ind >= 0 && sender_ind >= 0) {
+                        Player *partner = &(Players[Waiting_Ind]);
 
-                    if (p1_ind >= 0 && p2_ind >= 0) {
-                        Player *player1 = &(Players[p1_ind]);
-                        Player *player2 = &(Players[p2_ind]);
+                        partner->in_game = 1;
+                        partner->partner_tid = sender_tid;
+                        partner->partner_ind = sender_ind;
 
-                        player1->in_game = 1;
-                        player1->partner_tid = sender_tid;
-                        player1->partner_ind = p2_ind;
-
-                        player2->in_game = 1;
-                        player2->partner_tid = Waiting_Tid;
-                        player2->partner_ind = p1_ind;
+                        player->in_game = 1;
+                        player->partner_tid = Waiting_Tid;
+                        player->partner_ind = Waiting_Ind;
 
                         uart_printf(CONSOLE, "RPS Server: Matched players %d and %d\r\n", Waiting_Tid, sender_tid);
 
@@ -185,6 +192,7 @@ void rps_server_task(void) {
                     
                     clear_waiting();
                 }
+
                 break;
 
             case RPS_PLAY:

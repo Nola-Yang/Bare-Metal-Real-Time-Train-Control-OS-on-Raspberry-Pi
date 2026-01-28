@@ -23,6 +23,7 @@ static char *Msgs[] = {
 };
 
 
+// print_test_spec: Prints the specified setup based from the Makefile
 static void print_test_spec() {
     #ifdef OPT
     uart_printf(CONSOLE, "OPT: enabled\r\n");
@@ -45,6 +46,7 @@ static void print_test_spec() {
 	uart_printf(CONSOLE, "\r\n");
 }
 
+// print_csv_row: Prints a row for the CSV file
 static void print_csv_row(char first_drive, int msg_len, uint64_t time) {
 	#ifdef OPT
 	char *opt = "opt";
@@ -65,7 +67,8 @@ static void print_csv_row(char first_drive, int msg_len, uint64_t time) {
 	uart_printf(CONSOLE, "%s,%s,%c,%d,%d\r\n", opt, cache, first_drive, msg_len, time);
 }
 
-void send_first_func() {
+// send_first_func: Sending task for the "send first" execution order
+static void send_first_func() {
 	uint64_t avg_time = 0;
 	uint32_t time = 0;
 
@@ -97,7 +100,8 @@ void send_first_func() {
 	Exit();
 }
 
-void recv_after_func() {
+// recv_after_func: Receiving task for the "send first" execution order
+static void recv_after_func() {
 	int send_task_tid = 0;
 	int msg_len = 0;
 	int reply_len = 0;
@@ -120,7 +124,8 @@ void recv_after_func() {
 	Exit();
 }
 
-void recv_first_func() {
+// recv_first_func: Receving task for the "receive first" execution order
+static void recv_first_func() {
 	int send_task_tid = 0;
 	int msg_len = 0;
 	int reply_len = 0;
@@ -164,7 +169,8 @@ void recv_first_func() {
 	Exit();
 }
 
-void send_after_func() {
+// send_after_func: Sending task for the "receive first" execution order
+static void send_after_func() {
 	uint32_t end_time = 0;
 	char end_time_msg[TIMER_MSG_LEN];
 	char end_time_ack_msg[TIMER_MSG_LEN];
@@ -195,6 +201,7 @@ void send_after_func() {
 	Exit();
 }
 
+// perform_test_task: Task for the overall performance test
 static void perform_test_task() {
 	Create(RPS_CLIENT_PRIORITY, send_first_func);
 	Create(RPS_CLIENT_PRIORITY, recv_after_func);
