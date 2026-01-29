@@ -7,6 +7,7 @@
 
 
 #define TEST_COUNT 5000
+#define WARMUP_COUNT 100
 #define MSG_TYPE_COUNT 3
 #define MAX_MSG_LEN 256
 #define SYNC_MSG_LEN 4
@@ -81,21 +82,32 @@ static void task_a_func() {
 	char sync_reply[SYNC_MSG_LEN];
 
 	uint64_t avg_time = 0;
-	uint32_t time = 0;
+	uint32_t start_time = 0;
+	uint32_t loop_overhead = 0;
 
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
 		msg_len = Msg_Lens[i];
 		reply_len = msg_len;
 		reply = Msgs[i];
 
-		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
-			shared_start_time = read_timer();
+		// Warm up to prime cache
+		for (uint32_t j = 0; j < WARMUP_COUNT; ++j) {
 			Receive(&sender_tid, msg, msg_len);
 			Reply(sender_tid, reply, reply_len);
-
-			// Sync: wait for task_b to read shared_start_time before next iteration
-			Send(TASK_B_TID, "sync", SYNC_MSG_LEN, sync_reply, SYNC_MSG_LEN);
 		}
+
+		// Sync: wait for task_b to finish warm up
+		Send(TASK_B_TID, "sync", SYNC_MSG_LEN, sync_reply, SYNC_MSG_LEN);
+
+		shared_start_time = read_timer();
+
+		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
+			Receive(&sender_tid, msg, msg_len);
+			Reply(sender_tid, reply, reply_len);
+		}
+
+		// Sync: wait for task_b to finish timing before next msg_len
+		Send(TASK_B_TID, "sync", SYNC_MSG_LEN, sync_reply, SYNC_MSG_LEN);
 	}
 
 	// Phase Sync: wait for task_b to be ready for Send First phase
@@ -105,18 +117,31 @@ static void task_a_func() {
 	char reply_buf[MAX_MSG_LEN] = {0};
 
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
-		avg_time = 0;
 		msg_len = Msg_Lens[i];
 		reply_len = msg_len;
 		reply = Msgs[i];
 
-		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
-			time = read_timer();
+		// Warm up to prime cache
+		for (uint32_t j = 0; j < WARMUP_COUNT; ++j) {
 			Send(TASK_B_TID, reply, msg_len, reply_buf, reply_len);
-			time = read_timer() - time;
-
-			avg_time += time;
 		}
+
+		// Sync: wait for task_b to finish warm up
+		Send(TASK_B_TID, "sync", SYNC_MSG_LEN, sync_reply, SYNC_MSG_LEN);
+
+		// Void loop to measure loop overhead
+		start_time = read_timer();
+		for (volatile uint32_t j = 0; j < TEST_COUNT; ++j) {
+			// empty loop
+		}
+		loop_overhead = read_timer() - start_time;
+
+		// Actual test
+		start_time = read_timer();
+		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
+			Send(TASK_B_TID, reply, msg_len, reply_buf, reply_len);
+		}
+		avg_time = read_timer() - start_time - loop_overhead;
 
 		avg_time /= TEST_COUNT;
 		print_csv_row(Sender_First, msg_len, avg_time);
@@ -140,23 +165,39 @@ static void task_b_func() {
 	char sync_reply[SYNC_MSG_LEN] = "ack";
 
 	uint64_t avg_time = 0;
-	uint32_t time = 0;
+	uint32_t start_time = 0;
+	uint32_t loop_overhead = 0;
 
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
-		avg_time = 0;
 		msg_len = Msg_Lens[i];
 		reply_len = msg_len;
 		msg = Msgs[i];
 
+		// Warm up to prime cache
+		for (uint32_t j = 0; j < WARMUP_COUNT; ++j) {
+			Send(TASK_A_TID, msg, msg_len, reply, reply_len);
+		}
+
+		// Sync: wait for task_a to finish warm up
+		Receive(&sender_tid, sync_msg, SYNC_MSG_LEN);
+		Reply(sender_tid, sync_reply, SYNC_MSG_LEN);
+
+		// Void loop to measure loop overhead
+		start_time = read_timer();
+		for (volatile uint32_t j = 0; j < TEST_COUNT; ++j) {
+			// empty loop
+		}
+		loop_overhead = read_timer() - start_time;
+
+		// Actual test
 		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
 			Send(TASK_A_TID, msg, msg_len, reply, reply_len);
-			time = read_timer();
-
-			// Sync: wait for task_a to finish current iteration before reading shared_start_time
-			Receive(&sender_tid, sync_msg, SYNC_MSG_LEN);
-			avg_time += time - shared_start_time;
-			Reply(sender_tid, sync_reply, SYNC_MSG_LEN);
 		}
+		avg_time = read_timer() - shared_start_time - loop_overhead;
+
+		// Sync: wait for task_a before next msg_len
+		Receive(&sender_tid, sync_msg, SYNC_MSG_LEN);
+		Reply(sender_tid, sync_reply, SYNC_MSG_LEN);
 
 		avg_time /= TEST_COUNT;
 		print_csv_row(Receiver_First, msg_len, avg_time);
@@ -166,7 +207,7 @@ static void task_b_func() {
 	Receive(&sender_tid, sync_msg, SYNC_MSG_LEN);
 	Reply(sender_tid, sync_reply, SYNC_MSG_LEN);
 
-	//Send First 
+	//Send First
 	char msg_buf[MAX_MSG_LEN];
 
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
@@ -174,6 +215,17 @@ static void task_b_func() {
 		reply_len = msg_len;
 		msg = Msgs[i];
 
+		// Warm up to prime cache
+		for (uint32_t j = 0; j < WARMUP_COUNT; ++j) {
+			Receive(&sender_tid, msg_buf, msg_len);
+			Reply(sender_tid, msg, reply_len);
+		}
+
+		// Sync: wait for task_a to finish warm up
+		Receive(&sender_tid, sync_msg, SYNC_MSG_LEN);
+		Reply(sender_tid, sync_reply, SYNC_MSG_LEN);
+
+		// Actual test
 		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
 			Receive(&sender_tid, msg_buf, msg_len);
 			Reply(sender_tid, msg, reply_len);
