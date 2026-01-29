@@ -10,9 +10,9 @@
 #define MSG_TYPE_COUNT 3
 #define MAX_MSG_LEN 256
 #define SYNC_MSG_LEN 4
-#define TIME_MSG_LEN 12
-#define TIME_REPLY_MSG_LEN 6
 
+// Shared variable for passing start time 
+static volatile uint32_t shared_start_time = 0;
 
 static const char Sender_First = 'S';
 static const char Receiver_First = 'R';
@@ -83,29 +83,25 @@ static void task_a_func() {
 	uint64_t avg_time = 0;
 	uint32_t time = 0;
 
-	char time_msg[TIME_MSG_LEN];
-	char time_reply_msg[TIME_REPLY_MSG_LEN];
-
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
 		msg_len = Msg_Lens[i];
 		reply_len = msg_len;
 		reply = Msgs[i];
 
 		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
-			time = read_timer();
+			shared_start_time = read_timer();
 			Receive(&sender_tid, msg, msg_len);
 			Reply(sender_tid, reply, reply_len);
 
-			// send the start time to the other task
-			ui2a(time, 10, time_msg);
-			Send(TASK_B_TID, time_msg, TIME_MSG_LEN, time_reply_msg, TIME_REPLY_MSG_LEN);
+			// Sync: wait for task_b to read shared_start_time before next iteration
+			Send(TASK_B_TID, "sync", SYNC_MSG_LEN, sync_reply, SYNC_MSG_LEN);
 		}
 	}
 
-	// Sync
+	// Phase Sync: wait for task_b to be ready for Send First phase
 	Send(TASK_B_TID, "sync", SYNC_MSG_LEN, sync_reply, SYNC_MSG_LEN);
 
-	//Send First 
+	//Send First
 	char reply_buf[MAX_MSG_LEN] = {0};
 
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
@@ -146,10 +142,6 @@ static void task_b_func() {
 	uint64_t avg_time = 0;
 	uint32_t time = 0;
 
-	uint32_t start_time = 0;
-	char time_msg[TIME_MSG_LEN];
-	char time_msg_first_char;
-
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
 		avg_time = 0;
 		msg_len = Msg_Lens[i];
@@ -160,15 +152,10 @@ static void task_b_func() {
 			Send(TASK_A_TID, msg, msg_len, reply, reply_len);
 			time = read_timer();
 
-			// receive the start time from the other task
-			Receive(&sender_tid, time_msg, TIME_MSG_LEN);
-
-			time_msg_first_char = time_msg[0];
-			char *time_msg_ptr = time_msg + 1;
-			a2ui(time_msg_first_char, &time_msg_ptr, 10, &start_time);
-			avg_time += time - start_time;
-
-			Reply(sender_tid, "acked", TIME_REPLY_MSG_LEN);
+			// Sync: wait for task_a to finish current iteration before reading shared_start_time
+			Receive(&sender_tid, sync_msg, SYNC_MSG_LEN);
+			avg_time += time - shared_start_time;
+			Reply(sender_tid, sync_reply, SYNC_MSG_LEN);
 		}
 
 		avg_time /= TEST_COUNT;
