@@ -10,6 +10,8 @@
 #define MSG_TYPE_COUNT 3
 #define MAX_MSG_LEN 256
 #define SYNC_MSG_LEN 4
+#define TIME_MSG_LEN 12
+#define TIME_REPLY_MSG_LEN 6
 
 
 static const char Sender_First = 'S';
@@ -81,14 +83,22 @@ static void task_a_func() {
 	uint64_t avg_time = 0;
 	uint32_t time = 0;
 
+	char time_msg[TIME_MSG_LEN];
+	char time_reply_msg[TIME_REPLY_MSG_LEN];
+
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
 		msg_len = Msg_Lens[i];
 		reply_len = msg_len;
 		reply = Msgs[i];
 
 		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
+			time = read_timer();
 			Receive(&sender_tid, msg, msg_len);
 			Reply(sender_tid, reply, reply_len);
+
+			// send the start time to the other task
+			ui2a(time, 10, time_msg);
+			Send(TASK_B_TID, time_msg, TIME_MSG_LEN, time_reply_msg, TIME_REPLY_MSG_LEN);
 		}
 	}
 
@@ -136,6 +146,10 @@ static void task_b_func() {
 	uint64_t avg_time = 0;
 	uint32_t time = 0;
 
+	uint32_t start_time = 0;
+	char *time_msg;
+	char time_msg_first_char;
+
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
 		avg_time = 0;
 		msg_len = Msg_Lens[i];
@@ -143,11 +157,18 @@ static void task_b_func() {
 		msg = Msgs[i];
 
 		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
-			time = read_timer();
 			Send(TASK_A_TID, msg, msg_len, reply, reply_len);
-			time = read_timer() - time;
+			time = read_timer();
 
-			avg_time += time;
+			// receive the start time from the other task
+			Receive(&sender_tid, time_msg, TIME_MSG_LEN);
+
+			time_msg_first_char = time_msg[0];
+			time_msg++;
+			a2ui(time_msg_first_char, &time_msg, 10, &start_time);
+			avg_time += time - start_time;
+
+			Reply(sender_tid, "acked", TIME_REPLY_MSG_LEN);
 		}
 
 		avg_time /= TEST_COUNT;
