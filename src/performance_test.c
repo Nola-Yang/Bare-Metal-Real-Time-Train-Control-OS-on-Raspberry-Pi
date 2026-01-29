@@ -7,6 +7,7 @@
 
 
 #define TEST_COUNT 5000
+#define WARMUP_COUNT 100
 #define MSG_TYPE_COUNT 3
 #define MAX_MSG_LEN 256
 #define SYNC_MSG_LEN 4
@@ -89,6 +90,15 @@ static void task_a_func() {
 		reply_len = msg_len;
 		reply = Msgs[i];
 
+		// Warm up to prime cache
+		for (uint32_t j = 0; j < WARMUP_COUNT; ++j) {
+			Receive(&sender_tid, msg, msg_len);
+			Reply(sender_tid, reply, reply_len);
+		}
+
+		// Sync: wait for task_b to finish warm up
+		Send(TASK_B_TID, "sync", SYNC_MSG_LEN, sync_reply, SYNC_MSG_LEN);
+
 		shared_start_time = read_timer();
 
 		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
@@ -110,6 +120,14 @@ static void task_a_func() {
 		msg_len = Msg_Lens[i];
 		reply_len = msg_len;
 		reply = Msgs[i];
+
+		// Warm up to prime cache
+		for (uint32_t j = 0; j < WARMUP_COUNT; ++j) {
+			Send(TASK_B_TID, reply, msg_len, reply_buf, reply_len);
+		}
+
+		// Sync: wait for task_b to finish warm up
+		Send(TASK_B_TID, "sync", SYNC_MSG_LEN, sync_reply, SYNC_MSG_LEN);
 
 		// Void loop to measure loop overhead
 		start_time = read_timer();
@@ -155,6 +173,15 @@ static void task_b_func() {
 		reply_len = msg_len;
 		msg = Msgs[i];
 
+		// Warm up to prime cache
+		for (uint32_t j = 0; j < WARMUP_COUNT; ++j) {
+			Send(TASK_A_TID, msg, msg_len, reply, reply_len);
+		}
+
+		// Sync: wait for task_a to finish warm up
+		Receive(&sender_tid, sync_msg, SYNC_MSG_LEN);
+		Reply(sender_tid, sync_reply, SYNC_MSG_LEN);
+
 		// Void loop to measure loop overhead
 		start_time = read_timer();
 		for (volatile uint32_t j = 0; j < TEST_COUNT; ++j) {
@@ -180,7 +207,7 @@ static void task_b_func() {
 	Receive(&sender_tid, sync_msg, SYNC_MSG_LEN);
 	Reply(sender_tid, sync_reply, SYNC_MSG_LEN);
 
-	//Send First 
+	//Send First
 	char msg_buf[MAX_MSG_LEN];
 
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
@@ -188,6 +215,17 @@ static void task_b_func() {
 		reply_len = msg_len;
 		msg = Msgs[i];
 
+		// Warm up to prime cache
+		for (uint32_t j = 0; j < WARMUP_COUNT; ++j) {
+			Receive(&sender_tid, msg_buf, msg_len);
+			Reply(sender_tid, msg, reply_len);
+		}
+
+		// Sync: wait for task_a to finish warm up
+		Receive(&sender_tid, sync_msg, SYNC_MSG_LEN);
+		Reply(sender_tid, sync_reply, SYNC_MSG_LEN);
+
+		// Actual test
 		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
 			Receive(&sender_tid, msg_buf, msg_len);
 			Reply(sender_tid, msg, reply_len);
