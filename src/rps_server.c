@@ -161,6 +161,8 @@ void rps_server_task(void) {
                     break;
                 } else if (Waiting_Tid == sender_tid) {
                     uart_printf(CONSOLE, "RPS Server: Player %d is already signed up and waiting for an opponent\r\n", sender_tid);
+                    resp.status = RPS_ERROR;
+                    Reply(sender_tid, (const char *)&resp, sizeof(RpsResponse));
                     break;
                 }
 

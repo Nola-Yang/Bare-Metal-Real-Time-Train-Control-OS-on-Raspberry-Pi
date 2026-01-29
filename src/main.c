@@ -35,6 +35,7 @@ void first_user_task() {
 
     uart_printf(CONSOLE, "========================================\r\n");
 
+    #ifndef MEASURE
     tid = Create(NAMESERVER_PRIORITY, nameserver_task);
 
     if (tid != NAMESERVER_TID) {
@@ -42,10 +43,10 @@ void first_user_task() {
         Exit();
     }
 
-    #ifndef MEASURE
     uart_printf(CONSOLE, "Created NameServer, tid=%d\r\n", tid);
     rps_test_run();
     #else
+    (void)tid;  // suppress unused warning
     perform_test_run();
     #endif
 
