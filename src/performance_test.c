@@ -11,6 +11,9 @@
 #define MAX_MSG_LEN 256
 #define SYNC_MSG_LEN 4
 
+// Shared variable for passing start time 
+static volatile uint32_t shared_start_time = 0;
+
 static const char Sender_First = 'S';
 static const char Receiver_First = 'R';
 
@@ -80,19 +83,22 @@ static void task_a_func() {
 	uint64_t avg_time = 0;
 	uint32_t time = 0;
 
-	// Receive First: task_a: Receive/Reply, task_b measures Send time
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
 		msg_len = Msg_Lens[i];
 		reply_len = msg_len;
 		reply = Msgs[i];
 
 		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
+			shared_start_time = read_timer();
 			Receive(&sender_tid, msg, msg_len);
 			Reply(sender_tid, reply, reply_len);
+
+			// Sync: wait for task_b to read shared_start_time before next iteration
+			Send(TASK_B_TID, "sync", SYNC_MSG_LEN, sync_reply, SYNC_MSG_LEN);
 		}
 	}
 
-	// Phase Sync
+	// Phase Sync: wait for task_b to be ready for Send First phase
 	Send(TASK_B_TID, "sync", SYNC_MSG_LEN, sync_reply, SYNC_MSG_LEN);
 
 	//Send First
@@ -136,7 +142,6 @@ static void task_b_func() {
 	uint64_t avg_time = 0;
 	uint32_t time = 0;
 
-	// Receive First: task_b measures its own Send time 
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
 		avg_time = 0;
 		msg_len = Msg_Lens[i];
@@ -144,11 +149,13 @@ static void task_b_func() {
 		msg = Msgs[i];
 
 		for (uint32_t j = 0; j < TEST_COUNT; ++j) {
-			time = read_timer();
 			Send(TASK_A_TID, msg, msg_len, reply, reply_len);
-			time = read_timer() - time;
+			time = read_timer();
 
-			avg_time += time;
+			// Sync: wait for task_a to finish current iteration before reading shared_start_time
+			Receive(&sender_tid, sync_msg, SYNC_MSG_LEN);
+			avg_time += time - shared_start_time;
+			Reply(sender_tid, sync_reply, SYNC_MSG_LEN);
 		}
 
 		avg_time /= TEST_COUNT;
