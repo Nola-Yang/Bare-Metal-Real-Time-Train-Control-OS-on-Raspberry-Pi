@@ -147,7 +147,7 @@ static void task_b_func() {
 	uint32_t time = 0;
 
 	uint32_t start_time = 0;
-	char *time_msg;
+	char time_msg[TIME_MSG_LEN];
 	char time_msg_first_char;
 
 	for (uint32_t i = 0; i < MSG_TYPE_COUNT; ++i) {
@@ -164,8 +164,8 @@ static void task_b_func() {
 			Receive(&sender_tid, time_msg, TIME_MSG_LEN);
 
 			time_msg_first_char = time_msg[0];
-			time_msg++;
-			a2ui(time_msg_first_char, &time_msg, 10, &start_time);
+			char *time_msg_ptr = time_msg + 1;
+			a2ui(time_msg_first_char, &time_msg_ptr, 10, &start_time);
 			avg_time += time - start_time;
 
 			Reply(sender_tid, "acked", TIME_REPLY_MSG_LEN);
