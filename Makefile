@@ -45,18 +45,6 @@ else ifeq ($(CACHE),d)
 	CFLAGS += -DDCACHE
 endif
 
-# TIMER (bcm, arch): Which timer source to use for clock ticks
-# - bcm  : Raspberry Pi system timer compare IRQs (better for real hardware)
-# - arch : ARM generic timer (better supported by QEMU)
-TIMER ?= bcm
-ifeq ($(TIMER),bcm)
-	CFLAGS += -DUSE_BCM_SYSTEM_TIMER
-else ifeq ($(TIMER),arch)
-	CFLAGS += -DUSE_ARCH_GENERIC_TIMER
-else
-$(error Invalid TIMER=$(TIMER) (use TIMER=bcm or TIMER=arch))
-endif
-
 # =========================================
 
 # Source files
@@ -97,16 +85,13 @@ QEMU = qemu-system-aarch64
 QEMU_FLAGS = -M raspi4b -kernel $(BUILD_DIR)/$(FILENAME).img -nographic
 
 
-sim:
-	$(MAKE) TIMER=arch $(BUILD_DIR)/$(FILENAME).img
+sim: $(BUILD_DIR)/$(FILENAME).img
 	$(QEMU) $(QEMU_FLAGS)
 
-sim-debug:
-	$(MAKE) TIMER=arch $(BUILD_DIR)/$(FILENAME).img
+sim-debug: $(BUILD_DIR)/$(FILENAME).img
 	$(QEMU) $(QEMU_FLAGS) -s -S
 
-sim-gui:
-	$(MAKE) TIMER=arch $(BUILD_DIR)/$(FILENAME).img
+sim-gui: $(BUILD_DIR)/$(FILENAME).img
 	$(QEMU) -M raspi4b -kernel $(BUILD_DIR)/$(FILENAME).img -serial stdio
 
 # =========================================

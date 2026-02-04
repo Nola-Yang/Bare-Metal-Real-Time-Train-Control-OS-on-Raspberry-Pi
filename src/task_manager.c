@@ -406,19 +406,10 @@ static void handle_timer_interrupt(int eventid) {
     }
 }
 
-#if defined(USE_ARCH_GENERIC_TIMER)
-static inline bool arch_timer_is_pending(void) {
-    uint64_t ctl;
-    __asm__ volatile("mrs %0, cntp_ctl_el0" : "=r"(ctl));
-    return (ctl & (1U << 2)) != 0;  // ISTATUS
-}
-#endif
-
 // Initialize interrupt handling
 void init_interrupts(void) {
     gic_init();
 
-#if defined(USE_BCM_SYSTEM_TIMER)
     timer_clear_c1();
     timer_clear_c3();
 
@@ -433,21 +424,6 @@ void init_interrupts(void) {
     uint32_t current = (uint32_t)read_timer();
     timer_set_c1(current + 10000);
     timer_set_c3(current + 10000);
-#elif defined(USE_ARCH_GENERIC_TIMER)
-    gic_set_priority(ARCH_TIMER_IRQ_ID, 0);
-    gic_enable_interrupt(ARCH_TIMER_IRQ_ID);
-
-    uint64_t cntfrq;
-    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(cntfrq));
-    uint64_t interval = cntfrq / 100;
-
-    // Disable, program, enable
-    uint64_t ctl = 0;
-    __asm__ volatile("msr cntp_ctl_el0, %0" :: "r"(ctl));
-    __asm__ volatile("msr cntp_tval_el0, %0" :: "r"(interval));
-    ctl = 1;
-    __asm__ volatile("msr cntp_ctl_el0, %0" :: "r"(ctl));
-#endif
 }
 
 // IRQ dispatch - called from irq_entry in vectors.S
@@ -457,7 +433,6 @@ void irq_dispatch(void) {
     uint32_t iar = gic_read_iar();
     uint32_t irq_id = iar & 0x3FF;  
 
-#if defined(USE_BCM_SYSTEM_TIMER)
     if (irq_id == TIMER_C1_IRQ_ID) {
         timer_clear_c1();
 
@@ -478,24 +453,6 @@ void irq_dispatch(void) {
         uart_printf(CONSOLE, "Unknown IRQ: %d\r\n", irq_id);
         gic_write_eoir(iar);
     }
-#elif defined(USE_ARCH_GENERIC_TIMER)
-    if (irq_id == ARCH_TIMER_IRQ_ID || ((irq_id == 1022 || irq_id == 1023) && arch_timer_is_pending())) {
-        uint64_t cntfrq;
-        __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(cntfrq));
-        uint64_t interval = cntfrq / 100;
-        __asm__ volatile("msr cntp_tval_el0, %0" :: "r"(interval));
-
-        handle_timer_interrupt(EVENT_TIMER_C1);
-        if (irq_id != 1022 && irq_id != 1023) {
-            gic_write_eoir(iar);
-        }
-    } else if (irq_id == 1022 || irq_id == 1023) {
-        // Spurious interrupt, ignore
-    } else {
-        uart_printf(CONSOLE, "Unknown IRQ: %d\r\n", irq_id);
-        gic_write_eoir(iar);
-    }
-#endif
 
     if (current_task->state == TASK_STATE_RUNNING) {
         current_task->state = TASK_STATE_READY;

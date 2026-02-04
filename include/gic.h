@@ -28,9 +28,6 @@
 #define TIMER_C1_IRQ_ID     97
 #define TIMER_C3_IRQ_ID     99
 
-// ARM generic timer PPI interrupt ID (todo: confirm)
-#define ARCH_TIMER_IRQ_ID   30
-
 // Event IDs for AwaitEvent
 #define EVENT_TIMER_C1      0
 #define EVENT_TIMER_C3      1

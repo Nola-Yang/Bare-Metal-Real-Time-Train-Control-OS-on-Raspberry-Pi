@@ -10,11 +10,8 @@ void gic_init(void) {
     uint32_t c1_bit = TIMER_C1_IRQ_ID % 32;
     uint32_t c3_reg = TIMER_C3_IRQ_ID / 32;
     uint32_t c3_bit = TIMER_C3_IRQ_ID % 32;
-    uint32_t arch_reg = ARCH_TIMER_IRQ_ID / 32;
-    uint32_t arch_bit = ARCH_TIMER_IRQ_ID % 32;
     GICD_IGROUPR(c1_reg) |= (1U << c1_bit);
     GICD_IGROUPR(c3_reg) |= (1U << c3_bit);
-    GICD_IGROUPR(arch_reg) |= (1U << arch_bit);
 
     // Accept all priorities
     GICC_PMR = 0xFF;
