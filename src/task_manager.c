@@ -2,6 +2,8 @@
 #include "trapframe.h"
 #include "util.h"
 #include "uart.h"
+#include "gic.h"
+#include "timer.h"
 #include <string.h>
 
 
@@ -14,6 +16,7 @@
 #define SYSCALL_SEND         5
 #define SYSCALL_RECEIVE      6
 #define SYSCALL_REPLY        7
+#define SYSCALL_AWAITEVENT   8
 
 #define SPSR_FOR_EL0t 0x0
 
@@ -26,6 +29,10 @@ void init_global_task_manager(TaskDescriptor_t *tasks) {
     GlobalTaskManager.tasks = tasks;
     GlobalTaskManager.current_task_id = 0;
     GlobalTaskManager.free_list = NULL;
+
+    for (int i = 0; i < EVENT_COUNT; i++) {
+        GlobalTaskManager.event_wait_queue[i] = NULL;
+    }
 }
 
 extern void return_to_task(void);
@@ -348,6 +355,119 @@ static int kern_Reply(int tid, const char *reply, int rplen) {
 }
 
 // =============================
+// Event Waiting
+
+// Add task to event wait queue
+static void enqueue_event_waiter(int eventid, TaskDescriptor_t *task) {
+    task->next = GlobalTaskManager.event_wait_queue[eventid];
+    GlobalTaskManager.event_wait_queue[eventid] = task;
+}
+
+// Remove and return task waiting for event (returns NULL if none)
+static TaskDescriptor_t *dequeue_event_waiter(int eventid) {
+    TaskDescriptor_t *task = GlobalTaskManager.event_wait_queue[eventid];
+    if (task != NULL) {
+        GlobalTaskManager.event_wait_queue[eventid] = task->next;
+        task->next = NULL;
+    }
+    return task;
+}
+
+// kern_AwaitEvent: Block until event occurs
+// Returns: >=0 event-specific data, -1 invalid event
+static int kern_AwaitEvent(int eventid) {
+    if (eventid < 0 || eventid >= EVENT_COUNT) {
+        return -1;  
+    }
+
+    TaskDescriptor_t *current_task = get_current_task();
+    current_task->state = TASK_STATE_EVENT_BLOCKED;
+    enqueue_event_waiter(eventid, current_task);
+
+    // Schedule next task
+    TaskDescriptor_t *next_task = schedule();
+    if (next_task == NULL) {
+        for (;;) {
+            __asm__ volatile("wfi");
+            next_task = schedule();
+            if (next_task) break;
+        }
+    }
+    set_current_task(next_task);
+    next_task->state = TASK_STATE_RUNNING;
+
+    return 0;  // Return value will be set by IRQ handler
+}
+
+// Handle timer interrupt
+static void handle_timer_interrupt(int eventid) {
+    TaskDescriptor_t *task = dequeue_event_waiter(eventid);
+    if (task != NULL) {
+        task->tf.x[0] = read_timer();
+        task->state = TASK_STATE_READY;
+        global_task_scheduler_add_task(task);
+    }
+}
+
+// Initialize interrupt handling
+void init_interrupts(void) {
+    gic_init();
+
+    // Route timer C1 interrupt to CPU 0
+    gic_route_interrupt_to_cpu0(TIMER_C1_IRQ_ID);
+    gic_enable_interrupt(TIMER_C1_IRQ_ID);
+
+    // Route timer C3 interrupt to CPU 0
+    gic_route_interrupt_to_cpu0(TIMER_C3_IRQ_ID);
+    gic_enable_interrupt(TIMER_C3_IRQ_ID);
+}
+
+// IRQ dispatch - called from irq_entry in vectors.S
+void irq_dispatch(void) {
+    TaskDescriptor_t *current_task = get_current_task();
+
+    uint32_t iar = gic_read_iar();
+    uint32_t irq_id = iar & 0x3FF;  
+
+    if (irq_id == TIMER_C1_IRQ_ID) {
+        timer_clear_c1();
+
+        uint64_t current = read_timer();
+        timer_set_c1((uint32_t)(current + 10000));
+        handle_timer_interrupt(EVENT_TIMER_C1);
+        gic_write_eoir(iar);
+    } else if (irq_id == TIMER_C3_IRQ_ID) {
+        timer_clear_c3();
+
+        uint64_t current = read_timer();
+        timer_set_c3((uint32_t)(current + 10000));
+        handle_timer_interrupt(EVENT_TIMER_C3);
+        gic_write_eoir(iar);
+    } else if (irq_id == 1023) {
+        // Spurious interrupt, ignore
+    } else {
+        uart_printf(CONSOLE, "Unknown IRQ: %d\r\n", irq_id);
+        gic_write_eoir(iar);
+    }
+
+    if (current_task->state == TASK_STATE_RUNNING) {
+        current_task->state = TASK_STATE_READY;
+        global_task_scheduler_add_task(current_task);
+    }
+
+    TaskDescriptor_t *next_task = schedule();
+    if (next_task == NULL) {
+        for (;;) {
+            __asm__ volatile("wfi");
+            next_task = schedule();
+            if (next_task) break;
+        }
+    }
+    set_current_task(next_task);
+    next_task->state = TASK_STATE_RUNNING;
+}
+
+// =============================
 
 
 void syscall_dispatch() {
@@ -393,6 +513,12 @@ void syscall_dispatch() {
         case SYSCALL_REPLY:
             ret = kern_Reply((int)tf->x[0], (const char *)tf->x[1], (int)tf->x[2]);
             break;
+        case SYSCALL_AWAITEVENT:
+            ret = kern_AwaitEvent((int)tf->x[0]);
+            if (ret < 0) {
+                break;  // Invalid event, return error
+            }
+            return;  // Task is blocked, scheduling done by kern_AwaitEvent
         default:
             ret = -1;
             break;

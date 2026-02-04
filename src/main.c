@@ -9,7 +9,8 @@
 #include "rps_server.h"
 #include "rps_client.h"
 #include "rps_test.h"
-#include "performance_test.h"
+#include "timer.h"
+#include "gic.h"
 #include <stdint.h>
 
 
@@ -59,21 +60,6 @@ int kmain() {
 	setup_mmu();
 #endif
 
-    #ifdef MEASURE
-	bool dcache_on = false;
-	bool icache_on = false;
-
-	#ifdef DCACHE
-	dcache_on = true;
-	#endif
-
-	#ifdef ICACHE
-	icache_on = true;
-	#endif
-
-    toggle_caches(dcache_on, icache_on);
-    #endif
-
 	// set up GPIO pins for both console uart and canbus
 	gpio_init();
 
@@ -87,6 +73,13 @@ int kmain() {
 
 	init_global_task_scheduler(queues, PRIORITY_LEVELS);
 	init_global_task_manager(tasks);
+
+	init_interrupts();
+
+	// Set initial timer compare values 
+	uint64_t current_time = read_timer();
+	timer_set_c1((uint32_t)(current_time + 10000));
+	timer_set_c3((uint32_t)(current_time + 10000));
 
 	kern_Create(FIRST_USER_TASK_PRIORITY, first_user_task);
 
