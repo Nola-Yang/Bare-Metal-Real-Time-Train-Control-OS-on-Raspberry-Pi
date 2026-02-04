@@ -1,4 +1,4 @@
-# K2
+# K3
 
 [![C](https://img.shields.io/badge/C-005697?style=for-the-badge)](https://en.cppreference.com/w/c/language.html)
 [![ARMv8 Assembly](https://img.shields.io/badge/ARMv8%20Assembly-00BEDB?style=for-the-badge)](https://developer.arm.com/documentation/ddi0602/latest/)
@@ -38,87 +38,17 @@ git checkout <commit_hash>
 ### STEP 3:
 <br>
 
-An image file should be created at `build/kernel.img`
-
-<br>
-
-#### (a) RPS Game Test
-
-Build and run the Rock-Paper-Scissors game test:
 
 ```bash
 make clean
 make
 ```
 
-This compiles with default settings (MEASURE=0) and runs the RPS test suite, which includes:
-- Play without signup
-- Quit without signup
-- Immediate quitters
-- Double signup
-- Player plays again
-- Early quit scenarios
-- Multi-round games
-
-To run the full test suite including all RPS move combinations:
-
-```bash
-make clean
-make FULLTEST=1
-```
-
-#### (b) Performance Measurements
-
-Build and run performance measurements with different configurations:
-
-```bash
-make clean
-make MEASURE=1
-```
-
-##### Configuration Options
-
-The following options can be combined when building:
-
-| Option | Values | Description |
-|--------|--------|-------------|
-| MEASURE | 0, 1 | Enable performance measurement mode (default: 0) |
-| OPT | 0, 1 | Enable O3 optimization (default: 1) |
-| CACHE | n, i, d, b | Cache configuration (default: b) |
-
-Cache options:
-- `n` = no caches
-- `i` = instruction cache only
-- `d` = data cache only
-- `b` = both caches (default)
-
-##### Example Configurations
-
-Performance test with optimization and both caches (default):
-```bash
-make clean
-make MEASURE=1
-```
-
-Performance test without optimization:
-```bash
-make clean
-make MEASURE=1 OPT=0
-```
-
-Performance test with no caches:
-```bash
-make clean
-make MEASURE=1 CACHE=n
-```
-
-Performance test with instruction cache only:
-```bash
-make clean
-make MEASURE=1 CACHE=i
-```
+An image file should be created at `build/kernel.img`
 
 <br>
+
+
 
 ## How to Run
 
@@ -135,23 +65,72 @@ Restart the selected Raspberry Pi that you have uploaded the image into.
 Once the Raspberry Pi has restarted, output will be printed onto the screen as the kernel runs the specific tasks. 
 
 ### Output Format
-
-Performance measurements output CSV-formatted rows:
+```text
+========================================
+K3 Clock Server Test
+========================================
+Created NameServer, tid=1
+Created ClockServer, tid=2
+Created IdleTask, tid=4
+Created clients: 5, 6, 7, 8
+Sent params to client 5: interval=10, num=20
+Sent params to client 6: interval=23, num=9
+Sent params to client 7: interval=33, num=6
+Sent params to client 8: interval=71, num=3
+FirstUserTask: All clients started, waiting for completion
+Client tid=5, interval=10, completed=1/20, tick=10
+Client tid=5, interval=10, completed=2/20, tick=20
+Client tid=6, interval=23, completed=1/9, tick=23
+Client tid=5, interval=10, completed=3/20, tick=30
+Client tid=7, interval=33, completed=1/6, tick=33
+Client tid=5, interval=10, completed=4/20, tick=40
+Client tid=6, interval=23, completed=2/9, tick=46
+Client tid=5, interval=10, completed=5/20, tick=50
+Client tid=5, interval=10, completed=6/20, tick=60
+Client tid=7, interval=33, completed=2/6, tick=66
+Client tid=6, interval=23, completed=3/9, tick=69
+Client tid=5, interval=10, completed=7/20, tick=70
+Client tid=8, interval=71, completed=1/3, tick=71
+Client tid=5, interval=10, completed=8/20, tick=80
+Idle: 95%
+Client tid=5, interval=10, completed=9/20, tick=90
+Client tid=6, interval=23, completed=4/9, tick=92
+Client tid=7, interval=33, completed=3/6, tick=99
+Client tid=5, interval=10, completed=10/20, tick=100
+Client tid=5, interval=10, completed=11/20, tick=110
+Client tid=6, interval=23, completed=5/9, tick=115
+Client tid=5, interval=10, completed=12/20, tick=120
+Client tid=5, interval=10, completed=13/20, tick=130
+Client tid=7, interval=33, completed=4/6, tick=132
+Client tid=6, interval=23, completed=6/9, tick=138
+Client tid=5, interval=10, completed=14/20, tick=140
+Client tid=8, interval=71, completed=2/3, tick=142
+Client tid=5, interval=10, completed=15/20, tick=150
+Client tid=5, interval=10, completed=16/20, tick=160
+Client tid=6, interval=23, completed=7/9, tick=161
+Idle: 94%
+Client tid=7, interval=33, completed=5/6, tick=165
+Client tid=5, interval=10, completed=17/20, tick=170
+Client tid=5, interval=10, completed=18/20, tick=180
+Client tid=6, interval=23, completed=8/9, tick=184
+Client tid=5, interval=10, completed=19/20, tick=190
+Client tid=7, interval=33, completed=6/6, tick=198
+Client 7: Finished all delays
+Client tid=5, interval=10, completed=20/20, tick=200
+Client 5: Finished all delays
+Client tid=6, interval=23, completed=9/9, tick=207
+Client 6: Finished all delays
+Client tid=8, interval=71, completed=3/3, tick=213
+Client 8: Finished all delays
+Idle: 97%
+Idle: 98%
+Idle: 98%
 ```
-<opt>,<cache>,<first>,<msg_len>,<avg_time>
-```
 
-Where:
-- `opt`: "opt" or "noopt"
-- `cache`: "bcache", "icache", "dcache", or "nocache"
-- `first`: "S" (sender first) or "R" (receiver first)
-- `msg_len`: Message length in bytes (4, 64, or 256)
-- `avg_time`: Average time in timer ticks
 
 ### QEMU
 - `make sim` to start QEMU simulation
-
+- `Important` BCM system Timer Interrupt not work on the qemu, but arch generic timer works
 - Press `Ctrl+A` then `X` to exit the QEMU simulator.
-
 
 
