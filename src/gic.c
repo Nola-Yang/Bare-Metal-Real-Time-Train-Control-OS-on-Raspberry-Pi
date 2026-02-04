@@ -1,9 +1,27 @@
 #include "gic.h"
 
 void gic_init(void) {    
-    GICD_CTLR = 1;  // Enable distributor
-    GICC_CTLR = 1; // Enable CPU interface
-    GICC_PMR = 0xFF;   // priority mask
+    // Disable while configuring
+    GICD_CTLR = 0;
+    GICC_CTLR = 0;
+
+    // Route timer interrupts through Group 1 
+    uint32_t c1_reg = TIMER_C1_IRQ_ID / 32;
+    uint32_t c1_bit = TIMER_C1_IRQ_ID % 32;
+    uint32_t c3_reg = TIMER_C3_IRQ_ID / 32;
+    uint32_t c3_bit = TIMER_C3_IRQ_ID % 32;
+    uint32_t arch_reg = ARCH_TIMER_IRQ_ID / 32;
+    uint32_t arch_bit = ARCH_TIMER_IRQ_ID % 32;
+    GICD_IGROUPR(c1_reg) |= (1U << c1_bit);
+    GICD_IGROUPR(c3_reg) |= (1U << c3_bit);
+    GICD_IGROUPR(arch_reg) |= (1U << arch_bit);
+
+    // Accept all priorities
+    GICC_PMR = 0xFF;
+
+    // Enable both Group 0 and Group 1 at both distributor and CPU interface.
+    GICD_CTLR = 0x3;
+    GICC_CTLR = 0x3;
 }
 
 void gic_enable_interrupt(uint32_t irq_id) {
@@ -31,6 +49,16 @@ void gic_route_interrupt_to_cpu0(uint32_t irq_id) {
     val |= (1 << (byte_offset * 8));  // Route to CPU 0
 
     GICD_ITARGETSR(reg_index) = val;
+}
+
+void gic_set_priority(uint32_t irq_id, uint8_t priority) {
+    uint32_t reg_index = irq_id / 4;
+    uint32_t byte_offset = irq_id % 4;
+
+    uint32_t val = GICD_IPRIORITYR(reg_index);
+    val &= ~(0xFF << (byte_offset * 8));
+    val |= ((uint32_t)priority << (byte_offset * 8));
+    GICD_IPRIORITYR(reg_index) = val;
 }
 
 uint32_t gic_read_iar(void) {
