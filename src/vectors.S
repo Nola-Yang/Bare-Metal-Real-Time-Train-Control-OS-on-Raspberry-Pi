@@ -127,6 +127,8 @@ kernel_stack_overflow:
  */
 .global svc_entry
 svc_entry:
+    // Mask IRQ/FIQ while running in kernel
+    msr daifset, #3
     
     stp x0, x1, [sp, #-16]!
 
@@ -223,6 +225,8 @@ return_to_task:
  */
 .global irq_entry
 irq_entry:
+    // Mask IRQ/FIQ while running in kernel
+    msr daifset, #3
     stp x0, x1, [sp, #-16]!
 
     // Check kernel stack bounds
