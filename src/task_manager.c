@@ -4,6 +4,7 @@
 #include "uart.h"
 #include "gic.h"
 #include "timer.h"
+#include "idle_task.h"
 #include <string.h>
 
 
@@ -37,10 +38,25 @@ void init_global_task_manager(TaskDescriptor_t *tasks) {
 
 extern void return_to_task(void);
 
+// tracking idle time, matched by priority, works now. but need be careful for future
+static void switch_to_task(TaskDescriptor_t *next_task) {
+    TaskDescriptor_t *current = get_current_task();
+
+    if (current != NULL && current->priority == IDLE_TASK_PRIORITY) {
+        idle_exit();
+    }
+
+    if (next_task->priority == IDLE_TASK_PRIORITY) {
+        idle_enter();
+    }
+
+    set_current_task(next_task);
+    next_task->state = TASK_STATE_RUNNING;
+}
+
 void activate(TaskDescriptor_t *task) {
     global_task_scheduler_remove_task(task);
-    set_current_task(task);
-    task->state = TASK_STATE_RUNNING;
+    switch_to_task(task);
     return_to_task();
 }
 
@@ -181,8 +197,7 @@ static void kern_Yield(void) {
     current_task->state = TASK_STATE_READY;
     global_task_scheduler_add_task(current_task);
     TaskDescriptor_t *next_task = schedule();
-    set_current_task(next_task);
-    next_task->state = TASK_STATE_RUNNING;
+    switch_to_task(next_task);
 }
 
 static void kern_Exit(void) {
@@ -203,16 +218,10 @@ static void kern_Exit(void) {
 
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        // No runnable tasks left; stop here.
-        for (;;) {
-            __asm__ volatile("wfi");
-            // for interrupts
-            next_task = schedule();                                                                                                               
-            if (next_task) break;   
-        }
+        uart_printf(CONSOLE, "PANIC: No runnable tasks in kern_Exit!\r\n");
+        for (;;) __asm__ volatile("wfi");
     }
-    set_current_task(next_task);
-    next_task->state = TASK_STATE_RUNNING;
+    switch_to_task(next_task);
 }
 
 // Message Passing 
@@ -278,14 +287,10 @@ static int kern_Send(int tid, const char *msg, int msglen, char *reply, int rple
     // Schedule next task (sender is blocked)
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        for (;;) {
-            __asm__ volatile("wfi");
-            next_task = schedule();
-            if (next_task) break;
-        }
+        uart_printf(CONSOLE, "PANIC: No runnable tasks in kern_Send!\r\n");
+        for (;;) __asm__ volatile("wfi");
     }
-    set_current_task(next_task);
-    next_task->state = TASK_STATE_RUNNING;
+    switch_to_task(next_task);
 
     return 0;
 }
@@ -308,17 +313,13 @@ static int kern_Receive(int *tid, char *msg, int msglen) {
     }
 
     receiver->state = TASK_STATE_RECEIVE_BLOCKED;
-    
+
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        for (;;) {
-            __asm__ volatile("wfi");
-            next_task = schedule();
-            if (next_task) break;
-        }
+        uart_printf(CONSOLE, "PANIC: No runnable tasks in kern_Receive!\r\n");
+        for (;;) __asm__ volatile("wfi");
     }
-    set_current_task(next_task);
-    next_task->state = TASK_STATE_RUNNING;
+    switch_to_task(next_task);
 
     return 0;
 }
@@ -387,14 +388,10 @@ static int kern_AwaitEvent(int eventid) {
     // Schedule next task
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        for (;;) {
-            __asm__ volatile("wfi");
-            next_task = schedule();
-            if (next_task) break;
-        }
+        uart_printf(CONSOLE, "PANIC: No runnable tasks in kern_AwaitEvent!\r\n");
+        for (;;) __asm__ volatile("wfi");
     }
-    set_current_task(next_task);
-    next_task->state = TASK_STATE_RUNNING;
+    switch_to_task(next_task);
 
     return 0;  // Return value will be set by IRQ handler
 }
@@ -409,17 +406,48 @@ static void handle_timer_interrupt(int eventid) {
     }
 }
 
+#if defined(USE_ARCH_GENERIC_TIMER)
+static inline bool arch_timer_is_pending(void) {
+    uint64_t ctl;
+    __asm__ volatile("mrs %0, cntp_ctl_el0" : "=r"(ctl));
+    return (ctl & (1U << 2)) != 0;  // ISTATUS
+}
+#endif
+
 // Initialize interrupt handling
 void init_interrupts(void) {
     gic_init();
 
-    // Route timer C1 interrupt to CPU 0
+#if defined(USE_BCM_SYSTEM_TIMER)
+    timer_clear_c1();
+    timer_clear_c3();
+
+    gic_set_priority(TIMER_C1_IRQ_ID, 0);
     gic_route_interrupt_to_cpu0(TIMER_C1_IRQ_ID);
     gic_enable_interrupt(TIMER_C1_IRQ_ID);
 
-    // Route timer C3 interrupt to CPU 0
+    gic_set_priority(TIMER_C3_IRQ_ID, 0);
     gic_route_interrupt_to_cpu0(TIMER_C3_IRQ_ID);
     gic_enable_interrupt(TIMER_C3_IRQ_ID);
+
+    uint32_t current = (uint32_t)read_timer();
+    timer_set_c1(current + 10000);
+    timer_set_c3(current + 10000);
+#elif defined(USE_ARCH_GENERIC_TIMER)
+    gic_set_priority(ARCH_TIMER_IRQ_ID, 0);
+    gic_enable_interrupt(ARCH_TIMER_IRQ_ID);
+
+    uint64_t cntfrq;
+    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(cntfrq));
+    uint64_t interval = cntfrq / 100;
+
+    // Disable, program, enable
+    uint64_t ctl = 0;
+    __asm__ volatile("msr cntp_ctl_el0, %0" :: "r"(ctl));
+    __asm__ volatile("msr cntp_tval_el0, %0" :: "r"(interval));
+    ctl = 1;
+    __asm__ volatile("msr cntp_ctl_el0, %0" :: "r"(ctl));
+#endif
 }
 
 // IRQ dispatch - called from irq_entry in vectors.S
@@ -429,6 +457,7 @@ void irq_dispatch(void) {
     uint32_t iar = gic_read_iar();
     uint32_t irq_id = iar & 0x3FF;  
 
+#if defined(USE_BCM_SYSTEM_TIMER)
     if (irq_id == TIMER_C1_IRQ_ID) {
         timer_clear_c1();
 
@@ -449,6 +478,24 @@ void irq_dispatch(void) {
         uart_printf(CONSOLE, "Unknown IRQ: %d\r\n", irq_id);
         gic_write_eoir(iar);
     }
+#elif defined(USE_ARCH_GENERIC_TIMER)
+    if (irq_id == ARCH_TIMER_IRQ_ID || ((irq_id == 1022 || irq_id == 1023) && arch_timer_is_pending())) {
+        uint64_t cntfrq;
+        __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(cntfrq));
+        uint64_t interval = cntfrq / 100;
+        __asm__ volatile("msr cntp_tval_el0, %0" :: "r"(interval));
+
+        handle_timer_interrupt(EVENT_TIMER_C1);
+        if (irq_id != 1022 && irq_id != 1023) {
+            gic_write_eoir(iar);
+        }
+    } else if (irq_id == 1022 || irq_id == 1023) {
+        // Spurious interrupt, ignore
+    } else {
+        uart_printf(CONSOLE, "Unknown IRQ: %d\r\n", irq_id);
+        gic_write_eoir(iar);
+    }
+#endif
 
     if (current_task->state == TASK_STATE_RUNNING) {
         current_task->state = TASK_STATE_READY;
@@ -457,14 +504,10 @@ void irq_dispatch(void) {
 
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        for (;;) {
-            __asm__ volatile("wfi");
-            next_task = schedule();
-            if (next_task) break;
-        }
+        uart_printf(CONSOLE, "PANIC: No runnable tasks in irq_dispatch!\r\n");
+        for (;;) __asm__ volatile("wfi");
     }
-    set_current_task(next_task);
-    next_task->state = TASK_STATE_RUNNING;
+    switch_to_task(next_task);
 }
 
 // =============================
@@ -529,6 +572,5 @@ void syscall_dispatch() {
     current_task->state = TASK_STATE_READY;
     global_task_scheduler_add_task(current_task);
     TaskDescriptor_t *next_task = schedule();
-    set_current_task(next_task);
-    next_task->state = TASK_STATE_RUNNING;
+    switch_to_task(next_task);
 }

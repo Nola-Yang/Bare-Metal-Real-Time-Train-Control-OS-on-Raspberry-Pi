@@ -7,10 +7,16 @@
 
 #define PRIORITY_LEVELS 32
 
-// Priority levels for k2 tasks 
+// Priority levels 
 #define NAMESERVER_PRIORITY     31  // Highest priority - responds to all queries
-#define RPS_SERVER_PRIORITY     30  
-#define RPS_CLIENT_PRIORITY     29  
+
+// K3 client task priorities
+// k3 requiremnts specifies priorities 3,4,5,6 with "smaller is higher"
+// Mapped to: 28,27,26,25 to follow existing convention
+#define K3_CLIENT_PRIORITY_3    28
+#define K3_CLIENT_PRIORITY_4    27
+#define K3_CLIENT_PRIORITY_5    26
+#define K3_CLIENT_PRIORITY_6    25  
 
 
 typedef struct {
