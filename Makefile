@@ -16,16 +16,13 @@ CFLAGS:=-g -pipe -static -march=armv8-a -mcpu=cortex-a72 -mstrict-align -mgenera
 LDFLAGS:=-Wl,-nmagic -Wl,-Tlinker.ld -Wl,--no-warn-rwx-segments -nostartfiles
 
 
-# ========== Compile Modes ================
+# ========== Compile Options ================
 
-MEASURE?=0
-VERBOSE?=0
-FULLTEST?=0
 OPT?=1
 CACHE?=b
 
 MAKESPEC:=.make_spec
-MAKESPEC_FORMAT:=$(MEASURE) $(VERBOSE) $(FULLTEST) $(OPT) $(CACHE)
+MAKESPEC_FORMAT:=$(OPT) $(CACHE)
 
 # clean up the built files, if the passed arguments have changed
 ifneq ($(shell cat $(MAKESPEC) 2>/dev/null), $(MAKESPEC_FORMAT))
@@ -33,24 +30,7 @@ $(shell rm -rf $(BUILD_DIR))
 $(shell echo $(MAKESPEC_FORMAT) > $(MAKESPEC))
 endif
 
-
-# MEASURE (0, 1): Whether we are doing performance measurements
-ifeq ($(MEASURE),1)
-	CFLAGS += -DMEASURE
-endif
-
-# VERBOSE (0, 1): Whether to print more verbose debug flags
-ifeq ($(VERBOSE),1)
-	CFLAGS += -DVERBOSE
-endif
-
-# FULLTEST (0, 1): Whether to run a more comprehensive test. Only
-# 	in effect when MEASURE=1
-ifeq ($(FULLTEST),1)
-	CFLAGS += -DFULLTEST
-endif
-
-# OPT (0, 1): Whether to 03 optimization
+# OPT (0, 1): Whether to use O3 optimization
 ifeq ($(OPT),1)
 	CFLAGS += -O3 -DOPT
 endif
@@ -75,7 +55,7 @@ OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
 OBJECTS += $(patsubst $(SRC_DIR)/%.S,$(BUILD_DIR)/%.o,$(ASM_SRCS))
 DEPENDS := $(OBJECTS:.o=.d)
 
-.PHONY: all clean
+.PHONY: all clean sim sim-debug sim-gui
 
 all: $(BUILD_DIR)/$(FILENAME).img
 

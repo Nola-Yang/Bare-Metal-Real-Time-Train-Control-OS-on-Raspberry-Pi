@@ -86,7 +86,7 @@ VECTOR_ENTRY lower_el_a64_sync
     b svc_entry
 
 VECTOR_ENTRY lower_el_a64_irq
-    b unhandled_exception
+    b irq_entry
 
 VECTOR_ENTRY lower_el_a64_fiq
     b unhandled_exception
@@ -127,6 +127,8 @@ kernel_stack_overflow:
  */
 .global svc_entry
 svc_entry:
+    // Mask IRQ/FIQ while running in kernel
+    msr daifset, #3
     
     stp x0, x1, [sp, #-16]!
 
@@ -215,6 +217,61 @@ return_to_task:
     ldr x0, [x0, #TF_X0]        // x0 = return value
 
     eret
+
+
+/*
+ * IRQ entry: handles hardware interrupts from EL0
+ * Similar to svc_entry but calls irq_dispatch
+ */
+.global irq_entry
+irq_entry:
+    // Mask IRQ/FIQ while running in kernel
+    msr daifset, #3
+    stp x0, x1, [sp, #-16]!
+
+    // Check kernel stack bounds
+    ldr x0, =__kernel_stack_bottom
+    cmp sp, x0
+    b.lt kernel_stack_overflow
+
+    mrs x0, tpidr_el1           
+
+    // Save x2-x30
+    stp x2, x3, [x0, #TF_X2]
+    stp x4, x5, [x0, #TF_X4]
+    stp x6, x7, [x0, #TF_X6]
+    stp x8, x9, [x0, #TF_X8]
+    stp x10, x11, [x0, #TF_X10]
+    stp x12, x13, [x0, #TF_X12]
+    stp x14, x15, [x0, #TF_X14]
+    stp x16, x17, [x0, #TF_X16]
+    stp x18, x19, [x0, #TF_X18]
+    stp x20, x21, [x0, #TF_X20]
+    stp x22, x23, [x0, #TF_X22]
+    stp x24, x25, [x0, #TF_X24]
+    stp x26, x27, [x0, #TF_X26]
+    stp x28, x29, [x0, #TF_X28]
+    str x30, [x0, #TF_X30]
+
+    ldp x2, x3, [sp], #16       // x2 = original x0, x3 = original x1
+    stp x2, x3, [x0, #TF_X0]
+
+    mrs x1, sp_el0
+    str x1, [x0, #TF_SP_EL0]
+
+    mrs x1, elr_el1
+    str x1, [x0, #TF_ELR_EL1]
+
+    mrs x1, spsr_el1
+    str x1, [x0, #TF_SPSR_EL1]
+
+    // Switch to kernel stack
+    ldr x1, =__kernel_stack_top
+    mov sp, x1
+
+    bl irq_dispatch
+
+    b return_to_task
 
 
 .global activate_first_task

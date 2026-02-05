@@ -1,6 +1,5 @@
 /*
  * Minimal task descriptor structure
- * Todo: extend this with additional fields as needed.
  *
  * The trapframe MUST be at offset 0 within the TD.
  * This allows TPIDR_EL1 to point directly to the trapframe.
@@ -19,6 +18,7 @@
 #define TASK_STATE_SEND_BLOCKED   4
 #define TASK_STATE_RECEIVE_BLOCKED 5
 #define TASK_STATE_REPLY_BLOCKED  6
+#define TASK_STATE_EVENT_BLOCKED  7
 
 #define TASK_STACK_SIZE 4096
 

@@ -3,6 +3,7 @@
 
 #include "task.h"
 #include "task_scheduler.h"
+#include "gic.h"
 
 
 #define MAX_TASKS_COUNT 4096
@@ -12,6 +13,7 @@ typedef struct {
     TaskDescriptor_t *tasks;
     TaskDescriptor_t *free_list;
     TaskScheduler_t *task_scheduler;
+    TaskDescriptor_t *event_wait_queue[EVENT_COUNT];  // Tasks waiting for each event
 } TaskManager_t;
 
 
@@ -23,5 +25,8 @@ void activate(TaskDescriptor_t *current_task);
 
 // Kernel-side Create for bootstrap 
 int kern_Create(int priority, void (*function)());
+
+// Initialize interrupt handling
+void init_interrupts(void);
 
 #endif
