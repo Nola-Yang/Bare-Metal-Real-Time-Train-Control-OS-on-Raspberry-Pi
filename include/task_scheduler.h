@@ -14,8 +14,6 @@
 #define IDLE_TASK_PRIORITY           31
 
 // K3 client task priorities
-// k3 requiremnts specifies priorities 3,4,5,6 with "smaller is higher"
-// Mapped to: 28,27,26,25 to follow existing convention
 #define K3_CLIENT_PRIORITY_3     3
 #define K3_CLIENT_PRIORITY_4     4
 #define K3_CLIENT_PRIORITY_5     5

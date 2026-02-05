@@ -16,6 +16,7 @@ typedef struct {
 #define CLIENT_COUNT 4
 
 static int Clients[CLIENT_COUNT];
+static int Client_Prioirities[CLIENT_COUNT] = {K3_CLIENT_PRIORITY_3, K3_CLIENT_PRIORITY_4, K3_CLIENT_PRIORITY_5, K3_CLIENT_PRIORITY_6};
 
 
 // Client task - delays n times for t ticks each, printing after each delay
@@ -61,12 +62,6 @@ void first_user_task() {
     int idle_tid = Create(IDLE_TASK_PRIORITY, idle_task);     // Create Idle Task
     uart_printf(CONSOLE, "Created IdleTask, tid=%d\r\n", idle_tid);
 
-    // Create 4 client tasks with different priorities
-    Clients[0] = Create(K3_CLIENT_PRIORITY_3, client_task);
-    Clients[1] = Create(K3_CLIENT_PRIORITY_4, client_task);
-    Clients[2] = Create(K3_CLIENT_PRIORITY_5, client_task);
-    Clients[3] = Create(K3_CLIENT_PRIORITY_6, client_task);
-
     ClientParams_t params[CLIENT_COUNT] = {
         { .delay_interval = 10, .num_delays = 20 },  // Priority 3
         { .delay_interval = 23, .num_delays = 9 },   // Priority 4
@@ -76,10 +71,12 @@ void first_user_task() {
 
     uart_printf(CONSOLE, "\r\n----- Created Clients -----\r\n");
 
+    // Create 4 client tasks with different priorities
     ClientParams_t *param;
     for (uint8_t i = 0; i < CLIENT_COUNT; ++i) {
+        Clients[i] = Create(Client_Prioirities[i], client_task);
         param = &(params[i]);
-        uart_printf(CONSOLE, "tid: %d, delay interval: %d, no. of delays: %d\r\n", Clients[i], param->delay_interval, param->num_delays);
+        uart_printf(CONSOLE, "tid: %d, priority: %d, delay interval: %d, no. of delays: %d\r\n", Clients[i], Client_Prioirities[i], param->delay_interval, param->num_delays);
     }
 
     uart_printf(CONSOLE, "\r\n");
