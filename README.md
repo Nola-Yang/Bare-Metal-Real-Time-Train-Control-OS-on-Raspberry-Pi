@@ -143,7 +143,7 @@ Idle: 99%
 
 ### QEMU
 
-> [!CAUTION]
+> [!WARNING]
 > Interrupts do not seem to work properly on the simulator.
 >
 > So it is recommended to test on the actual Raspberry Pi instead of using QEMU
