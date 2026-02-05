@@ -144,7 +144,7 @@ Idle: 99%
 ### QEMU
 
 > [!WARNING]
-> Interrupts do not seem to work properly on the simulator.
+> BCM system Timer Interrupt not work on the qemu, but arch generic timer works.
 >
 > So it is recommended to test on the actual Raspberry Pi instead of using QEMU
 
@@ -152,5 +152,4 @@ Idle: 99%
 
 
 - `make sim` to start QEMU simulation
-- `Important` BCM system Timer Interrupt not work on the qemu, but arch generic timer works
 - Press `Ctrl+A` then `X` to exit the QEMU simulator.
