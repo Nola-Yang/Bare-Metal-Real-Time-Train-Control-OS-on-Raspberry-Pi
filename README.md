@@ -144,9 +144,9 @@ Idle: 99%
 ### QEMU
 
 > [!WARNING]
-> BCM system Timer Interrupt not work on the qemu, but arch generic timer works.
+> BCM system timer interrupt **does not work on the QEMU**, but arch generic timer does work.
 >
-> So it is recommended to test on the actual Raspberry Pi instead of using QEMU
+> So it is recommended to **test on the actual Raspberry Pi** instead of using QEMU
 
 <br>
 
