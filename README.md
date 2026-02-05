@@ -68,9 +68,8 @@ Once the Raspberry Pi has restarted, output will be printed onto the screen as t
 <br>
 
 ### Output Format
-
 <details>
-<summary>Output</summary>
+<summary>Click to Expand Output</summary>
 
 ```text
 ========================================
