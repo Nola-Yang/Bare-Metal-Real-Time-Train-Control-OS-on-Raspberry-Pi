@@ -47,7 +47,7 @@ make
 An image file should be created at `build/kernel.img`
 
 <br>
-
+<br>
 
 
 ## How to Run
@@ -64,7 +64,14 @@ Restart the selected Raspberry Pi that you have uploaded the image into.
 
 Once the Raspberry Pi has restarted, output will be printed onto the screen as the kernel runs the specific tasks. 
 
+
+<br>
+
 ### Output Format
+
+<details>
+<summary>Output</summary>
+
 ```text
 ========================================
 K3 Clock Server Test
@@ -72,65 +79,79 @@ K3 Clock Server Test
 Created NameServer, tid=1
 Created ClockServer, tid=2
 Created IdleTask, tid=4
-Created clients: 5, 6, 7, 8
-Sent params to client 5: interval=10, num=20
-Sent params to client 6: interval=23, num=9
-Sent params to client 7: interval=33, num=6
-Sent params to client 8: interval=71, num=3
+
+----- Created Clients -----
+tid: 5, priority: 3, delay interval: 10, no. of delays: 20
+tid: 6, priority: 4, delay interval: 23, no. of delays: 9
+tid: 7, priority: 5, delay interval: 33, no. of delays: 6
+tid: 8, priority: 6, delay interval: 71, no. of delays: 3
+
 FirstUserTask: All clients started, waiting for completion
-Client tid=5, interval=10, completed=1/20, tick=10
-Client tid=5, interval=10, completed=2/20, tick=20
-Client tid=6, interval=23, completed=1/9, tick=23
-Client tid=5, interval=10, completed=3/20, tick=30
-Client tid=7, interval=33, completed=1/6, tick=33
-Client tid=5, interval=10, completed=4/20, tick=40
-Client tid=6, interval=23, completed=2/9, tick=46
-Client tid=5, interval=10, completed=5/20, tick=50
-Client tid=5, interval=10, completed=6/20, tick=60
-Client tid=7, interval=33, completed=2/6, tick=66
-Client tid=6, interval=23, completed=3/9, tick=69
-Client tid=5, interval=10, completed=7/20, tick=70
-Client tid=8, interval=71, completed=1/3, tick=71
-Client tid=5, interval=10, completed=8/20, tick=80
+Client tid=5: interval=10, completed=1/20, tick=13
+Client tid=5: interval=10, completed=2/20, tick=23
+Client tid=6: interval=23, completed=1/9, tick=26
+Client tid=5: interval=10, completed=3/20, tick=33
+Client tid=7: interval=33, completed=1/6, tick=36
+Client tid=5: interval=10, completed=4/20, tick=43
+Client tid=6: interval=23, completed=2/9, tick=49
+Client tid=5: interval=10, completed=5/20, tick=53
+Client tid=5: interval=10, completed=6/20, tick=63
+Client tid=7: interval=33, completed=2/6, tick=69
+Client tid=6: interval=23, completed=3/9, tick=72
+Client tid=5: interval=10, completed=7/20, tick=73
+Client tid=8: interval=71, completed=1/3, tick=74
+Client tid=5: interval=10, completed=8/20, tick=83
+Client tid=5: interval=10, completed=9/20, tick=93
+Client tid=6: interval=23, completed=4/9, tick=95
+Client tid=7: interval=33, completed=3/6, tick=102
+Client tid=5: interval=10, completed=10/20, tick=103
+Idle: 96%
+Client tid=5: interval=10, completed=11/20, tick=113
+Client tid=6: interval=23, completed=5/9, tick=118
+Client tid=5: interval=10, completed=12/20, tick=123
+Client tid=5: interval=10, completed=13/20, tick=133
+Client tid=7: interval=33, completed=4/6, tick=135
+Client tid=6: interval=23, completed=6/9, tick=141
+Client tid=5: interval=10, completed=14/20, tick=143
+Client tid=8: interval=71, completed=2/3, tick=145
+Client tid=5: interval=10, completed=15/20, tick=153
+Client tid=5: interval=10, completed=16/20, tick=163
+Client tid=6: interval=23, completed=7/9, tick=164
+Client tid=7: interval=33, completed=5/6, tick=168
+Client tid=5: interval=10, completed=17/20, tick=173
+Client tid=5: interval=10, completed=18/20, tick=183
+Client tid=6: interval=23, completed=8/9, tick=187
+Client tid=5: interval=10, completed=19/20, tick=193
+Client tid=7: interval=33, completed=6/6, tick=201
+Client tid=7: Finished all delays
+Client tid=5: interval=10, completed=20/20, tick=203
+Client tid=5: Finished all delays
 Idle: 95%
-Client tid=5, interval=10, completed=9/20, tick=90
-Client tid=6, interval=23, completed=4/9, tick=92
-Client tid=7, interval=33, completed=3/6, tick=99
-Client tid=5, interval=10, completed=10/20, tick=100
-Client tid=5, interval=10, completed=11/20, tick=110
-Client tid=6, interval=23, completed=5/9, tick=115
-Client tid=5, interval=10, completed=12/20, tick=120
-Client tid=5, interval=10, completed=13/20, tick=130
-Client tid=7, interval=33, completed=4/6, tick=132
-Client tid=6, interval=23, completed=6/9, tick=138
-Client tid=5, interval=10, completed=14/20, tick=140
-Client tid=8, interval=71, completed=2/3, tick=142
-Client tid=5, interval=10, completed=15/20, tick=150
-Client tid=5, interval=10, completed=16/20, tick=160
-Client tid=6, interval=23, completed=7/9, tick=161
-Idle: 94%
-Client tid=7, interval=33, completed=5/6, tick=165
-Client tid=5, interval=10, completed=17/20, tick=170
-Client tid=5, interval=10, completed=18/20, tick=180
-Client tid=6, interval=23, completed=8/9, tick=184
-Client tid=5, interval=10, completed=19/20, tick=190
-Client tid=7, interval=33, completed=6/6, tick=198
-Client 7: Finished all delays
-Client tid=5, interval=10, completed=20/20, tick=200
-Client 5: Finished all delays
-Client tid=6, interval=23, completed=9/9, tick=207
-Client 6: Finished all delays
-Client tid=8, interval=71, completed=3/3, tick=213
-Client 8: Finished all delays
-Idle: 97%
+Client tid=6: interval=23, completed=9/9, tick=210
+Client tid=6: Finished all delays
+Client tid=8: interval=71, completed=3/3, tick=216
+Client tid=8: Finished all delays
 Idle: 98%
-Idle: 98%
+Idle: 99%
+Idle: 99%
 ```
+
+</details>
+
+<br>
+<br>
 
 
 ### QEMU
+
+> [!CAUTION]
+> Interrupts do not seem to work properly on the simulator.
+>
+> So it is recommended to test on the actual Raspberry Pi instead of using QEMU
+
+<br>
+
+
 - `make sim` to start QEMU simulation
 - `Important` BCM system Timer Interrupt not work on the qemu, but arch generic timer works
 - Press `Ctrl+A` then `X` to exit the QEMU simulator.
-
-
