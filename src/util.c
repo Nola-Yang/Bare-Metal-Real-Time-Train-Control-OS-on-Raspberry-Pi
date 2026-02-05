@@ -1,5 +1,6 @@
 #include "util.h"
 #include <stdint.h>
+#include <stdbool.h>
 
 
 // ascii digit to integer

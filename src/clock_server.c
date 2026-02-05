@@ -3,7 +3,9 @@
 #include "nameserver.h"
 #include "gic.h"
 #include "uart.h"
+#include "task_scheduler.h"
 #include <stdint.h>
+
 
 #define MAX_DELAY_TASKS 64
 
@@ -54,6 +56,7 @@ void clock_server_task(void) {
     ClockRequest_t req;
     ClockReply_t reply;
 
+    // a priority queues for the delays
     DelayEntry_t delay_queue[MAX_DELAY_TASKS];
     int delay_count = 0;
     int current_tick = 0;

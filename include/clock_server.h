@@ -5,9 +5,6 @@
 
 #define CLOCK_SERVER_NAME "ClockServer"
 
-#define CLOCK_NOTIFIER_PRIORITY 30  
-#define CLOCK_SERVER_PRIORITY   29  
-
 // Message types
 #define CLOCK_MSG_NOTIFY    0   // From notifier: tick occurred
 #define CLOCK_MSG_TIME      1   // Request: get current time
