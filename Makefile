@@ -20,14 +20,21 @@ LDFLAGS:=-Wl,-nmagic -Wl,-Tlinker.ld -Wl,--no-warn-rwx-segments -nostartfiles
 
 OPT?=1
 CACHE?=b
+VERBOSE?=0
 
 MAKESPEC:=.make_spec
-MAKESPEC_FORMAT:=$(OPT) $(CACHE)
+MAKESPEC_FORMAT:=$(VERBOSE) $(OPT) $(CACHE)
 
 # clean up the built files, if the passed arguments have changed
 ifneq ($(shell cat $(MAKESPEC) 2>/dev/null), $(MAKESPEC_FORMAT))
 $(shell rm -rf $(BUILD_DIR))
 $(shell echo $(MAKESPEC_FORMAT) > $(MAKESPEC))
+endif
+
+
+# VERBOSE (0, 1): Whether to print more verbose debug flags
+ifeq ($(VERBOSE),1)
+	CFLAGS += -DVERBOSE
 endif
 
 # OPT (0, 1): Whether to use O3 optimization

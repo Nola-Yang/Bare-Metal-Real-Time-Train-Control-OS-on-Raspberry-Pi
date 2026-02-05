@@ -1,6 +1,5 @@
 #include "task_scheduler.h"
 #include "task.h"
-#include "ring_buffer.h"
 #include "util.h"
 #include <stddef.h>
 
@@ -8,63 +7,47 @@
 TaskScheduler_t GlobalTaskScheduler;
 
 
-void init_global_task_scheduler(RingBuffer_t *queues, uint32_t size) {
-    GlobalTaskScheduler.queues = queues;
+void init_global_task_scheduler(TaskList_t *task_lists, uint32_t size) {
+    GlobalTaskScheduler.task_lists = task_lists;
     GlobalTaskScheduler.size = size;
 }
 
 void global_task_scheduler_add_task(TaskDescriptor_t *task) {
-    ring_buf_append(&(GlobalTaskScheduler.queues[task->priority]), &task);
+    task_list_append(&(GlobalTaskScheduler.task_lists[task->priority]), task);
 }
 
 // Remove task from front of its priority queue (current running task)
 void global_task_scheduler_remove_task(TaskDescriptor_t *task) {
-    RingBuffer_t *queue = &(GlobalTaskScheduler.queues[task->priority]);
-    if (is_ring_buf_empty(queue)) return;
+    TaskList_t *task_list = &(GlobalTaskScheduler.task_lists[task->priority]);
+    if (task_list_is_empty(task_list)) return;
 
-    uint32_t remaining = queue->count;
+    uint32_t remaining = task_list->count;
     bool removed = false;
 
     while (remaining-- > 0) {
         TaskDescriptor_t *candidate;
-        if (!ring_buf_pop_left(queue, &candidate)) break;
+        if (!task_list_pop_left(task_list, &candidate)) break;
 
         if (!removed && candidate == task) {
             removed = true;
             continue;
         }
 
-        ring_buf_append(queue, &candidate);
+        task_list_append(task_list, candidate);
     }
-}
-
-bool get_next_task(TaskScheduler_t *task_scheduler, TaskDescriptor_t **result) {
-    int32_t queue_count = task_scheduler->size;
-    RingBuffer_t *queues = task_scheduler->queues;
-
-    for (int32_t i = queue_count - 1; i >= 0; --i) {
-        if (is_ring_buf_empty(&queues[i])) continue;
-
-        RingBuffer_t *queue = &(queues[i]);
-        ring_buf_from_tail(queue, result, 0, true);
-
-        return true;
-    }
-
-    return false;
 }
 
 TaskDescriptor_t * schedule() {
-    int32_t queue_count = GlobalTaskScheduler.size;
-    RingBuffer_t *queues = GlobalTaskScheduler.queues;
+    int32_t task_list_count = GlobalTaskScheduler.size;
+    TaskList_t *task_lists = GlobalTaskScheduler.task_lists;
     TaskDescriptor_t *next_task;
+    TaskList_t *task_list;
 
-    for (int32_t i = queue_count - 1; i >= 0; --i) {
-        RingBuffer_t *queue = &(queues[i]);
-        if (is_ring_buf_empty(queue)) continue;
+    for (int32_t i = 0; i < task_list_count; ++i) {
+        task_list = &(task_lists[i]);
 
-        if (!ring_buf_pop_left(queue, &next_task)) continue;
-
+        if (task_list_is_empty(task_list)) continue;
+        if (!task_list_pop_left(task_list, &next_task)) continue;
 
         return next_task;
     }

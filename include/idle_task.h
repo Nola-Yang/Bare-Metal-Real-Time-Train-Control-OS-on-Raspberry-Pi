@@ -1,8 +1,6 @@
 #ifndef _idle_task_h_
 #define _idle_task_h_ 1
 
-// Lowest priority (runs when nothing else can)
-#define IDLE_TASK_PRIORITY 0
 
 void idle_task(void);
 
