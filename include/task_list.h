@@ -9,6 +9,7 @@
 typedef struct {
     uint32_t count;
     TaskDescriptor_t *head;
+    TaskDescriptor_t *tail;
 } TaskList_t;
 
 
