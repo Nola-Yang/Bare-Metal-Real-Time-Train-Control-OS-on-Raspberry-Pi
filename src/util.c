@@ -78,9 +78,15 @@ void toggle_caches(bool dcache_on, bool icache_on) {
     asm volatile("dsb sy" : : : "memory");
 }
 
+void swap(void *a, void *b, size_t size) {
+	char temp[size];
+    memcpy(temp, a, size);
+    memcpy(a, b, size);
+    memcpy(b, temp, size);
+}
+
 
 #if !defined(MMU)
-#include <stddef.h>
 
 // define our own memset to avoid SIMD instructions emitted from the compiler
 void* memset(void *s, int c, size_t n) {
