@@ -5,6 +5,7 @@
 #include "task_manager.h"
 #include "idle_task.h"
 #include "syscall.h"
+#include "min_heap.h"
 
 
 typedef struct {

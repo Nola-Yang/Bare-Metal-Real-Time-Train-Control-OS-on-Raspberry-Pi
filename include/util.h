@@ -2,6 +2,7 @@
 #define _util_h_ 1
 
 #include <stdbool.h>
+#include <stddef.h>
 
 
 int a2d(char ch);
@@ -12,9 +13,10 @@ void i2a(int num, char *bf);
 // toggle_caches: Toggles the data/instruction caches according to the build arguments
 void toggle_caches(bool dcache_on, bool icache_on);
 
+// swap: Swaps the values from 2 variables
+void swap(void *a, void *b, size_t size);
 
 #if !defined(MMU)
-#include <stddef.h>
 
 // define our own memset to avoid SIMD instructions emitted from the compiler
 void* memset(void *s, int c, size_t n);
