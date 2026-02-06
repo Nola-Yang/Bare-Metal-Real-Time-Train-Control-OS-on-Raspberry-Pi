@@ -63,53 +63,6 @@ void first_user_task() {
     int idle_tid = Create(IDLE_TASK_PRIORITY, idle_task);     // Create Idle Task
     uart_printf(CONSOLE, "Created IdleTask, tid=%d\r\n", idle_tid);
 
-
-
-
-    HeapItem_t keys[64];
-    uint32_t vals[64];
-    MinHeap_t heap;
-    init_min_heap(&heap, keys, vals, sizeof(uint32_t), 64);
-    uint32_t val = 5;
-
-    val = 5;
-    min_heap_insert(&heap, 5, &val);
-    val = 6;
-    min_heap_insert(&heap, 6, &val);
-    val = 5;
-    min_heap_insert(&heap, 5, &val);
-    val = 10;
-    min_heap_insert(&heap, 10, &val);
-    val = 2;
-    min_heap_insert(&heap, 2, &val);
-
-    int32_t temp_key;
-    uint32_t temp_val;
-
-    min_heap_pop(&heap, &temp_key, &temp_val);
-    uart_printf(CONSOLE, "Pop: %d AND %d\r\n", temp_key, temp_val);
-
-    min_heap_pop(&heap, &temp_key, &temp_val);
-    uart_printf(CONSOLE, "Pop: %d AND %d\r\n", temp_key, temp_val);
-
-    min_heap_pop(&heap, &temp_key, &temp_val);
-    uart_printf(CONSOLE, "Pop: %d AND %d\r\n", temp_key, temp_val);
-
-    val = 70;
-    min_heap_insert(&heap, 70, &val);
-
-    min_heap_pop(&heap, &temp_key, &temp_val);
-    uart_printf(CONSOLE, "Pop: %d AND %d\r\n", temp_key, temp_val);
-
-    val = -1;
-    min_heap_insert(&heap, -1, &val);
-
-    min_heap_pop(&heap, &temp_key, &temp_val);
-    uart_printf(CONSOLE, "Pop: %d AND %d\r\n", temp_key, temp_val);
-
-
-
-
     ClientParams_t params[CLIENT_COUNT] = {
         { .delay_interval = 10, .num_delays = 20 },  // Priority 3
         { .delay_interval = 23, .num_delays = 9 },   // Priority 4

@@ -4,16 +4,11 @@
 #include "gic.h"
 #include "uart.h"
 #include "task_scheduler.h"
+#include "min_heap.h"
 #include <stdint.h>
 
 
 #define MAX_DELAY_TASKS 64
-
-// Delay queue entry
-typedef struct {
-    int tid;
-    int wake_tick;  // Tick at which to wake up
-} DelayEntry_t;
 
 // waits for timer events and notifies the server
 static void clock_notifier_task(void) {
@@ -33,21 +28,13 @@ static void clock_notifier_task(void) {
 }
 
 // Insert into delay queue maintaining sorted order 
-static void insert_delay_entry(DelayEntry_t *queue, int *count, int tid, int wake_tick) {
-    if (*count >= MAX_DELAY_TASKS) {
+static void insert_delay_entry(MinHeap_t *queue, int tid, int wake_tick) {
+    if (min_heap_is_full(queue)) {
         uart_printf(CONSOLE, "ClockServer: Delay queue full!\r\n");
         return;
     }
 
-    // sorted by wake_tick, ascending
-    int i = *count;
-    while (i > 0 && queue[i - 1].wake_tick > wake_tick) {
-        queue[i] = queue[i - 1];
-        i--;
-    }
-    queue[i].tid = tid;
-    queue[i].wake_tick = wake_tick;
-    (*count)++;
+    min_heap_insert(queue, wake_tick, &tid);
 }
 
 // Clock Server task
@@ -56,10 +43,16 @@ void clock_server_task(void) {
     ClockRequest_t req;
     ClockReply_t reply;
 
-    // a priority queues for the delays
-    DelayEntry_t delay_queue[MAX_DELAY_TASKS];
-    int delay_count = 0;
+    // priority queue for delays
+    uint32_t wake_ticks[MAX_DELAY_TASKS];
+    uint32_t delay_task_ids[MAX_DELAY_TASKS];
+    MinHeap_t delay_queue;
+    init_min_heap(&delay_queue, wake_ticks, delay_task_ids, sizeof(uint32_t), MAX_DELAY_TASKS);
+
     int current_tick = 0;
+    int earliest_wake_tick;
+    uint32_t earliest_delay_task_id;
+    uint32_t earliest_delay;
 
     RegisterAs(CLOCK_SERVER_NAME);
     Create(CLOCK_NOTIFIER_PRIORITY, clock_notifier_task);
@@ -77,16 +70,16 @@ void clock_server_task(void) {
                 Reply(tid, (const char *)&reply, sizeof(reply));
 
                 // Wake up any tasks whose delay has expired
-                while (delay_count > 0 && delay_queue[0].wake_tick <= current_tick) {
-                    reply.ticks = current_tick;
-                    Reply(delay_queue[0].tid, (const char *)&reply, sizeof(reply));
+                while (!min_heap_is_empty(&delay_queue)) {
+                    earliest_wake_tick = min_heap_get_top_key(&delay_queue);
+                    if (earliest_wake_tick > current_tick) break;
 
-                    // Remove from queue (shift remaining entries)
-                    for (int i = 0; i < delay_count - 1; i++) {
-                        delay_queue[i] = delay_queue[i + 1];
-                    }
-                    delay_count--;
+                    min_heap_pop(&delay_queue, &earliest_delay, &earliest_delay_task_id);
+
+                    reply.ticks = current_tick;
+                    Reply(earliest_delay_task_id, (const char *)&reply, sizeof(reply));
                 }
+
                 break;
 
             case CLOCK_MSG_TIME:
@@ -100,7 +93,7 @@ void clock_server_task(void) {
                     Reply(tid, (const char *)&reply, sizeof(reply));
                 } else {
                     int wake_tick = current_tick + req.ticks;
-                    insert_delay_entry(delay_queue, &delay_count, tid, wake_tick);
+                    insert_delay_entry(&delay_queue, tid, wake_tick);
                 }
                 break;
 
@@ -109,7 +102,7 @@ void clock_server_task(void) {
                     reply.ticks = current_tick;
                     Reply(tid, (const char *)&reply, sizeof(reply));
                 } else {
-                    insert_delay_entry(delay_queue, &delay_count, tid, req.ticks);
+                    insert_delay_entry(&delay_queue, tid, req.ticks);
                 }
                 break;
 
