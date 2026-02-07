@@ -6,6 +6,11 @@ static char* const GPIO_BASE = (char*)(MMIO_BASE + 0x200000);
 #define GPFSEL_REG(reg)             (*(volatile uint32_t*)(GPIO_BASE + reg * 4))
 #define GPIO_PUP_PDN_CNTRL_REG(reg) (*(volatile uint32_t*)(GPIO_BASE + 0xe4 + reg * 4))
 
+// GPIO interrupt registers
+#define GPIO_GPEDS0   (*(volatile uint32_t*)(GPIO_BASE + 0x40))  // Event Detect Status 0-31
+#define GPIO_GPREN0   (*(volatile uint32_t*)(GPIO_BASE + 0x4C))  // Rising Edge Enable 0-31
+#define GPIO_GPFEN0   (*(volatile uint32_t*)(GPIO_BASE + 0x58))  // Falling Edge Enable 0-31
+
 // function control settings for GPIO pins
 static const uint32_t GPIO_INPUT  = 0x00;
 static const uint32_t GPIO_OUTPUT = 0x01;
@@ -46,4 +51,20 @@ void gpio_init() {
 
 	setup_gpio(14, GPIO_ALTFN0, GPIO_NONE); // UART TXD0
 	setup_gpio(15, GPIO_ALTFN0, GPIO_NONE); // UART RXD0
+
+	// MCP2515 INT pin (active low)
+	setup_gpio(17, GPIO_INPUT, GPIO_PUP);
+	gpio_enable_falling_edge_detect(17);
+}
+
+void gpio_enable_falling_edge_detect(uint32_t pin) {
+	GPIO_GPFEN0 |= (1u << pin);
+}
+
+void gpio_clear_event(uint32_t pin) {
+	GPIO_GPEDS0 = (1u << pin);  // Write 1 to clear
+}
+
+uint32_t gpio_check_event(uint32_t pin) {
+	return (GPIO_GPEDS0 >> pin) & 1;
 }
