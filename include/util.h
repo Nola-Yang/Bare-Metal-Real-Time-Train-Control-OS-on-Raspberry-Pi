@@ -3,12 +3,26 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 
 int a2d(char ch);
 char a2ui(char ch, char **src, unsigned int base, unsigned int *nump);
 void ui2a(unsigned int num, unsigned int base, char *bf);
 void i2a(int num, char *bf);
+
+// String to integer conversion
+int str2int(const char *str);
+
+// Buffer formatting helpers
+char* buf_append(char *p, const char *str);
+char* buf_append_char(char *p, char c);
+char* buf_append_int(char *p, int value);
+char* buf_append_uint(char *p, unsigned int value);
+char* buf_get_temp(void);
+
+// Clock rendering
+void clock_render(uint64_t elapsed_us, char *buf);
 
 // toggle_caches: Toggles the data/instruction caches according to the build arguments
 void toggle_caches(bool dcache_on, bool icache_on);
