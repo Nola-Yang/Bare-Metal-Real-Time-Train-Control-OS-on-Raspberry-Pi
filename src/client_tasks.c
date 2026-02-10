@@ -17,7 +17,7 @@ typedef struct {
 #define CLIENT_COUNT 4
 
 static int Clients[CLIENT_COUNT];
-static int Client_Prioirities[CLIENT_COUNT] = {K3_CLIENT_PRIORITY_3, K3_CLIENT_PRIORITY_4, K3_CLIENT_PRIORITY_5, K3_CLIENT_PRIORITY_6};
+static int Client_Prioirities[CLIENT_COUNT] = {3, 4, 5, 6};
 
 
 // Client task - delays n times for t ticks each, printing after each delay

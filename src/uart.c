@@ -22,6 +22,15 @@ static const uint32_t UART_FR_TXFF = 0x20;
 static const uint32_t UART_FR_RXFF = 0x40;
 static const uint32_t UART_FR_TXFE = 0x80;
 
+// Interrupt registers
+static const uint32_t UART_IMSC = 0x38;  // Interrupt Mask Set/Clear
+static const uint32_t UART_MIS  = 0x40;  // Masked Interrupt Status
+static const uint32_t UART_ICR  = 0x44;  // Interrupt Clear
+
+// Interrupt mask bits 
+static const uint32_t UART_INT_RX_BIT = (1 << 4);
+static const uint32_t UART_INT_TX_BIT = (1 << 5);
+
 static const uint32_t UART_CR_UARTEN =   0x01;
 static const uint32_t UART_CR_LBE    =   0x80;
 static const uint32_t UART_CR_TXE    =  0x100;
@@ -139,4 +148,63 @@ void uart_debug_printf(size_t line, const char *fmt, ... ) {
 	uart_internal_printf(line, fmt, va);
 	va_end(va);
 	#endif
+}
+
+void uart_debug_move_cursor(size_t line, uint32_t line_pos, uint32_t cursor_pos) {
+	uart_debug_printf(line, "\033[%u;%uH", line_pos, cursor_pos);
+}
+
+// Interrupt control functions
+
+void uart_enable_rx_interrupt(size_t line) {
+	UART_REG(line, UART_IMSC) |= UART_INT_RX_BIT;
+}
+
+void uart_disable_rx_interrupt(size_t line) {
+	UART_REG(line, UART_IMSC) &= ~UART_INT_RX_BIT;
+}
+
+void uart_enable_tx_interrupt(size_t line) {
+	UART_REG(line, UART_IMSC) |= UART_INT_TX_BIT;
+}
+
+void uart_disable_tx_interrupt(size_t line) {
+	UART_REG(line, UART_IMSC) &= ~UART_INT_TX_BIT;
+}
+
+void uart_clear_rx_interrupt(size_t line) {
+	UART_REG(line, UART_ICR) = UART_INT_RX_BIT;
+}
+
+void uart_clear_tx_interrupt(size_t line) {
+	UART_REG(line, UART_ICR) = UART_INT_TX_BIT;
+}
+
+uint32_t uart_read_mis(size_t line) {
+	return UART_REG(line, UART_MIS);
+}
+
+// Non-blocking I/O
+
+int uart_rx_ready(size_t line) {
+	return !(UART_REG(line, UART_FR) & UART_FR_RXFE);
+}
+
+int uart_tx_ready(size_t line) {
+	return !(UART_REG(line, UART_FR) & UART_FR_TXFF);
+}
+
+int uart_getc_nonblocking(size_t line) {
+	if (UART_REG(line, UART_FR) & UART_FR_RXFE) {
+		return -1;  
+	}
+	return UART_REG(line, UART_DR);
+}
+
+int uart_putc_nonblocking(size_t line, char c) {
+	if (UART_REG(line, UART_FR) & UART_FR_TXFF) {
+		return -1;  
+	}
+	UART_REG(line, UART_DR) = c;
+	return 0;
 }

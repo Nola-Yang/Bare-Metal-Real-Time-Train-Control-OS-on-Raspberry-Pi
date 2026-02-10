@@ -28,10 +28,19 @@
 #define TIMER_C1_IRQ_ID     97
 #define TIMER_C3_IRQ_ID     99
 
+// UART0 interrupt ID (PL011)
+#define UART0_IRQ_ID        57
+
+// GPIO Bank 0 interrupt ID (GPIO 0-31, the GPIO17 is used for MCP2515 INT)
+#define GPIO_BANK0_IRQ_ID   145
+
 // Event IDs for AwaitEvent
 #define EVENT_TIMER_C1      0
 #define EVENT_TIMER_C3      1
-#define EVENT_COUNT         2
+#define EVENT_UART_RX       2   // UART RX data available
+#define EVENT_UART_TX       3   // UART TX ready
+#define EVENT_CAN_RX        4   // MCP2515 INT
+#define EVENT_COUNT         5
 
 // Initialize GIC for interrupt handling
 void gic_init(void);

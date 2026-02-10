@@ -5,6 +5,7 @@
 #include "gic.h"
 #include "timer.h"
 #include "idle_task.h"
+#include "rpi.h"
 #include <string.h>
 
 
@@ -33,6 +34,7 @@ void init_global_task_manager(TaskDescriptor_t *tasks) {
 
     for (int i = 0; i < EVENT_COUNT; i++) {
         GlobalTaskManager.event_wait_queue[i] = NULL;
+        GlobalTaskManager.event_pending[i] = 0;
     }
 }
 
@@ -98,7 +100,7 @@ static void free_task_descriptor(TaskDescriptor_t *task) {
 
 static void check_stack_canary(TaskDescriptor_t *task) {
     if (task->stack_canary != STACK_CANARY_VALUE) {
-        uart_printf(CONSOLE, "PANIC: User stack overflow detected! tid=%d canary=0x%lx\r\n",
+        uart_debug_printf(CONSOLE, "PANIC: User stack overflow detected! tid=%d canary=0x%lx\r\n",
                     task->tid, task->stack_canary);
         for (;;) __asm__ volatile("wfi");
     }
@@ -110,7 +112,7 @@ static void check_user_stack_bounds(TaskDescriptor_t *task) {
     uint64_t stack_top = stack_bottom + TASK_STACK_SIZE;
 
     if (sp < stack_bottom || sp > stack_top) {
-        uart_printf(CONSOLE, "PANIC: User stack out of bounds! tid=%d sp=0x%lx bounds=[0x%lx, 0x%lx]\r\n",
+        uart_debug_printf(CONSOLE, "PANIC: User stack out of bounds! tid=%d sp=0x%lx bounds=[0x%lx, 0x%lx]\r\n",
                     task->tid, sp, stack_bottom, stack_top);
         for (;;) __asm__ volatile("wfi");
     }
@@ -218,7 +220,7 @@ static void kern_Exit(void) {
 
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        uart_printf(CONSOLE, "PANIC: No runnable tasks in kern_Exit!\r\n");
+        uart_debug_printf(CONSOLE, "PANIC: No runnable tasks in kern_Exit!\r\n");
         for (;;) __asm__ volatile("wfi");
     }
     switch_to_task(next_task);
@@ -259,7 +261,7 @@ static int kern_Send(int tid, const char *msg, int msglen, char *reply, int rple
     TaskDescriptor_t *receiver = get_task_by_tid(tid);
 
     if (receiver == NULL) {
-        uart_printf(CONSOLE, "kern_Send: Invalid tid %d\r\n", tid);
+        uart_debug_printf(CONSOLE, "kern_Send: Invalid tid %d\r\n", tid);
         return -1;  
     }
 
@@ -287,7 +289,7 @@ static int kern_Send(int tid, const char *msg, int msglen, char *reply, int rple
     // Schedule next task (sender is blocked)
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        uart_printf(CONSOLE, "PANIC: No runnable tasks in kern_Send!\r\n");
+        uart_debug_printf(CONSOLE, "PANIC: No runnable tasks in kern_Send!\r\n");
         for (;;) __asm__ volatile("wfi");
     }
     switch_to_task(next_task);
@@ -316,7 +318,7 @@ static int kern_Receive(int *tid, char *msg, int msglen) {
 
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        uart_printf(CONSOLE, "PANIC: No runnable tasks in kern_Receive!\r\n");
+        uart_debug_printf(CONSOLE, "PANIC: No runnable tasks in kern_Receive!\r\n");
         for (;;) __asm__ volatile("wfi");
     }
     switch_to_task(next_task);
@@ -331,7 +333,7 @@ static int kern_Reply(int tid, const char *reply, int rplen) {
     TaskDescriptor_t *current = get_current_task();
 
     if (sender == NULL) {
-        uart_printf(CONSOLE, "kern_Reply: Invalid tid %d\r\n", tid);
+        uart_debug_printf(CONSOLE, "kern_Reply: Invalid tid %d\r\n", tid);
         return -1;  
     }
 
@@ -360,7 +362,7 @@ static int kern_Reply(int tid, const char *reply, int rplen) {
 
 // Add task to event wait queue
 static void enqueue_event_waiter(int eventid, TaskDescriptor_t *task) {
-    task->next = GlobalTaskManager.event_wait_queue[eventid];
+    task->next = NULL;
     GlobalTaskManager.event_wait_queue[eventid] = task;
 }
 
@@ -381,6 +383,17 @@ static int kern_AwaitEvent(int eventid) {
         return -1;  
     }
 
+    // only one task may wait on a given event
+    if (GlobalTaskManager.event_wait_queue[eventid] != NULL) {
+        return -2;
+    }
+
+    // Consume pending event
+    if (GlobalTaskManager.event_pending[eventid] > 0) {
+        GlobalTaskManager.event_pending[eventid]--;
+        return 0;
+    }
+
     TaskDescriptor_t *current_task = get_current_task();
     current_task->state = TASK_STATE_EVENT_BLOCKED;
     enqueue_event_waiter(eventid, current_task);
@@ -388,7 +401,7 @@ static int kern_AwaitEvent(int eventid) {
     // Schedule next task
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        uart_printf(CONSOLE, "PANIC: No runnable tasks in kern_AwaitEvent!\r\n");
+        uart_debug_printf(CONSOLE, "PANIC: No runnable tasks in kern_AwaitEvent!\r\n");
         for (;;) __asm__ volatile("wfi");
     }
     switch_to_task(next_task);
@@ -403,6 +416,26 @@ static void handle_timer_interrupt(int eventid) {
         task->tf.x[0] = read_timer();
         task->state = TASK_STATE_READY;
         global_task_scheduler_add_task(task);
+        return;
+    }
+
+    if (GlobalTaskManager.event_pending[eventid] < UINT32_MAX) {
+        GlobalTaskManager.event_pending[eventid]++;
+    }
+}
+
+// Handle generic event interrupt (UART, GPIO, etc.)
+static void handle_event_interrupt(int eventid) {
+    TaskDescriptor_t *task = dequeue_event_waiter(eventid);
+    if (task != NULL) {
+        task->tf.x[0] = 0;  // Success
+        task->state = TASK_STATE_READY;
+        global_task_scheduler_add_task(task);
+        return;
+    }
+
+    if (GlobalTaskManager.event_pending[eventid] < UINT32_MAX) {
+        GlobalTaskManager.event_pending[eventid]++;
     }
 }
 
@@ -413,13 +446,25 @@ void init_interrupts(void) {
     timer_clear_c1();
     timer_clear_c3();
 
+    // Timer C1 (clock server)
     gic_set_priority(TIMER_C1_IRQ_ID, 0);
     gic_route_interrupt_to_cpu0(TIMER_C1_IRQ_ID);
     gic_enable_interrupt(TIMER_C1_IRQ_ID);
 
+    // Timer C3
     gic_set_priority(TIMER_C3_IRQ_ID, 0);
     gic_route_interrupt_to_cpu0(TIMER_C3_IRQ_ID);
     gic_enable_interrupt(TIMER_C3_IRQ_ID);
+
+    // UART0 (console)
+    gic_set_priority(UART0_IRQ_ID, 0);
+    gic_route_interrupt_to_cpu0(UART0_IRQ_ID);
+    gic_enable_interrupt(UART0_IRQ_ID);
+
+    // GPIO Bank 0 (for MCP2515 INT on GPIO17)
+    gic_set_priority(GPIO_BANK0_IRQ_ID, 0);
+    gic_route_interrupt_to_cpu0(GPIO_BANK0_IRQ_ID);
+    gic_enable_interrupt(GPIO_BANK0_IRQ_ID);
 
     uint32_t current = (uint32_t)read_timer();
     timer_set_c1(current + 10000);
@@ -447,10 +492,35 @@ void irq_dispatch(void) {
         timer_set_c3((uint32_t)(current + 10000));
         handle_timer_interrupt(EVENT_TIMER_C3);
         gic_write_eoir(iar);
+    } else if (irq_id == UART0_IRQ_ID) {
+        uint32_t mis = uart_read_mis(CONSOLE);
+
+        // Handle RX interrupt
+        if (mis & UART_INT_RX) {
+            uart_disable_rx_interrupt(CONSOLE);
+            uart_clear_rx_interrupt(CONSOLE);
+            handle_event_interrupt(EVENT_UART_RX);
+        }
+
+        // Handle TX interrupt
+        if (mis & UART_INT_TX) {
+            uart_disable_tx_interrupt(CONSOLE);
+            uart_clear_tx_interrupt(CONSOLE);
+            handle_event_interrupt(EVENT_UART_TX);
+        }
+
+        gic_write_eoir(iar);
+    } else if (irq_id == GPIO_BANK0_IRQ_ID) {
+        // MCP2515 INT on GPIO17 (active low, falling edge)
+        if (gpio_check_event(17)) {
+            gpio_clear_event(17);
+            handle_event_interrupt(EVENT_CAN_RX);
+        }
+        gic_write_eoir(iar);
     } else if (irq_id == 1023) {
         // Spurious interrupt, ignore
     } else {
-        uart_printf(CONSOLE, "Unknown IRQ: %d\r\n", irq_id);
+        uart_debug_printf(CONSOLE, "Unknown IRQ: %d\r\n", irq_id);
         gic_write_eoir(iar);
     }
 
@@ -460,10 +530,7 @@ void irq_dispatch(void) {
     }
 
     TaskDescriptor_t *next_task = schedule();
-    if (next_task == NULL) {
-        uart_printf(CONSOLE, "PANIC: No runnable tasks in irq_dispatch!\r\n");
-        for (;;) __asm__ volatile("wfi");
-    }
+    assert(next_task != NULL, "No runnable tasks in irq_dispatch!");
     switch_to_task(next_task);
 }
 
@@ -518,7 +585,10 @@ void syscall_dispatch() {
             if (ret < 0) {
                 break;  // Invalid event, return error
             }
-            return;  // Task is blocked, scheduling done by kern_AwaitEvent
+            if (current_task->state == TASK_STATE_EVENT_BLOCKED) {
+                return;  // Task is blocked, scheduling done by kern_AwaitEvent
+            }
+            break;  // Not blocked, continue to reschedule
         default:
             ret = -1;
             break;

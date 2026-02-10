@@ -14,6 +14,7 @@ typedef struct {
     TaskDescriptor_t *free_list;
     TaskScheduler_t *task_scheduler;
     TaskDescriptor_t *event_wait_queue[EVENT_COUNT];  // Tasks waiting for each event
+    uint32_t event_pending[EVENT_COUNT];              // Pending events when no waiter
 } TaskManager_t;
 
 

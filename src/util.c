@@ -2,6 +2,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define TEMP_BUF_SIZE 768
+static char temp_buf[TEMP_BUF_SIZE];
+
 
 // ascii digit to integer
 int a2d(char ch) {
@@ -83,6 +86,81 @@ void swap(void *a, void *b, size_t size) {
     memcpy(temp, a, size);
     memcpy(a, b, size);
     memcpy(b, temp, size);
+}
+
+uint32_t max_uint(uint32_t a, uint32_t b) {
+    return (a > b) ? a : b;
+}
+
+uint32_t min_uint(uint32_t a, uint32_t b) {
+	return (a < b) ? a : b;
+}
+
+// String to integer conversion
+int str2int(const char *str) {
+    int result = 0;
+    int sign = 1;
+
+    if (*str == '-') {
+        sign = -1;
+        str++;
+    }
+
+    while (*str >= '0' && *str <= '9') {
+        result = result * 10 + (*str - '0');
+        str++;
+    }
+
+    return result * sign;
+}
+
+// Buffer formatting helpers
+
+char* buf_append(char *p, const char *str) {
+    while (*str && (p - temp_buf) < TEMP_BUF_SIZE - 1) {
+        *p++ = *str++;
+    }
+    return p;
+}
+
+char* buf_append_char(char *p, char c) {
+    if ((p - temp_buf) < TEMP_BUF_SIZE - 1) {
+        *p++ = c;
+    }
+    return p;
+}
+
+char* buf_append_int(char *p, int value) {
+    char num_buf[12];
+    i2a(value, num_buf);
+    return buf_append(p, num_buf);
+}
+
+char* buf_append_uint(char *p, unsigned int value) {
+    char num_buf[12];
+    ui2a(value, 10, num_buf);
+    return buf_append(p, num_buf);
+}
+
+char* buf_get_temp(void) {
+    return temp_buf;
+}
+
+// Render elapsed microseconds as mm:ss.t string (7 chars + null)
+void clock_render(uint64_t elapsed_us, char *buf) {
+    uint64_t elapsed_tenths = elapsed_us / 100000;
+    uint32_t minutes = (elapsed_tenths / 600) % 100;  // Cap at 99 minutes
+    uint32_t seconds = (elapsed_tenths / 10) % 60;
+    uint32_t tenths = elapsed_tenths % 10;
+
+    buf[0] = '0' + (minutes / 10);
+    buf[1] = '0' + (minutes % 10);
+    buf[2] = ':';
+    buf[3] = '0' + (seconds / 10);
+    buf[4] = '0' + (seconds % 10);
+    buf[5] = '.';
+    buf[6] = '0' + tenths;
+    buf[7] = '\0';
 }
 
 

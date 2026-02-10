@@ -13,12 +13,12 @@
 #define FIRST_USER_TASK_PRIORITY     30
 #define IDLE_TASK_PRIORITY           31
 
-// K3 client task priorities
-#define K3_CLIENT_PRIORITY_3     3
-#define K3_CLIENT_PRIORITY_4     4
-#define K3_CLIENT_PRIORITY_5     5
-#define K3_CLIENT_PRIORITY_6     6  
-
+// I/O server priorities
+#define IO_NOTIFIER_PRIORITY          1  // Notifiers: highest after nameserver
+#define TERMINAL_SERVER_PRIORITY      2  // Same as clock server
+#define CAN_SERVER_PRIORITY           2  // Same as clock server
+#define TRAIN_CONTROL_PRIORITY        3  // Application task
+#define TRAIN_COURIER_PRIORITY        4  
 
 typedef struct {
     TaskList_t *task_lists;
