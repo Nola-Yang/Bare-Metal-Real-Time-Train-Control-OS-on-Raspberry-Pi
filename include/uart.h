@@ -19,6 +19,9 @@ void uart_printf(size_t line, const char *fmt, ...);
 
 void uart_debug_printf(size_t line, const char *fmt, ... );
 
+// uart_debug_move_cursor(line, line_pos, cursor_pos): Uses busy waiting to move the cursor
+void uart_debug_move_cursor(size_t line, uint32_t line_pos, uint32_t cursor_pos);
+
 // Interrupt control functions
 void uart_enable_rx_interrupt(size_t line);
 void uart_disable_rx_interrupt(size_t line);

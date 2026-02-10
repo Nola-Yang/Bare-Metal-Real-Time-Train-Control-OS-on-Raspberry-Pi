@@ -88,6 +88,14 @@ void swap(void *a, void *b, size_t size) {
     memcpy(b, temp, size);
 }
 
+uint32_t max_uint(uint32_t a, uint32_t b) {
+    return (a > b) ? a : b;
+}
+
+uint32_t min_uint(uint32_t a, uint32_t b) {
+	return (a < b) ? a : b;
+}
+
 // String to integer conversion
 int str2int(const char *str) {
     int result = 0;

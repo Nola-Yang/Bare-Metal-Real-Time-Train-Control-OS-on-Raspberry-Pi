@@ -150,6 +150,10 @@ void uart_debug_printf(size_t line, const char *fmt, ... ) {
 	#endif
 }
 
+void uart_debug_move_cursor(size_t line, uint32_t line_pos, uint32_t cursor_pos) {
+	uart_debug_printf(line, "\033[%u;%uH", line_pos, cursor_pos);
+}
+
 // Interrupt control functions
 
 void uart_enable_rx_interrupt(size_t line) {
