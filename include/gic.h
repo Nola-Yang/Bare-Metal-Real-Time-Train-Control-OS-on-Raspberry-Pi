@@ -28,8 +28,8 @@
 #define TIMER_C1_IRQ_ID     97
 #define TIMER_C3_IRQ_ID     99
 
-// UART0 interrupt ID (PL011)
-#define UART0_IRQ_ID        57
+// UART interrupt ID (PL011 OR of all UARTs, BCM2711/GIC)
+#define UART0_IRQ_ID        153
 
 // GPIO Bank 0 interrupt ID (GPIO 0-31, the GPIO17 is used for MCP2515 INT)
 #define GPIO_BANK0_IRQ_ID   145
