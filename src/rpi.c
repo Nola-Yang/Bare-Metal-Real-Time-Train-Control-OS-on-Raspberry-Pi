@@ -7,9 +7,8 @@ static char* const GPIO_BASE = (char*)(MMIO_BASE + 0x200000);
 #define GPIO_PUP_PDN_CNTRL_REG(reg) (*(volatile uint32_t*)(GPIO_BASE + 0xe4 + reg * 4))
 
 // GPIO interrupt registers
-#define GPIO_GPEDS0   (*(volatile uint32_t*)(GPIO_BASE + 0x40))  // Event Detect Status 0-31
-#define GPIO_GPREN0   (*(volatile uint32_t*)(GPIO_BASE + 0x4C))  // Rising Edge Enable 0-31
-#define GPIO_GPFEN0   (*(volatile uint32_t*)(GPIO_BASE + 0x58))  // Falling Edge Enable 0-31
+#define GPEDS_REG(reg) (*(volatile uint32_t*)(GPIO_BASE + 0x40 + (reg) * 4))
+#define GPLEN_REG(reg) (*(volatile uint32_t*)(GPIO_BASE + 0x70 + (reg) * 4))
 
 // function control settings for GPIO pins
 static const uint32_t GPIO_INPUT  = 0x00;
@@ -52,19 +51,38 @@ void gpio_init() {
 	setup_gpio(14, GPIO_ALTFN0, GPIO_NONE); // UART TXD0
 	setup_gpio(15, GPIO_ALTFN0, GPIO_NONE); // UART RXD0
 
-	// MCP2515 INT pin (active low)
-	setup_gpio(17, GPIO_INPUT, GPIO_PUP);
-	gpio_enable_falling_edge_detect(17);
 }
 
-void gpio_enable_falling_edge_detect(uint32_t pin) {
-	GPIO_GPFEN0 |= (1u << pin);
+static void gpio_set_pin_low_detect(uint32_t pin, int enable) {
+	uint32_t reg   = pin / 32;
+	uint32_t shift = pin % 32;
+	if (enable) GPLEN_REG(reg) |=  (1u << shift); // enable pin low detect
+	else        GPLEN_REG(reg) &= ~(1u << shift); // disable pin low detect
 }
 
-void gpio_clear_event(uint32_t pin) {
-	GPIO_GPEDS0 = (1u << pin);  // Write 1 to clear
+// Get event detect status for GPIO pin.
+uint32_t gpio_get_event_detect_status(uint32_t pin) {
+	uint32_t reg   = pin / 32;
+	uint32_t shift = pin % 32;
+	return (GPEDS_REG(reg) >> shift) & 0x01;
 }
 
-uint32_t gpio_check_event(uint32_t pin) {
-	return (GPIO_GPEDS0 >> pin) & 1;
+// Clear event detect status for GPIO pin.
+void gpio_clr_event_detect_status(uint32_t pin) {
+	uint32_t reg   = pin / 32;
+	uint32_t shift = pin % 32;
+	GPEDS_REG(reg) = (1u << shift); // clear the event detect status for the pin
+}
+
+void gpio_init_interrupt() {
+	setup_gpio(17, GPIO_INPUT, GPIO_NONE); // configure MCP2515_INT pin
+	gpio_set_pin_low_detect(17, 1);        // enable low detect on MCP2515_INT pin
+}
+
+void gpio_enable_can_interrupt(void) {
+	gpio_set_pin_low_detect(17, 1);
+}
+
+void gpio_disable_can_interrupt(void) {
+	gpio_set_pin_low_detect(17, 0);
 }

@@ -1,0 +1,40 @@
+#ifndef _can_server_h_
+#define _can_server_h_ 1
+
+#include "mcp2515.h"
+
+#define CAN_SERVER_NAME "CANServer"
+
+// Message types
+#define CAN_MSG_SEND       0   // Send CAN frame (queued)
+#define CAN_MSG_RECV       1   // Receive CAN frame (blocks until available)
+#define CAN_MSG_RX_NOTIFY  2   // From notifier: interrupt occurred
+#define CAN_MSG_ENABLE_INT 3   // Enable MCP2515/GPIO interrupt handling
+
+typedef struct {
+    int type;
+    can_frame_t frame;
+} CANRequest_t;
+
+typedef struct {
+    int status;
+    can_frame_t frame;
+} CANReply_t;
+
+// CAN server task 
+void can_server_task(void);
+
+// User API
+
+// Send a CAN frame 
+// Returns: 0 on success (queued), negative on error
+int CANSend(int tid, const can_frame_t *frame);
+
+// Receive a CAN frame 
+// Returns: 0 on success, negative on error
+int CANReceive(int tid, can_frame_t *frame);
+
+// Enable MCP2515/GPIO interrupt handling
+int CANEnableInterrupts(int tid);
+
+#endif /* _can_server_h_ */
