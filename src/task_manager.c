@@ -6,6 +6,7 @@
 #include "timer.h"
 #include "idle_task.h"
 #include "rpi.h"
+#include "gpio.h"
 #include <string.h>
 
 
