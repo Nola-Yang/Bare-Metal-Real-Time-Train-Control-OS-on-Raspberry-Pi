@@ -36,12 +36,17 @@ int execute_it(char *cmd, int *rv_train) {
     // tr
     if (argv[0][0] == 't' && argv[0][1] == 'r' && argv[0][2] == '\0') {
         if (argc != 3) {
-            ui_puts("Usage: tr <train> <speed>\r\n");
+            ui_puts("Usage: tr <train> <speed 0-14>\r\n");
             return 2;
         }
         int train = str2int(argv[1]);
         int speed = str2int(argv[2]);
-        track_set_speed(train, speed);
+        if (speed < 0 || speed > 14) {
+            ui_puts("Speed must be 0-14\r\n");
+            return 2;
+        }
+        int can_speed = speed * 1000 / 14;
+        track_set_speed(train, can_speed);
         return 1;
     }
 
