@@ -57,6 +57,10 @@ int execute_it(char *cmd, int *rv_train) {
             return 2;
         }
         int sw = str2int(argv[1]);
+        if (!track_is_valid_switch(sw)) {
+            ui_puts("Invalid switch. Valid: 1-18, 153-156\r\n");
+            return 2;
+        }
         char dir = argv[2][0];
         if (dir != 'S' && dir != 'C' && dir != 's' && dir != 'c') {
             ui_puts("Direction must be S or C\r\n");
