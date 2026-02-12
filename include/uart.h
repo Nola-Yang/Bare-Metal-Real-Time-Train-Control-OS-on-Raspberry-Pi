@@ -14,7 +14,8 @@
 #define UART_INT_PE  (1 << 8)  // Parity error
 #define UART_INT_BE  (1 << 9)  // Break error
 #define UART_INT_OE  (1 << 10) // Overrun error
-// Modem/status interrupts (PL011)
+
+// Modem/status interrupts may useleess? keep for possible UART_FLOWCTL
 #define UART_INT_DSR (1 << 3)
 #define UART_INT_DCD (1 << 2)
 #define UART_INT_CTS (1 << 1)
@@ -24,12 +25,6 @@
 #define UART_INT_STATUS_MASK (UART_INT_DSR | UART_INT_DCD | UART_INT_CTS | UART_INT_RI)
 
 void uart_config_and_enable(size_t line);
-char uart_getc(size_t line);
-void uart_putc(size_t line, char c);
-void uart_putl(size_t line, const char *buf, size_t blen);
-void uart_puts(size_t line, const char *buf);
-void uart_printf(size_t line, const char *fmt, ...);
-
 void uart_debug_printf(size_t line, const char *fmt, ... );
 
 // Interrupt control functions
@@ -52,6 +47,5 @@ int uart_rx_ready(size_t line);
 int uart_tx_ready(size_t line);
 int uart_getc_nonblocking(size_t line);
 int uart_putc_nonblocking(size_t line, char c);
-int uart_cts_ready(size_t line);
 
 #endif /* uart.h */
