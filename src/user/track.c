@@ -1,9 +1,9 @@
 #include "track.h"
 #include "mcp2515.h"
 #include "can_server.h"
-#include "terminal_server.h"
 #include "timer.h"
 #include "util.h"
+#include "uart.h"
 #include <stddef.h>
 
 // Server TIDs for communication
@@ -19,10 +19,7 @@ static int sensor_log_head = 0;
 // Helper: report error via terminal
 static void report_error(const char *msg) {
     if (term_tid >= 0) {
-        int len = 0;
-        const char *p = msg;
-        while (*p++) len++;
-        Puts(term_tid, TERM_CHANNEL_CONSOLE, msg, len);
+        uart_debug_printf(CONSOLE, "%s", msg);
     }
 }
 
@@ -167,7 +164,12 @@ void track_set_speed(int train, int speed) {
 
     if (CANSend(can_tid, &frame) == 0) {
         train_state_t* t = find_or_create_train(train);
-        if (t) t->speed = speed;
+        if (t) {
+            if (t->rv_state == 1) {
+                t->rv_prev_speed = speed;
+            }
+            t->speed = speed;
+        }
     } else {
         report_error("Error: CAN TX queue full\r\n");
     }
@@ -278,17 +280,18 @@ void track_set_light(int train, int on) {
     }
 }
 
-void process_rv_command(uint64_t now) {
-    for (int i = 0; i < MAX_ACTIVE_TRAINS; i++) {
-        if (trains[i].rv_state == 1 && now >= trains[i].rv_ready_time) {
-            track_reverse(trains[i].train_num);
-            track_set_speed(trains[i].train_num, trains[i].rv_prev_speed);
-            trains[i].rv_state = 0;
-        }
+
+void track_complete_reverse(int train_num) {
+    train_state_t *t = find_train(train_num);
+    if (t && t->rv_state == 1) {
+        int prev_speed = t->rv_prev_speed;
+        t->rv_state = 0;
+        track_reverse(train_num);
+        track_set_speed(train_num, prev_speed);
     }
 }
 
-int track_start_reverse(int train_num, uint64_t now) {
+int track_start_reverse(int train_num) {
     train_state_t* t = find_or_create_train(train_num);
     if (!t) {
         report_error("No free train slots\r\n");
@@ -302,13 +305,12 @@ int track_start_reverse(int train_num, uint64_t now) {
 
     if (t->speed == 0) {
         track_reverse(train_num);
-        return 1;
+        return 2;  // immediate reverse, no delay needed
     }
 
     t->rv_prev_speed = t->speed;
-    t->rv_ready_time = now + 1000000;  // 1 second delay
-    t->rv_state = 1;
     track_set_speed(train_num, 0);
+    t->rv_state = 1;
 
-    return 1;
+    return 1;  // delay needed
 }

@@ -15,6 +15,7 @@
 #define SYS_RECEIVE     6
 #define SYS_REPLY       7
 #define SYS_AWAITEVENT  8
+#define SYS_SHUTDOWN    9
 
 static inline int Create(int priority, void (*function)()) {
     register int64_t r0 __asm__("x0") = priority;
@@ -83,6 +84,12 @@ static inline int AwaitEvent(int eventid) {
     register int64_t r8 __asm__("x8") = SYS_AWAITEVENT;
     __asm__ volatile("svc #0" : "+r"(r0) : "r"(r8) : "memory");
     return (int)r0;
+}
+
+static inline void Shutdown(void) {
+    register int64_t r8 __asm__("x8") = SYS_SHUTDOWN;
+    __asm__ volatile("svc #0" : : "r"(r8) : "memory");
+    __builtin_unreachable();
 }
 
 #endif /* SYSCALL_H */

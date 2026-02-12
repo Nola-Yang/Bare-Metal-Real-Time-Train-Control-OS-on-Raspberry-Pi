@@ -13,12 +13,18 @@
 #define FIRST_USER_TASK_PRIORITY     30
 #define IDLE_TASK_PRIORITY           31
 
-// I/O server priorities
+// Sever priority
+
 #define IO_NOTIFIER_PRIORITY          1  // Notifiers: highest after nameserver
 #define TERMINAL_SERVER_PRIORITY      2  // Same as clock server
 #define CAN_SERVER_PRIORITY           2  // Same as clock server
 #define TRAIN_CONTROL_PRIORITY        3  // Application task
 #define TRAIN_COURIER_PRIORITY        4  
+
+#define CAN_NOTIFIER_PRIORITY  1
+
+#define TERM_NOTIFIER_PRIORITY  1
+#define TERM_SERVER_PRIORITY    2
 
 typedef struct {
     TaskList_t *task_lists;

@@ -146,10 +146,14 @@ char* buf_get_temp(void) {
     return temp_buf;
 }
 
-// Render elapsed microseconds as mm:ss.t string (7 chars + null)
+// Render elapsed microseconds as mm:ss.t string
 void clock_render(uint64_t elapsed_us, char *buf) {
     uint64_t elapsed_tenths = elapsed_us / 100000;
-    uint32_t minutes = (elapsed_tenths / 600) % 100;  // Cap at 99 minutes
+    // Saturate at 99:59.9 to avoid wrap-around.
+    if (elapsed_tenths > 59999) {
+        elapsed_tenths = 59999;
+    }
+    uint32_t minutes = (elapsed_tenths / 600);
     uint32_t seconds = (elapsed_tenths / 10) % 60;
     uint32_t tenths = elapsed_tenths % 10;
 

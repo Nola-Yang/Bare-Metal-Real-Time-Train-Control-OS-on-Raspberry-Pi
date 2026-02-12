@@ -1,5 +1,6 @@
 #include "mcp2515.h"
 #include "spi.h"
+#include "ring_buffer.h"
 
 // configuration registers
 static const uint8_t CNF3 = 0x28;
@@ -58,12 +59,23 @@ static const uint8_t CANCTRL_REQOP = 0xE0;
 
 // flags register
 static const uint8_t CANINTF = 0x2C;
+// interrupt enable register
+static const uint8_t CANINTE = 0x2B;
+
+// CANINTE bits
+static const uint8_t CANINTE_RX0IE = 0x01;
+static const uint8_t CANINTE_RX1IE = 0x02;
+static const uint8_t CANINTE_TX0IE = 0x04;
+
+// CANINTF bits (interrupt flags)
+static const uint8_t CANINTF_RX0IF = 0x01;
+static const uint8_t CANINTF_RX1IF = 0x02;
+static const uint8_t CANINTF_TX0IF = 0x04;
 
 //TX Queue Management
-#define TX_QUEUE_SIZE 64  // Increased to handle burst commands (init=22 frames, plus margin)
-static can_frame_t tx_queue[TX_QUEUE_SIZE];
-static int tx_head = 0;  // Next slot to write
-static int tx_tail = 0;  // Next slot to read
+#define TX_QUEUE_SIZE 64 
+RING_BUFFER_DECLARE(CANTxQueue_t, can_frame_t, TX_QUEUE_SIZE);
+static CANTxQueue_t tx_queue;
 
 /** Read n consecutive registers starting from the specified one. */
 static void mcp2515_read_regs(uint8_t reg, uint8_t values[], const uint8_t n) {
@@ -121,6 +133,8 @@ static uint8_t mcp2515_read_status(void) {
 }
 
 void mcp2515_init(void) {
+	ring_buffer_init(&tx_queue);
+
 	// No need to reset MCP2515 here as a hardware reset is done during boot.
 	// MCP2515 automatically enters config mode after hardware reset.
 
@@ -132,6 +146,10 @@ void mcp2515_init(void) {
 	// do not filter messages. Allow rollover of RXB0 to RXB1.
 	mcp2515_write_reg(RXBnCTRL0, 0x64);
 	mcp2515_write_reg(RXBnCTRL1, 0x60);
+
+	// Enable RX interrupts 
+	mcp2515_write_reg(CANINTE, CANINTE_RX0IE | CANINTE_RX1IE);
+	mcp2515_write_reg(CANINTF, 0x00);  // clear any pending flags
 
 	// start MCP2515 by setting operation mode to normal
 	mcp2515_modify_reg(CANCTRL, CANCTRL_REQOP, OPMODE_NORMAL);
@@ -179,10 +197,10 @@ int can_try_recv(can_frame_t *frame) {
 
 	if (status & STATUS_RX0) {
 		buf_base = RXB0SIDH;
-		clear_flag = 0x01;
+		clear_flag = CANINTF_RX0IF;
 	} else if (status & STATUS_RX1) {
 		buf_base = RXB1SIDH;
-		clear_flag = 0x02;
+		clear_flag = CANINTF_RX1IF;
 	} else {
 		return 0;
 	}
@@ -231,29 +249,53 @@ int can_try_recv(can_frame_t *frame) {
 // TX Queue Functions
 
 int can_queue_frame(const can_frame_t *frame) {
-	int next_head = (tx_head + 1) % TX_QUEUE_SIZE;
-
-	if (next_head == tx_tail) {
-		return 0;
-	}
-
-	tx_queue[tx_head] = *frame;
-	tx_head = next_head;
-
-	return 1;
+	return (ring_buffer_put(&tx_queue, *frame) == 0) ? 1 : 0;
 }
 
 void can_queue_send(void) {
-	if (tx_head == tx_tail) {
+	if (ring_buffer_is_empty(&tx_queue)) {
 		return;
 	}
-	if (can_send(&tx_queue[tx_tail])) {
-		tx_tail = (tx_tail + 1) % TX_QUEUE_SIZE;
+	can_frame_t frame;
+	if (ring_buffer_peek(&tx_queue, &frame) < 0) {
+		return;
+	}
+	if (can_send(&frame)) {
+		ring_buffer_get(&tx_queue, &frame);
 	}
 }
 
 void mcp2515_clear_interrupts(void) {
-	mcp2515_write_reg(CANINTF, 0x00);  // prevent interrupt storm
+	mcp2515_write_reg(CANINTF, 0x00);
+}
+
+void mcp2515_enable_rx_interrupts(void) {
+	mcp2515_modify_reg(CANINTE, CANINTE_RX0IE | CANINTE_RX1IE,
+	                   CANINTE_RX0IE | CANINTE_RX1IE);
+}
+
+void mcp2515_disable_rx_interrupts(void) {
+	mcp2515_modify_reg(CANINTE, CANINTE_RX0IE | CANINTE_RX1IE, 0x00);
+}
+
+void mcp2515_enable_tx_interrupts(void) {
+	mcp2515_modify_reg(CANINTE, CANINTE_TX0IE, CANINTE_TX0IE);
+}
+
+void mcp2515_disable_tx_interrupts(void) {
+	mcp2515_modify_reg(CANINTE, CANINTE_TX0IE, 0x00);
+}
+
+uint8_t mcp2515_read_interrupt_flags(void) {
+	return mcp2515_read_reg(CANINTF);
+}
+
+void mcp2515_clear_interrupt_flags(uint8_t mask) {
+	mcp2515_modify_reg(CANINTF, mask, 0x00);
+}
+
+void mcp2515_disable_interrupts(void) {
+	mcp2515_write_reg(CANINTE, 0x00);
 }
 
 int can_tx_busy(void) {

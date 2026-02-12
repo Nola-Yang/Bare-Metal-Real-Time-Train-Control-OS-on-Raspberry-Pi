@@ -20,7 +20,8 @@ static int tokenize(char *cmd, char *argv[], int max_args) {
 }
 
 // Returns: 0 = exit, 1 = continue (no output), 2 = continue (has output)
-int execute_it(char *cmd, uint64_t now) {
+int execute_it(char *cmd, int *rv_train) {
+    *rv_train = -1;
     char *argv[4];
     int argc = tokenize(cmd, argv, 4);
 
@@ -35,12 +36,17 @@ int execute_it(char *cmd, uint64_t now) {
     // tr
     if (argv[0][0] == 't' && argv[0][1] == 'r' && argv[0][2] == '\0') {
         if (argc != 3) {
-            ui_puts("Usage: tr <train> <speed>\r\n");
+            ui_puts("Usage: tr <train> <speed 0-14>\r\n");
             return 2;
         }
         int train = str2int(argv[1]);
         int speed = str2int(argv[2]);
-        track_set_speed(train, speed);
+        if (speed < 0 || speed > 14) {
+            ui_puts("Speed must be 0-14\r\n");
+            return 2;
+        }
+        int can_speed = speed * 1000 / 14;
+        track_set_speed(train, can_speed);
         return 1;
     }
 
@@ -60,6 +66,24 @@ int execute_it(char *cmd, uint64_t now) {
         if (dir == 'c') dir = 'C';
         track_set_switch(sw, dir);
         track_update_switch(sw, dir);
+
+        // 153/154 and 155/156 cannot both be C
+        if (dir == 'C') {
+            int partner = -1;
+            if (sw == 153) partner = 154;
+            else if (sw == 154) partner = 153;
+            else if (sw == 155) partner = 156;
+            else if (sw == 156) partner = 155;
+
+            if (partner >= 0) {
+                int idx = track_switch_to_index(partner);
+                if (idx >= 0 && track_get_switch_state()[idx].state == 'C') {
+                    track_set_switch(partner, 'S');
+                    track_update_switch(partner, 'S');
+                }
+            }
+        }
+
         ui_mark_switches_dirty();
         return 1;
     }
@@ -72,7 +96,11 @@ int execute_it(char *cmd, uint64_t now) {
         }
 
         int train = str2int(argv[1]);
-        if (track_start_reverse(train, now)) {
+        int rv_result = track_start_reverse(train);
+        if (rv_result > 0) {
+            if (rv_result == 1) {
+                *rv_train = train;  
+            }
             return 1;
         } else {
             return 2;
