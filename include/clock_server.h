@@ -17,7 +17,7 @@ typedef struct {
 } ClockRequest_t;
 
 typedef struct {
-    int ticks;  // Current tick count (for TIME response)
+    int ticks;  // Current tick count
 } ClockReply_t;
 
 
