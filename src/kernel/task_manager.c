@@ -230,8 +230,7 @@ static void kern_Exit(void) {
 
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        uart_debug_printf(CONSOLE, "PANIC: No runnable tasks in kern_Exit!\r\n");
-        for (;;) __asm__ volatile("wfi");
+        panic("No runnable tasks in kern_Exit!\r\n");
     }
     switch_to_task(next_task);
 }
@@ -299,8 +298,7 @@ static int kern_Send(int tid, const char *msg, int msglen, char *reply, int rple
     // Schedule next task (sender is blocked)
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        uart_debug_printf(CONSOLE, "PANIC: No runnable tasks in kern_Send!\r\n");
-        for (;;) __asm__ volatile("wfi");
+        panic("No runnable tasks in kern_Send!\r\n");
     }
     switch_to_task(next_task);
 
@@ -328,8 +326,7 @@ static int kern_Receive(int *tid, char *msg, int msglen) {
 
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        uart_debug_printf(CONSOLE, "PANIC: No runnable tasks in kern_Receive!\r\n");
-        for (;;) __asm__ volatile("wfi");
+        panic("No runnable tasks in kern_Receive!\r\n");
     }
     switch_to_task(next_task);
 
@@ -411,8 +408,7 @@ static int kern_AwaitEvent(int eventid) {
     // Schedule next task
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        uart_debug_printf(CONSOLE, "PANIC: No runnable tasks in kern_AwaitEvent!\r\n");
-        for (;;) __asm__ volatile("wfi");
+        panic("No runnable tasks in kern_AwaitEvent!\r\n");
     }
     switch_to_task(next_task);
 
