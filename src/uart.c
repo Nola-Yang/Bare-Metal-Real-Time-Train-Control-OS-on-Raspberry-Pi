@@ -14,6 +14,7 @@ static const uint32_t UART_IBRD = 0x24;
 static const uint32_t UART_FBRD = 0x28;
 static const uint32_t UART_LCRH = 0x2c;
 static const uint32_t UART_CR   = 0x30;
+static const uint32_t UART_IFLS = 0x34;
 
 // masks for specific fields in the UART registers
 static const uint32_t UART_FR_BUSY = 0x08;
@@ -30,6 +31,9 @@ static const uint32_t UART_ICR  = 0x44;  // Interrupt Clear
 // Interrupt mask bits 
 static const uint32_t UART_INT_RX_BIT = (1 << 4);
 static const uint32_t UART_INT_TX_BIT = (1 << 5);
+static const uint32_t UART_INT_RT_BIT = (1 << 6);
+static const uint32_t UART_INT_ERR_BITS = (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10);
+static const uint32_t UART_INT_STATUS_BITS = (1 << 3) | (1 << 2) | (1 << 1) | (1 << 0);
 
 static const uint32_t UART_CR_UARTEN =   0x01;
 static const uint32_t UART_CR_LBE    =   0x80;
@@ -45,6 +49,16 @@ static const uint32_t UART_LCRH_STP2      = 0x08;
 static const uint32_t UART_LCRH_FEN       = 0x10;
 static const uint32_t UART_LCRH_WLEN_LOW  = 0x20;
 static const uint32_t UART_LCRH_WLEN_HIGH = 0x40;
+
+// FIFO interrupt trigger level encodings
+static const uint32_t UART_IFLS_1_2 = 0x2;
+
+static const uint32_t UART_IFLS_RX_SHIFT = 3;
+static const uint32_t UART_IFLS_TX_SHIFT = 0;
+
+// Default FIFO trigger levels
+static const uint32_t UART_IFLS_RX_LEVEL = UART_IFLS_1_2;
+static const uint32_t UART_IFLS_TX_LEVEL = UART_IFLS_1_2;
 
 // Configure the line properties (e.g, parity, baud rate) of a UART and ensure that it is enabled
 void uart_config_and_enable(size_t line) {
@@ -68,96 +82,41 @@ void uart_config_and_enable(size_t line) {
 	// set the line control registers: 8 bit, no parity, 1 or 2 stop bits, FIFOs enabled
 	UART_REG(line, UART_LCRH) = UART_LCRH_WLEN_HIGH | UART_LCRH_WLEN_LOW | flag;
 
+	// Configure FIFO interrupt trigger levels
+	UART_REG(line, UART_IFLS) = (UART_IFLS_RX_LEVEL << UART_IFLS_RX_SHIFT) |
+	                            (UART_IFLS_TX_LEVEL << UART_IFLS_TX_SHIFT);
+
 	// re-enable the UART; enable both transmit and receive regardless of previous state
-	UART_REG(line, UART_CR) = cr_state | UART_CR_UARTEN | UART_CR_TXE | UART_CR_RXE;
-}
+	uint32_t cr = cr_state | UART_CR_UARTEN | UART_CR_TXE | UART_CR_RXE;
 
-char uart_getc(size_t line) {
-	while (UART_REG(line, UART_FR) & UART_FR_RXFE); // wait for data ready
-	return UART_REG(line, UART_DR);
-}
+	UART_REG(line, UART_CR) = cr;
 
-void uart_putc(size_t line, char c) {
-	while (UART_REG(line, UART_FR) & UART_FR_TXFF); // wait for room in buffer
-	UART_REG(line, UART_DR) = c;
-}
-
-void uart_putl(size_t line, const char* buf, size_t blen) {
-	for (size_t i = 0; i < blen; i++) {
-		uart_putc(line, *(buf+i));
-	}
-}
-
-void uart_puts(size_t line, const char* buf) {
-	while (*buf) {
-		uart_putc(line, *buf);
-		buf++;
-	}
-}
-
-static void uart_internal_printf(size_t line, const char *fmt, va_list va) {
-	char ch, buf[12];
-
-	while ((ch = *(fmt++))) {
-		if (ch != '%')
-			uart_putc(line, ch);
-		else {
-			ch = *(fmt++);
-			switch(ch) {
-			case 'u':
-				ui2a(va_arg(va, unsigned int), 10, buf);
-				uart_puts(line, buf);
-				break;
-			case 'd':
-				i2a(va_arg(va, int), buf);
-				uart_puts(line, buf);
-				break;
-			case 'x':
-				ui2a(va_arg(va, unsigned int), 16, buf);
-				uart_puts(line, buf);
-				break;
-			case 's':
-				uart_puts(line, va_arg(va, char*));
-				break;
-			case 'c':
-				uart_putc(line, va_arg(va, int));
-				break;
-			case '%':
-				uart_putc(line, ch);
-				break;
-			case '\0':
-				return;
-			}
-		}
-	}
-}
-
-void uart_printf(size_t line, const char *fmt, ... ) {
-	va_list va;
-
-	va_start(va, fmt);
-	uart_internal_printf(line, fmt, va);
-	va_end(va);
+	// Enable error interrupts to detect UART faults
+	UART_REG(line, UART_IMSC) |= UART_INT_ERR_BITS;
 }
 
 void uart_debug_printf(size_t line, const char *fmt, ... ) {
-	#ifdef VERBOSE
+#ifdef VERBOSE
 	va_list va;
 
 	va_start(va, fmt);
 	uart_internal_printf(line, fmt, va);
 	va_end(va);
-	#endif
+#else
+	(void)line;
+	(void)fmt;
+	// for complier warnings
+#endif
 }
 
 // Interrupt control functions
 
 void uart_enable_rx_interrupt(size_t line) {
-	UART_REG(line, UART_IMSC) |= UART_INT_RX_BIT;
+	UART_REG(line, UART_IMSC) |= (UART_INT_RX_BIT | UART_INT_RT_BIT);
 }
 
 void uart_disable_rx_interrupt(size_t line) {
-	UART_REG(line, UART_IMSC) &= ~UART_INT_RX_BIT;
+	UART_REG(line, UART_IMSC) &= ~(UART_INT_RX_BIT | UART_INT_RT_BIT);
 }
 
 void uart_enable_tx_interrupt(size_t line) {
@@ -169,11 +128,35 @@ void uart_disable_tx_interrupt(size_t line) {
 }
 
 void uart_clear_rx_interrupt(size_t line) {
-	UART_REG(line, UART_ICR) = UART_INT_RX_BIT;
+	UART_REG(line, UART_ICR) = (UART_INT_RX_BIT | UART_INT_RT_BIT);
 }
 
 void uart_clear_tx_interrupt(size_t line) {
 	UART_REG(line, UART_ICR) = UART_INT_TX_BIT;
+}
+
+void uart_enable_error_interrupts(size_t line) {
+	UART_REG(line, UART_IMSC) |= UART_INT_ERR_BITS;
+}
+
+void uart_disable_error_interrupts(size_t line) {
+	UART_REG(line, UART_IMSC) &= ~UART_INT_ERR_BITS;
+}
+
+void uart_clear_error_interrupts(size_t line) {
+	UART_REG(line, UART_ICR) = UART_INT_ERR_BITS;
+}
+
+void uart_enable_status_interrupts(size_t line) {
+	UART_REG(line, UART_IMSC) |= UART_INT_STATUS_BITS;
+}
+
+void uart_disable_status_interrupts(size_t line) {
+	UART_REG(line, UART_IMSC) &= ~UART_INT_STATUS_BITS;
+}
+
+void uart_clear_status_interrupts(size_t line) {
+	UART_REG(line, UART_ICR) = UART_INT_STATUS_BITS;
 }
 
 uint32_t uart_read_mis(size_t line) {
