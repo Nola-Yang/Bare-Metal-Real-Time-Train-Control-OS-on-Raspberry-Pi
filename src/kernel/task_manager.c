@@ -270,8 +270,7 @@ static int kern_Send(int tid, const char *msg, int msglen, char *reply, int rple
     TaskDescriptor_t *receiver = get_task_by_tid(tid);
 
     if (receiver == NULL) {
-        uart_debug_printf(CONSOLE, "kern_Send: Invalid tid %d\r\n", tid);
-        return -1;  
+        return -1;
     }
 
     sender->msg_buf = msg;
@@ -340,8 +339,7 @@ static int kern_Reply(int tid, const char *reply, int rplen) {
     TaskDescriptor_t *current = get_current_task();
 
     if (sender == NULL) {
-        uart_debug_printf(CONSOLE, "kern_Reply: Invalid tid %d\r\n", tid);
-        return -1;  
+        return -1;
     }
 
     if (sender->state != TASK_STATE_REPLY_BLOCKED) {
@@ -543,8 +541,8 @@ void irq_dispatch(void) {
     } else if (irq_id == 1023) {
         // Spurious interrupt, ignore
     } else {
-        uart_debug_printf(CONSOLE, "Unknown IRQ: %d\r\n", irq_id);
         gic_write_eoir(iar);
+        panic("Unknown IRQ: %d\r\n", irq_id);
     }
 
     if (current_task->state == TASK_STATE_RUNNING) {
@@ -553,7 +551,7 @@ void irq_dispatch(void) {
     }
 
     TaskDescriptor_t *next_task = schedule();
-    // assert(next_task != NULL, "No runnable tasks in irq_dispatch!");
+    KASSERT(next_task != NULL);
     switch_to_task(next_task);
 }
 
