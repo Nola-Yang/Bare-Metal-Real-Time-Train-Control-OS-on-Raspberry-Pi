@@ -164,7 +164,12 @@ void track_set_speed(int train, int speed) {
 
     if (CANSend(can_tid, &frame) == 0) {
         train_state_t* t = find_or_create_train(train);
-        if (t) t->speed = speed;
+        if (t) {
+            if (t->rv_state == 1) {
+                t->rv_prev_speed = speed;
+            }
+            t->speed = speed;
+        }
     } else {
         report_error("Error: CAN TX queue full\r\n");
     }
@@ -280,9 +285,10 @@ void track_set_light(int train, int on) {
 void process_rv_command(uint64_t now) {
     for (int i = 0; i < MAX_ACTIVE_TRAINS; i++) {
         if (trains[i].rv_state == 1 && now >= trains[i].rv_ready_time) {
-            track_reverse(trains[i].train_num);
-            track_set_speed(trains[i].train_num, trains[i].rv_prev_speed);
+            int prev_speed = trains[i].rv_prev_speed;
             trains[i].rv_state = 0;
+            track_reverse(trains[i].train_num);
+            track_set_speed(trains[i].train_num, prev_speed);
         }
     }
 }
@@ -306,8 +312,8 @@ int track_start_reverse(int train_num, uint64_t now) {
 
     t->rv_prev_speed = t->speed;
     t->rv_ready_time = now + 1000000;  // 1 second delay
-    t->rv_state = 1;
     track_set_speed(train_num, 0);
+    t->rv_state = 1;
 
     return 1;
 }
