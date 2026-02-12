@@ -1,6 +1,7 @@
 #ifndef _uart_h_
 #define _uart_h_ 1
 
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -26,6 +27,8 @@
 
 void uart_config_and_enable(size_t line);
 void uart_debug_printf(size_t line, const char *fmt, ... );
+void uart_panic_vprintf(size_t line, const char *fmt, va_list va);
+void uart_panic_printf(size_t line, const char *fmt, ... );
 
 // uart_debug_move_cursor(line, line_pos, cursor_pos): Uses busy waiting to move the cursor
 void uart_debug_move_cursor(size_t line, uint32_t line_pos, uint32_t cursor_pos);

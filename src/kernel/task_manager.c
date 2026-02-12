@@ -6,6 +6,7 @@
 #include "timer.h"
 #include "idle_task.h"
 #include "rpi.h"
+#include "kassert.h"
 #include <string.h>
 
 
@@ -103,9 +104,8 @@ static void free_task_descriptor(TaskDescriptor_t *task) {
 
 static void check_stack_canary(TaskDescriptor_t *task) {
     if (task->stack_canary != STACK_CANARY_VALUE) {
-        uart_debug_printf(CONSOLE, "PANIC: User stack overflow detected! tid=%d canary=0x%lx\r\n",
-                    task->tid, task->stack_canary);
-        for (;;) __asm__ volatile("wfi");
+        panic("User stack overflow detected! tid=%d canary=0x%lx\r\n",
+              task->tid, task->stack_canary);
     }
 }
 
@@ -115,9 +115,16 @@ static void check_user_stack_bounds(TaskDescriptor_t *task) {
     uint64_t stack_top = stack_bottom + TASK_STACK_SIZE;
 
     if (sp < stack_bottom || sp > stack_top) {
-        uart_debug_printf(CONSOLE, "PANIC: User stack out of bounds! tid=%d sp=0x%lx bounds=[0x%lx, 0x%lx]\r\n",
-                    task->tid, sp, stack_bottom, stack_top);
-        for (;;) __asm__ volatile("wfi");
+        panic("User stack out of bounds! tid=%d sp=0x%lx bounds=[0x%lx, 0x%lx]\r\n",
+              task->tid, sp, stack_bottom, stack_top);
+    }
+}
+
+static void check_kernel_stack_canary(void) {
+    extern uint64_t __kernel_stack_canary;
+    if (*((volatile uint64_t *)&__kernel_stack_canary) != STACK_CANARY_VALUE) {
+        panic("Kernel stack overflow! canary=0x%lx\r\n",
+              *((volatile uint64_t *)&__kernel_stack_canary));
     }
 }
 
@@ -478,6 +485,10 @@ void init_interrupts(void) {
 void irq_dispatch(void) {
     TaskDescriptor_t *current_task = get_current_task();
 
+    check_stack_canary(current_task);
+    check_user_stack_bounds(current_task);
+    check_kernel_stack_canary();
+
     uint32_t iar = gic_read_iar();
     uint32_t irq_id = iar & 0x3FF;  
 
@@ -560,6 +571,7 @@ void syscall_dispatch() {
     /* Check for user stack overflow on every syscall entry */
     check_stack_canary(current_task);
     check_user_stack_bounds(current_task);
+    check_kernel_stack_canary();
 
     uint64_t syscall_num = tf->x[8];
     int64_t ret = 0;
