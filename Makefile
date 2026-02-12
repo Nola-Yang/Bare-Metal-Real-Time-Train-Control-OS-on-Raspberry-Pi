@@ -10,7 +10,7 @@ OBJCOPY:=$(XBINDIR)/$(TRIPLE)-objcopy
 OBJDUMP:=$(XBINDIR)/$(TRIPLE)-objdump
 
 WARNINGS:=-Wall -Wextra -Wpedantic -Wno-unused-const-variable
-CFLAGS:=-g -pipe -static -march=armv8-a -mcpu=cortex-a72 -mstrict-align -mgeneral-regs-only $(WARNINGS) -I$(INCLUDE_DIR)
+CFLAGS:=-g -pipe -static -march=armv8-a -mcpu=cortex-a72 -mstrict-align -mgeneral-regs-only $(WARNINGS) -I$(INCLUDE_DIR) -I$(INCLUDE_DIR)/kernel -I$(INCLUDE_DIR)/user
 
 # -Wl,option tells gcc to pass 'option' to the linker with commas replaced by spaces
 LDFLAGS:=-Wl,-nmagic -Wl,-Tlinker.ld -Wl,--no-warn-rwx-segments -nostartfiles
