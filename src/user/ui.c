@@ -7,7 +7,6 @@ static int term_tid = -1;
 static int ui_switches_dirty = 1;
 static int ui_sensors_dirty = 1;
 
-// Clock state Todo: time overflow fix
 static char last_clock_buf[8] = "00:00.0";
 static int last_idle_percent = -1;
 
