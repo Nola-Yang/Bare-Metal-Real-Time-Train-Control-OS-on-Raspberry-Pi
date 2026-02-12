@@ -2,9 +2,14 @@
 #include "util.h"
 #include "track.h"
 #include "ui.h"
+#include "kassert.h"
 
 // Returns number of tokens
 static int tokenize(char *cmd, char *argv[], int max_args) {
+    KASSERT(cmd != NULL);
+    KASSERT(argv != NULL);
+    KASSERT(max_args > 0);
+
     int argc = 0;
     char *p = cmd;
 
@@ -21,6 +26,9 @@ static int tokenize(char *cmd, char *argv[], int max_args) {
 
 // Returns: 0 = exit, 1 = continue (no output), 2 = continue (has output)
 int execute_it(char *cmd, int *rv_train) {
+    KASSERT(cmd != NULL);
+    KASSERT(rv_train != NULL);
+
     *rv_train = -1;
     char *argv[4];
     int argc = tokenize(cmd, argv, 4);
@@ -57,6 +65,10 @@ int execute_it(char *cmd, int *rv_train) {
             return 2;
         }
         int sw = str2int(argv[1]);
+        if (!track_is_valid_switch(sw)) {
+            ui_puts("Invalid switch. Valid: 1-18, 153-156\r\n");
+            return 2;
+        }
         char dir = argv[2][0];
         if (dir != 'S' && dir != 'C' && dir != 's' && dir != 'c') {
             ui_puts("Direction must be S or C\r\n");
@@ -115,6 +127,10 @@ int execute_it(char *cmd, int *rv_train) {
         }
         int train = str2int(argv[1]);
         int on = str2int(argv[2]);
+        if (on != 0 && on != 1) {
+            ui_puts("Light must be 0 or 1\r\n");
+            return 2;
+        }
         track_set_light(train, on);
         return 1;
     }

@@ -3,7 +3,7 @@
 #include "can_server.h"
 #include "timer.h"
 #include "util.h"
-#include "uart.h"
+#include "kassert.h"
 #include <stddef.h>
 
 // Server TIDs for communication
@@ -16,12 +16,6 @@ static sensor_entry_t sensor_log[SENSOR_LOG_SIZE];
 static train_state_t trains[MAX_ACTIVE_TRAINS];
 static int sensor_log_head = 0;
 
-// Helper: report error via terminal
-static void report_error(const char *msg) {
-    if (term_tid >= 0) {
-        uart_debug_printf(CONSOLE, "%s", msg);
-    }
-}
 
 // Find train by number, returns NULL if not found
 static train_state_t* find_train(int train_num) {
@@ -73,6 +67,9 @@ int track_is_valid_switch(int sw_num) {
 }
 
 void track_init(int can_server_tid, int term_server_tid) {
+    KASSERT(can_server_tid >= 0);
+    KASSERT(term_server_tid >= 0);
+
     can_tid = can_server_tid;
     term_tid = term_server_tid;
 
@@ -104,6 +101,8 @@ void track_log_sensor(uint16_t sensor_id, uint64_t time_us, uint8_t state) {
 }
 
 void track_update_switch(int sw_num, char state) {
+    KASSERT(track_is_valid_switch(sw_num));
+
     int index = track_switch_to_index(sw_num);
     if (index >= 0) {
         switch_state[index].state = state;
@@ -135,6 +134,8 @@ const train_state_t* track_get_trains(void) {
 }
 
 void track_set_speed(int train, int speed) {
+    KASSERT(can_tid >= 0);
+
     can_frame_t frame;
 
     if (speed < 0) speed = 0;
@@ -171,11 +172,13 @@ void track_set_speed(int train, int speed) {
             t->speed = speed;
         }
     } else {
-        report_error("Error: CAN TX queue full\r\n");
+        panic("CANsend fail in track_set_speed!\r\n");
     }
 }
 
 void track_reverse(int train) {
+    KASSERT(can_tid >= 0);
+
     can_frame_t frame;
 
     uint8_t  priority = 0;
@@ -203,15 +206,14 @@ void track_reverse(int train) {
         train_state_t* t = find_or_create_train(train);
         if (t) t->direction = 1 - t->direction;
     } else {
-        report_error("Error: CAN TX queue full\r\n");
+        panic("CANsend fail in track_reverse!\r\n");
     }
 }
 
 void track_set_switch(int sw_num, char dir) {
-    if (!track_is_valid_switch(sw_num)) {
-        report_error("Invalid switch number (1-18, 153-156)\r\n");
-        return;
-    }
+    KASSERT(can_tid >= 0);
+    KASSERT(track_is_valid_switch(sw_num));
+    KASSERT(dir == 'S' || dir == 'C');
 
     can_frame_t frame;
 
@@ -243,11 +245,14 @@ void track_set_switch(int sw_num, char dir) {
     frame.data[5] = 0x01;
 
     if (CANSend(can_tid, &frame) != 0) {
-        report_error("Error: CAN TX queue full\r\n");
+        panic("CANsend fail in track_set_switch!\r\n");
     }
 }
 
 void track_set_light(int train, int on) {
+    KASSERT(can_tid >= 0);
+    KASSERT(on == 0 || on == 1);
+
     can_frame_t frame;
 
     uint8_t  priority = 0;
@@ -276,7 +281,7 @@ void track_set_light(int train, int on) {
     frame.data[5] = on ? 0x01 : 0x00;
 
     if (CANSend(can_tid, &frame) != 0) {
-        report_error("Error: CAN TX queue full\r\n");
+        panic("CANsend fail in track_set_light!\r\n");
     }
 }
 
@@ -294,12 +299,12 @@ void track_complete_reverse(int train_num) {
 int track_start_reverse(int train_num) {
     train_state_t* t = find_or_create_train(train_num);
     if (!t) {
-        report_error("No free train slots\r\n");
+        panic("No free train slots\r\n");
         return 0;
     }
 
     if (t->rv_state == 1) {
-        report_error("Reverse already in progress\r\n");
+        // Already waiting for reverse to complete
         return 0;
     }
 

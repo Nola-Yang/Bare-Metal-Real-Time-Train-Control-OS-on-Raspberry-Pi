@@ -5,6 +5,7 @@
 #include "uart.h"
 #include "ring_buffer.h"
 #include "task_scheduler.h"
+#include "kassert.h"
 #include <string.h>
 
 // only 1 in fact
@@ -101,7 +102,7 @@ void terminal_server_task(void) {
                     getc_waiter_count--;
                 } else {
                     // Buffer the character
-                    ring_buffer_put(&rx_buffer, req.ch);
+                    KASSERT(ring_buffer_put(&rx_buffer, req.ch) == 0);
                 }
                 break;
 
@@ -143,7 +144,7 @@ void terminal_server_task(void) {
                 break;
 
             case TERM_MSG_PUTC:
-                ring_buffer_put(&tx_buf, req.ch);
+                KASSERT(ring_buffer_put(&tx_buf, req.ch) == 0);
 
                 // Try to send immediately
                 while (!ring_buffer_is_empty(&tx_buf) && uart_tx_ready(CONSOLE)) {
@@ -168,7 +169,7 @@ void terminal_server_task(void) {
 
             case TERM_MSG_PUTS:
                 for (int i = 0; i < req.len && i < TERM_MAX_STR_LEN; i++) {
-                    ring_buffer_put(&tx_buf, req.str[i]);
+                    KASSERT(ring_buffer_put(&tx_buf, req.str[i]) == 0);
                 }
 
                 // Try to send immediately

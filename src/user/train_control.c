@@ -9,9 +9,9 @@
 #include "idle_task.h"
 #include "command.h"
 #include "timer.h"
-#include "uart.h"
 #include "task_manager.h"
 #include "ring_buffer.h"
+#include "kassert.h"
 
 // Reverse delay pending queue
 #define RV_QUEUE_MAX 4
@@ -64,9 +64,7 @@ void ui_tick_task(void) {
     int parent = MyParentTid();
     int clock_tid = WhoIs(CLOCK_SERVER_NAME);
 
-    if (clock_tid < 0) {
-        Exit();
-    }
+    KASSERT(clock_tid >= 0);
 
     TrainControlMsg_t msg;
     TrainControlReply_t reply;
@@ -110,9 +108,9 @@ void train_control_task(void) {
     int can_tid = WhoIs(CAN_SERVER_NAME);
     int clock_tid = WhoIs(CLOCK_SERVER_NAME);
 
-    if (term_tid < 0 || can_tid < 0 || clock_tid < 0) {
-        Exit();
-    }
+    KASSERT(term_tid >= 0);
+    KASSERT(can_tid >= 0);
+    KASSERT(clock_tid >= 0);
 
     track_init(can_tid, term_tid);
     ui_init(term_tid);
@@ -154,7 +152,7 @@ void train_control_task(void) {
                             running = 0;  // for 'q' command
                         }
                         if (rv_train >= 0) {
-                            ring_buffer_put(&rv_queue, rv_train);
+                            KASSERT(ring_buffer_put(&rv_queue, rv_train) == 0);
                             Create(TRAIN_COURIER_PRIORITY, rv_delay_task);
                         }
                     }
