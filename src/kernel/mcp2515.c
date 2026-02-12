@@ -65,6 +65,12 @@ static const uint8_t CANINTE = 0x2B;
 // CANINTE bits
 static const uint8_t CANINTE_RX0IE = 0x01;
 static const uint8_t CANINTE_RX1IE = 0x02;
+static const uint8_t CANINTE_TX0IE = 0x04;
+
+// CANINTF bits (interrupt flags)
+static const uint8_t CANINTF_RX0IF = 0x01;
+static const uint8_t CANINTF_RX1IF = 0x02;
+static const uint8_t CANINTF_TX0IF = 0x04;
 
 //TX Queue Management
 #define TX_QUEUE_SIZE 64 
@@ -191,10 +197,10 @@ int can_try_recv(can_frame_t *frame) {
 
 	if (status & STATUS_RX0) {
 		buf_base = RXB0SIDH;
-		clear_flag = 0x01;
+		clear_flag = CANINTF_RX0IF;
 	} else if (status & STATUS_RX1) {
 		buf_base = RXB1SIDH;
-		clear_flag = 0x02;
+		clear_flag = CANINTF_RX1IF;
 	} else {
 		return 0;
 	}
@@ -264,7 +270,28 @@ void mcp2515_clear_interrupts(void) {
 }
 
 void mcp2515_enable_rx_interrupts(void) {
-	mcp2515_write_reg(CANINTE, CANINTE_RX0IE | CANINTE_RX1IE);
+	mcp2515_modify_reg(CANINTE, CANINTE_RX0IE | CANINTE_RX1IE,
+	                   CANINTE_RX0IE | CANINTE_RX1IE);
+}
+
+void mcp2515_disable_rx_interrupts(void) {
+	mcp2515_modify_reg(CANINTE, CANINTE_RX0IE | CANINTE_RX1IE, 0x00);
+}
+
+void mcp2515_enable_tx_interrupts(void) {
+	mcp2515_modify_reg(CANINTE, CANINTE_TX0IE, CANINTE_TX0IE);
+}
+
+void mcp2515_disable_tx_interrupts(void) {
+	mcp2515_modify_reg(CANINTE, CANINTE_TX0IE, 0x00);
+}
+
+uint8_t mcp2515_read_interrupt_flags(void) {
+	return mcp2515_read_reg(CANINTF);
+}
+
+void mcp2515_clear_interrupt_flags(uint8_t mask) {
+	mcp2515_modify_reg(CANINTF, mask, 0x00);
 }
 
 void mcp2515_disable_interrupts(void) {
