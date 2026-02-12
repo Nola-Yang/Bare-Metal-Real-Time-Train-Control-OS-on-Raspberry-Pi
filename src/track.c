@@ -1,9 +1,9 @@
 #include "track.h"
 #include "mcp2515.h"
 #include "can_server.h"
-#include "terminal_server.h"
 #include "timer.h"
 #include "util.h"
+#include "uart.h"
 #include <stddef.h>
 
 // Server TIDs for communication
@@ -19,10 +19,7 @@ static int sensor_log_head = 0;
 // Helper: report error via terminal
 static void report_error(const char *msg) {
     if (term_tid >= 0) {
-        int len = 0;
-        const char *p = msg;
-        while (*p++) len++;
-        Puts(term_tid, TERM_CHANNEL_CONSOLE, msg, len);
+        uart_debug_printf(CONSOLE, "%s", msg);
     }
 }
 
@@ -278,6 +275,8 @@ void track_set_light(int train, int on) {
     }
 }
 
+
+//Todo: interrupt instead of  polling
 void process_rv_command(uint64_t now) {
     for (int i = 0; i < MAX_ACTIVE_TRAINS; i++) {
         if (trains[i].rv_state == 1 && now >= trains[i].rv_ready_time) {
