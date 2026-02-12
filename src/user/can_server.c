@@ -78,14 +78,15 @@ void can_server_task(void) {
                 //Todo: TX done interrupt instead of polling there
                 can_queue_send();
 
-                // Re-enable only when a client needs data (in CAN_MSG_RECV)
-                mcp2515_disable_interrupts(); // prevent notifier spinning
+                // todo: need hardware test, may cause strave
+                // Keep interrupts enabled whenever there are waiters or RX queue has space,
                 mcp2515_clear_interrupts();
-
-                // never be triggered? may be deleted?
-                if (recv_waiter_count > 0) {
+                if (recv_waiter_count > 0 || !ring_buffer_is_full(&rx_queue)) {
                     mcp2515_enable_rx_interrupts();
                     gpio_enable_can_interrupt();
+                } else {
+                    mcp2515_disable_interrupts();
+                    gpio_disable_can_interrupt();
                 }
 
                 reply.status = 0;
@@ -109,6 +110,13 @@ void can_server_task(void) {
                     reply.status = 0;
                     reply.frame = frame;
                     Reply(tid, (const char *)&reply, sizeof(reply));
+
+                    // If RX interrupts were disabled due to full queue, re-enable now.
+                    if (can_rx_notifier_tid >= 0) {
+                        mcp2515_clear_interrupts();
+                        mcp2515_enable_rx_interrupts();
+                        gpio_enable_can_interrupt();
+                    }
                 } else {
                     if (can_try_recv(&frame)) {
                         reply.status = 0;
