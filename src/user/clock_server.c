@@ -31,7 +31,9 @@ static void clock_notifier_task(void) {
 // Insert into delay queue maintaining sorted order 
 static void insert_delay_entry(MinHeap_t *queue, int tid, int wake_tick) {
     if (min_heap_is_full(queue)) {
-        // uart_debug_printf("Clock Server delay queue full! Cannot delay task %d\r\n", tid);
+        ClockReply_t err_reply;
+        err_reply.ticks = -1;
+        Reply(tid, (const char *)&err_reply, sizeof(err_reply));
         return;
     }
 
