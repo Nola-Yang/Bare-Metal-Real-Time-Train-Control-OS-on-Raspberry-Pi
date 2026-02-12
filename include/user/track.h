@@ -24,7 +24,6 @@ typedef struct {
     int direction;           // 0=forward, 1=reverse
     int rv_state;            // 0=idle, 1=wait_stop
     int rv_prev_speed;
-    uint64_t rv_ready_time;
 } train_state_t;
 
 // Initialize track module with server TIDs
@@ -51,7 +50,7 @@ void track_set_switch(int sw, char dir);
 void track_set_light(int train, int on);
 
 // Reverse state machine
-void process_rv_command(uint64_t now);
-int track_start_reverse(int train, uint64_t now);
+int track_start_reverse(int train);
+void track_complete_reverse(int train_num);
 
 #endif /* _track_h_ */

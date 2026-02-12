@@ -281,19 +281,17 @@ void track_set_light(int train, int on) {
 }
 
 
-//Todo: interrupt instead of  polling
-void process_rv_command(uint64_t now) {
-    for (int i = 0; i < MAX_ACTIVE_TRAINS; i++) {
-        if (trains[i].rv_state == 1 && now >= trains[i].rv_ready_time) {
-            int prev_speed = trains[i].rv_prev_speed;
-            trains[i].rv_state = 0;
-            track_reverse(trains[i].train_num);
-            track_set_speed(trains[i].train_num, prev_speed);
-        }
+void track_complete_reverse(int train_num) {
+    train_state_t *t = find_train(train_num);
+    if (t && t->rv_state == 1) {
+        int prev_speed = t->rv_prev_speed;
+        t->rv_state = 0;
+        track_reverse(train_num);
+        track_set_speed(train_num, prev_speed);
     }
 }
 
-int track_start_reverse(int train_num, uint64_t now) {
+int track_start_reverse(int train_num) {
     train_state_t* t = find_or_create_train(train_num);
     if (!t) {
         report_error("No free train slots\r\n");
@@ -307,13 +305,12 @@ int track_start_reverse(int train_num, uint64_t now) {
 
     if (t->speed == 0) {
         track_reverse(train_num);
-        return 1;
+        return 2;  // immediate reverse, no delay needed
     }
 
     t->rv_prev_speed = t->speed;
-    t->rv_ready_time = now + 1000000;  // 1 second delay
     track_set_speed(train_num, 0);
     t->rv_state = 1;
 
-    return 1;
+    return 1;  // delay needed
 }

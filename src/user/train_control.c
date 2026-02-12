@@ -12,6 +12,53 @@
 #include "uart.h"
 #include "task_manager.h"
 
+// Reverse delay pending queue
+#define RV_QUEUE_MAX 4
+static int rv_queue[RV_QUEUE_MAX];
+static int rv_queue_head = 0;
+static int rv_queue_tail = 0;
+static int rv_queue_count = 0;
+
+static void rv_queue_enqueue(int train) {
+    if (rv_queue_count < RV_QUEUE_MAX) {
+        rv_queue[rv_queue_tail] = train;
+        rv_queue_tail = (rv_queue_tail + 1) % RV_QUEUE_MAX;
+        rv_queue_count++;
+    }
+}
+
+static int rv_queue_dequeue(void) {
+    if (rv_queue_count == 0) return -1;
+    int train = rv_queue[rv_queue_head];
+    rv_queue_head = (rv_queue_head + 1) % RV_QUEUE_MAX;
+    rv_queue_count--;
+    return train;
+}
+
+void rv_delay_task(void) {
+    int parent = MyParentTid();
+    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
+
+    TrainControlMsg_t msg;
+    TrainControlReply_t reply;
+
+    msg.type = TRAIN_MSG_RV_REQUEST;
+    Send(parent, (const char *)&msg, sizeof(msg),
+         (char *)&reply, sizeof(reply));
+
+    int train = reply.train;
+    int delay_ticks = reply.delay_ticks;
+
+    Delay(clock_tid, delay_ticks);
+
+    msg.type = TRAIN_MSG_RV_COMPLETE;
+    msg.train = train;
+    Send(parent, (const char *)&msg, sizeof(msg),
+         (char *)&reply, sizeof(reply));
+
+    Exit();
+}
+
 // receives frames and sends to parent
 static void can_rx_courier_task(void) {
     int parent = MyParentTid();
@@ -118,9 +165,14 @@ void train_control_task(void) {
 
                     if (cmdlen > 0) {
                         uint64_t now = read_timer();
-                        int result = execute_it(cmdline, now);
+                        int rv_train = -1;
+                        int result = execute_it(cmdline, now, &rv_train);
                         if (result == 0) {
                             running = 0;  // for 'q' command
+                        }
+                        if (rv_train >= 0) {
+                            rv_queue_enqueue(rv_train);
+                            Create(TRAIN_COURIER_PRIORITY, rv_delay_task);
                         }
                     }
 
@@ -174,15 +226,23 @@ void train_control_task(void) {
                 break;
             }
 
+            case TRAIN_MSG_RV_REQUEST: {
+                int train = rv_queue_dequeue();
+                reply.train = train;
+                reply.delay_ticks = 100;  // 100 ticks * 10ms = 1s
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                break;
+            }
+
+            case TRAIN_MSG_RV_COMPLETE: {
+                track_complete_reverse(msg.train);
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                break;
+            }
+
             default:
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
-        }
-
-        // Process reverse state machine todo: replaced by interrupt or periodic tick
-        {
-            uint64_t now = read_timer();
-            process_rv_command(now);
         }
     }
 
