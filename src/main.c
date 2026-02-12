@@ -41,6 +41,7 @@ int kmain() {
 
 	// set up GPIO pins for both console uart and canbus
 	gpio_init();
+	gpio_init_interrupt();
 
 	// not strictly necessary, since console is configured during boot
 	uart_config_and_enable(CONSOLE);
