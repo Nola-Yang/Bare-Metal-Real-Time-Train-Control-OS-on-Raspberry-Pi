@@ -28,6 +28,12 @@ void can_queue_send(void);
 /** Clear MCP2515 interrupt flags. */
 void mcp2515_clear_interrupts(void);
 
+/** Enable MCP2515 RX interrupts (RX0/RX1). */
+void mcp2515_enable_rx_interrupts(void);
+
+/** Disable all MCP2515 interrupts. */
+void mcp2515_disable_interrupts(void);
+
 /** Check if TX buffer is busy. Returns 1 if busy, 0 if ready. */
 int can_tx_busy(void);
 
