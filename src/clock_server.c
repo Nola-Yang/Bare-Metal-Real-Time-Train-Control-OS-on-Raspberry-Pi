@@ -2,9 +2,10 @@
 #include "syscall.h"
 #include "nameserver.h"
 #include "gic.h"
-#include "uart.h"
+#include "terminal_server.h"
 #include "task_scheduler.h"
 #include "min_heap.h"
+#include "uart.h"
 #include <stdint.h>
 
 
@@ -30,7 +31,7 @@ static void clock_notifier_task(void) {
 // Insert into delay queue maintaining sorted order 
 static void insert_delay_entry(MinHeap_t *queue, int tid, int wake_tick) {
     if (min_heap_is_full(queue)) {
-        uart_printf(CONSOLE, "ClockServer: Delay queue full!\r\n");
+        // uart_debug_printf("Clock Server delay queue full! Cannot delay task %d\r\n", tid);
         return;
     }
 
@@ -65,7 +66,6 @@ void clock_server_task(void) {
             case CLOCK_MSG_NOTIFY:
                 current_tick++;
 
-                // so it can wait for next tick
                 reply.ticks = current_tick;
                 Reply(tid, (const char *)&reply, sizeof(reply));
 
