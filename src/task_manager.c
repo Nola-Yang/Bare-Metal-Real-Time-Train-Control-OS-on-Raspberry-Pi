@@ -19,8 +19,11 @@
 #define SYSCALL_RECEIVE      6
 #define SYSCALL_REPLY        7
 #define SYSCALL_AWAITEVENT   8
+#define SYSCALL_SHUTDOWN     9
 
 #define SPSR_FOR_EL0t 0x0
+
+extern void _reboot(void);
 
 
 TaskManager_t GlobalTaskManager; 
@@ -496,7 +499,7 @@ void irq_dispatch(void) {
         uint32_t mis = uart_read_mis(CONSOLE);
 
         // Handle RX interrupt
-        if (mis & UART_INT_RX) {
+        if (mis & (UART_INT_RX | UART_INT_RT)) {
             uart_disable_rx_interrupt(CONSOLE);
             uart_clear_rx_interrupt(CONSOLE);
             handle_event_interrupt(EVENT_UART_RX);
@@ -509,11 +512,24 @@ void irq_dispatch(void) {
             handle_event_interrupt(EVENT_UART_TX);
         }
 
+        // Handle error interrupts
+        if (mis & UART_INT_ERROR_MASK) {
+            uart_disable_error_interrupts(CONSOLE);
+            uart_clear_error_interrupts(CONSOLE);
+        }
+
+        // Handle modem/status interrupts
+        if (mis & UART_INT_STATUS_MASK) {
+            uart_disable_status_interrupts(CONSOLE);
+            uart_clear_status_interrupts(CONSOLE);
+        }
+
         gic_write_eoir(iar);
     } else if (irq_id == GPIO_BANK0_IRQ_ID) {
-        // MCP2515 INT on GPIO17 (active low, falling edge)
-        if (gpio_check_event(17)) {
-            gpio_clear_event(17);
+        // MCP2515 INT on GPIO17 (active low, level-triggered)
+        if (gpio_get_event_detect_status(17)) {
+            gpio_disable_can_interrupt(); // prevent re-triggering while INT stays LOW
+            gpio_clr_event_detect_status(17);
             handle_event_interrupt(EVENT_CAN_RX);
         }
         gic_write_eoir(iar);
@@ -530,7 +546,7 @@ void irq_dispatch(void) {
     }
 
     TaskDescriptor_t *next_task = schedule();
-    assert(next_task != NULL, "No runnable tasks in irq_dispatch!");
+    // assert(next_task != NULL, "No runnable tasks in irq_dispatch!");
     switch_to_task(next_task);
 }
 
@@ -589,6 +605,9 @@ void syscall_dispatch() {
                 return;  // Task is blocked, scheduling done by kern_AwaitEvent
             }
             break;  // Not blocked, continue to reschedule
+        case SYSCALL_SHUTDOWN:
+            _reboot();
+            __builtin_unreachable();
         default:
             ret = -1;
             break;
