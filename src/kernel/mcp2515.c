@@ -1,5 +1,6 @@
 #include "mcp2515.h"
 #include "spi.h"
+#include "ring_buffer.h"
 
 // configuration registers
 static const uint8_t CNF3 = 0x28;
@@ -67,9 +68,8 @@ static const uint8_t CANINTE_RX1IE = 0x02;
 
 //TX Queue Management
 #define TX_QUEUE_SIZE 64 
-static can_frame_t tx_queue[TX_QUEUE_SIZE];
-static int tx_head = 0;  // Next slot to write
-static int tx_tail = 0;  // Next slot to read
+RING_BUFFER_DECLARE(CANTxQueue_t, can_frame_t, TX_QUEUE_SIZE);
+static CANTxQueue_t tx_queue;
 
 /** Read n consecutive registers starting from the specified one. */
 static void mcp2515_read_regs(uint8_t reg, uint8_t values[], const uint8_t n) {
@@ -127,6 +127,8 @@ static uint8_t mcp2515_read_status(void) {
 }
 
 void mcp2515_init(void) {
+	ring_buffer_init(&tx_queue);
+
 	// No need to reset MCP2515 here as a hardware reset is done during boot.
 	// MCP2515 automatically enters config mode after hardware reset.
 
@@ -241,24 +243,19 @@ int can_try_recv(can_frame_t *frame) {
 // TX Queue Functions
 
 int can_queue_frame(const can_frame_t *frame) {
-	int next_head = (tx_head + 1) % TX_QUEUE_SIZE;
-
-	if (next_head == tx_tail) {
-		return 0;
-	}
-
-	tx_queue[tx_head] = *frame;
-	tx_head = next_head;
-
-	return 1;
+	return (ring_buffer_put(&tx_queue, *frame) == 0) ? 1 : 0;
 }
 
 void can_queue_send(void) {
-	if (tx_head == tx_tail) {
+	if (ring_buffer_is_empty(&tx_queue)) {
 		return;
 	}
-	if (can_send(&tx_queue[tx_tail])) {
-		tx_tail = (tx_tail + 1) % TX_QUEUE_SIZE;
+	can_frame_t frame;
+	if (ring_buffer_peek(&tx_queue, &frame) < 0) {
+		return;
+	}
+	if (can_send(&frame)) {
+		ring_buffer_get(&tx_queue, &frame);
 	}
 }
 

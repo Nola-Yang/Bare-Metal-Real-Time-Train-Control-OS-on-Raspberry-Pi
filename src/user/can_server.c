@@ -7,6 +7,7 @@
 #include "spi.h"
 #include "mcp2515.h"
 #include "rpi.h"
+#include "ring_buffer.h"
 
 
 //I guess only one for now implementation
@@ -15,44 +16,9 @@
 // server-side, receives frames from MCP2515
 #define RX_QUEUE_SIZE 16
 
-typedef struct {
-    can_frame_t frames[RX_QUEUE_SIZE];
-    int head;
-    int tail;
-    int count;
-} CANRxQueue_t;
+RING_BUFFER_DECLARE(CANRxQueue_t, can_frame_t, RX_QUEUE_SIZE);
 
 static int can_rx_notifier_tid = -1;
-
-static inline void rx_queue_init(CANRxQueue_t *q) {
-    q->head = 0;
-    q->tail = 0;
-    q->count = 0;
-}
-
-static inline int rx_queue_is_empty(CANRxQueue_t *q) {
-    return q->count == 0;
-}
-
-static inline int rx_queue_is_full(CANRxQueue_t *q) {
-    return q->count >= RX_QUEUE_SIZE;
-}
-
-static inline int rx_queue_put(CANRxQueue_t *q, const can_frame_t *frame) {
-    if (q->count >= RX_QUEUE_SIZE) return -1; //todo: may need some error handling for overflow
-    q->frames[q->head] = *frame;
-    q->head = (q->head + 1) % RX_QUEUE_SIZE;
-    q->count++;
-    return 0;
-}
-
-static inline int rx_queue_get(CANRxQueue_t *q, can_frame_t *frame) {
-    if (q->count == 0) return -1;
-    *frame = q->frames[q->tail];
-    q->tail = (q->tail + 1) % RX_QUEUE_SIZE;
-    q->count--;
-    return 0;
-}
 
 // CAN RX Notifier
 static void can_rx_notifier_task(void) {
@@ -76,7 +42,7 @@ void can_server_task(void) {
     CANReply_t reply;
 
     CANRxQueue_t rx_queue;
-    rx_queue_init(&rx_queue);
+    ring_buffer_init(&rx_queue);
 
     int recv_waiters[MAX_RECV_WAITERS];
     int recv_waiter_count = 0;
@@ -105,7 +71,7 @@ void can_server_task(void) {
                         recv_waiter_count--;
                     } else {
                         // Buffer the frame
-                        rx_queue_put(&rx_queue, &frame);
+                        ring_buffer_put(&rx_queue, frame);
                     }
                 }
 
@@ -139,7 +105,7 @@ void can_server_task(void) {
 
             case CAN_MSG_RECV: {
                 can_frame_t frame;
-                if (rx_queue_get(&rx_queue, &frame) == 0) {
+                if (ring_buffer_get(&rx_queue, &frame) == 0) {
                     reply.status = 0;
                     reply.frame = frame;
                     Reply(tid, (const char *)&reply, sizeof(reply));
