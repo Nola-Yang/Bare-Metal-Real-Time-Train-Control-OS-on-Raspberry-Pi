@@ -67,6 +67,9 @@ int track_is_valid_switch(int sw_num) {
 }
 
 void track_init(int can_server_tid, int term_server_tid) {
+    KASSERT(can_server_tid >= 0);
+    KASSERT(term_server_tid >= 0);
+
     can_tid = can_server_tid;
     term_tid = term_server_tid;
 
@@ -98,6 +101,8 @@ void track_log_sensor(uint16_t sensor_id, uint64_t time_us, uint8_t state) {
 }
 
 void track_update_switch(int sw_num, char state) {
+    KASSERT(track_is_valid_switch(sw_num));
+
     int index = track_switch_to_index(sw_num);
     if (index >= 0) {
         switch_state[index].state = state;
@@ -129,6 +134,8 @@ const train_state_t* track_get_trains(void) {
 }
 
 void track_set_speed(int train, int speed) {
+    KASSERT(can_tid >= 0);
+
     can_frame_t frame;
 
     if (speed < 0) speed = 0;
@@ -170,6 +177,8 @@ void track_set_speed(int train, int speed) {
 }
 
 void track_reverse(int train) {
+    KASSERT(can_tid >= 0);
+
     can_frame_t frame;
 
     uint8_t  priority = 0;
@@ -202,9 +211,9 @@ void track_reverse(int train) {
 }
 
 void track_set_switch(int sw_num, char dir) {
-    if (!track_is_valid_switch(sw_num)) {
-        return;
-    }
+    KASSERT(can_tid >= 0);
+    KASSERT(track_is_valid_switch(sw_num));
+    KASSERT(dir == 'S' || dir == 'C');
 
     can_frame_t frame;
 
@@ -241,6 +250,9 @@ void track_set_switch(int sw_num, char dir) {
 }
 
 void track_set_light(int train, int on) {
+    KASSERT(can_tid >= 0);
+    KASSERT(on == 0 || on == 1);
+
     can_frame_t frame;
 
     uint8_t  priority = 0;

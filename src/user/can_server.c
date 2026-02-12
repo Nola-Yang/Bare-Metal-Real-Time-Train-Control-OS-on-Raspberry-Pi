@@ -8,6 +8,7 @@
 #include "mcp2515.h"
 #include "rpi.h"
 #include "ring_buffer.h"
+#include "kassert.h"
 
 
 //I guess only one for now implementation
@@ -74,7 +75,7 @@ void can_server_task(void) {
                             recv_waiter_count--;
                         } else {
                             // Buffer the frame
-                            ring_buffer_put(&rx_queue, frame);
+                            KASSERT(ring_buffer_put(&rx_queue, frame) == 0);
                         }
                     }
                 }

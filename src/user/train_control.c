@@ -152,7 +152,7 @@ void train_control_task(void) {
                             running = 0;  // for 'q' command
                         }
                         if (rv_train >= 0) {
-                            ring_buffer_put(&rv_queue, rv_train);
+                            KASSERT(ring_buffer_put(&rv_queue, rv_train) == 0);
                             Create(TRAIN_COURIER_PRIORITY, rv_delay_task);
                         }
                     }

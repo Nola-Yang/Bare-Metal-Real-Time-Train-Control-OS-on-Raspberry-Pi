@@ -209,6 +209,7 @@ static void kern_Yield(void) {
     current_task->state = TASK_STATE_READY;
     global_task_scheduler_add_task(current_task);
     TaskDescriptor_t *next_task = schedule();
+    KASSERT(next_task != NULL);
     switch_to_task(next_task);
 }
 
@@ -624,5 +625,6 @@ void syscall_dispatch() {
     current_task->state = TASK_STATE_READY;
     global_task_scheduler_add_task(current_task);
     TaskDescriptor_t *next_task = schedule();
+    KASSERT(next_task != NULL);
     switch_to_task(next_task);
 }
