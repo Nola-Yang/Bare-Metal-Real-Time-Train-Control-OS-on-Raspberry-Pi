@@ -58,9 +58,15 @@ static const uint8_t CANCTRL_REQOP = 0xE0;
 
 // flags register
 static const uint8_t CANINTF = 0x2C;
+// interrupt enable register
+static const uint8_t CANINTE = 0x2B;
+
+// CANINTE bits
+static const uint8_t CANINTE_RX0IE = 0x01;
+static const uint8_t CANINTE_RX1IE = 0x02;
 
 //TX Queue Management
-#define TX_QUEUE_SIZE 64  // Increased to handle burst commands (init=22 frames, plus margin)
+#define TX_QUEUE_SIZE 64 
 static can_frame_t tx_queue[TX_QUEUE_SIZE];
 static int tx_head = 0;  // Next slot to write
 static int tx_tail = 0;  // Next slot to read
@@ -132,6 +138,10 @@ void mcp2515_init(void) {
 	// do not filter messages. Allow rollover of RXB0 to RXB1.
 	mcp2515_write_reg(RXBnCTRL0, 0x64);
 	mcp2515_write_reg(RXBnCTRL1, 0x60);
+
+	// Enable RX interrupts 
+	mcp2515_write_reg(CANINTE, CANINTE_RX0IE | CANINTE_RX1IE);
+	mcp2515_write_reg(CANINTF, 0x00);  // clear any pending flags
 
 	// start MCP2515 by setting operation mode to normal
 	mcp2515_modify_reg(CANCTRL, CANCTRL_REQOP, OPMODE_NORMAL);
@@ -253,7 +263,15 @@ void can_queue_send(void) {
 }
 
 void mcp2515_clear_interrupts(void) {
-	mcp2515_write_reg(CANINTF, 0x00);  // prevent interrupt storm
+	mcp2515_write_reg(CANINTF, 0x00);
+}
+
+void mcp2515_enable_rx_interrupts(void) {
+	mcp2515_write_reg(CANINTE, CANINTE_RX0IE | CANINTE_RX1IE);
+}
+
+void mcp2515_disable_interrupts(void) {
+	mcp2515_write_reg(CANINTE, 0x00);
 }
 
 int can_tx_busy(void) {
