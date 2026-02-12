@@ -6,7 +6,6 @@
 #include "ring_buffer.h"
 #include "task_scheduler.h"
 #include <string.h>
-#include "task_scheduler.h"
 
 // only 1 in fact
 #define MAX_GETC_WAITERS 8

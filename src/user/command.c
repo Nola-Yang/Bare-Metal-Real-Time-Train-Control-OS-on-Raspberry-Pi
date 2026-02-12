@@ -20,7 +20,7 @@ static int tokenize(char *cmd, char *argv[], int max_args) {
 }
 
 // Returns: 0 = exit, 1 = continue (no output), 2 = continue (has output)
-int execute_it(char *cmd, uint64_t now, int *rv_train) {
+int execute_it(char *cmd, int *rv_train) {
     *rv_train = -1;
     char *argv[4];
     int argc = tokenize(cmd, argv, 4);

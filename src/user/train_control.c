@@ -148,9 +148,8 @@ void train_control_task(void) {
                     ui_scroll_cmd();
 
                     if (cmdlen > 0) {
-                        uint64_t now = read_timer();
                         int rv_train = -1;
-                        int result = execute_it(cmdline, now, &rv_train);
+                        int result = execute_it(cmdline, &rv_train);
                         if (result == 0) {
                             running = 0;  // for 'q' command
                         }
