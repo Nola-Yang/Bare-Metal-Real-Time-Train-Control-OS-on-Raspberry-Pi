@@ -20,7 +20,8 @@ static int tokenize(char *cmd, char *argv[], int max_args) {
 }
 
 // Returns: 0 = exit, 1 = continue (no output), 2 = continue (has output)
-int execute_it(char *cmd, uint64_t now) {
+int execute_it(char *cmd, uint64_t now, int *rv_train) {
+    *rv_train = -1;
     char *argv[4];
     int argc = tokenize(cmd, argv, 4);
 
@@ -72,7 +73,11 @@ int execute_it(char *cmd, uint64_t now) {
         }
 
         int train = str2int(argv[1]);
-        if (track_start_reverse(train, now)) {
+        int rv_result = track_start_reverse(train);
+        if (rv_result > 0) {
+            if (rv_result == 1) {
+                *rv_train = train;  
+            }
             return 1;
         } else {
             return 2;
