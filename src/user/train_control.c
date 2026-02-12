@@ -11,29 +11,12 @@
 #include "timer.h"
 #include "uart.h"
 #include "task_manager.h"
+#include "ring_buffer.h"
 
 // Reverse delay pending queue
 #define RV_QUEUE_MAX 4
-static int rv_queue[RV_QUEUE_MAX];
-static int rv_queue_head = 0;
-static int rv_queue_tail = 0;
-static int rv_queue_count = 0;
-
-static void rv_queue_enqueue(int train) {
-    if (rv_queue_count < RV_QUEUE_MAX) {
-        rv_queue[rv_queue_tail] = train;
-        rv_queue_tail = (rv_queue_tail + 1) % RV_QUEUE_MAX;
-        rv_queue_count++;
-    }
-}
-
-static int rv_queue_dequeue(void) {
-    if (rv_queue_count == 0) return -1;
-    int train = rv_queue[rv_queue_head];
-    rv_queue_head = (rv_queue_head + 1) % RV_QUEUE_MAX;
-    rv_queue_count--;
-    return train;
-}
+RING_BUFFER_DECLARE(RVQueue_t, int, RV_QUEUE_MAX);
+static RVQueue_t rv_queue;
 
 void rv_delay_task(void) {
     int parent = MyParentTid();
@@ -133,6 +116,7 @@ void train_control_task(void) {
 
     track_init(can_tid, term_tid);
     ui_init(term_tid);
+    ring_buffer_init(&rv_queue);
 
     Create(TRAIN_COURIER_PRIORITY, can_rx_courier_task);
     Create(TRAIN_COURIER_PRIORITY, keyboard_courier_task);
@@ -171,7 +155,7 @@ void train_control_task(void) {
                             running = 0;  // for 'q' command
                         }
                         if (rv_train >= 0) {
-                            rv_queue_enqueue(rv_train);
+                            ring_buffer_put(&rv_queue, rv_train);
                             Create(TRAIN_COURIER_PRIORITY, rv_delay_task);
                         }
                     }
@@ -227,7 +211,10 @@ void train_control_task(void) {
             }
 
             case TRAIN_MSG_RV_REQUEST: {
-                int train = rv_queue_dequeue();
+                int train = -1;
+                if (ring_buffer_get(&rv_queue, &train) < 0) {
+                    train = -1;
+                }
                 reply.train = train;
                 reply.delay_ticks = 100;  // 100 ticks * 10ms = 1s
                 Reply(tid, (const char *)&reply, sizeof(reply));

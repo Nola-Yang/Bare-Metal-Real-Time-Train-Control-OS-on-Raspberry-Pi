@@ -58,25 +58,8 @@ static void tx_notifier_task(void) {
 
 // todo: maybe too large for kernel stack
 #define TX_BUF_SIZE 2048
-static char tx_buf_data[TX_BUF_SIZE];
-static int tx_buf_head, tx_buf_tail, tx_buf_count;
-
-static void tx_buf_init(void) { tx_buf_head = tx_buf_tail = tx_buf_count = 0; }
-static int  tx_buf_is_empty(void) { return tx_buf_count == 0; }
-static int  tx_buf_put(char c) {
-    if (tx_buf_count >= TX_BUF_SIZE) return -1;
-    tx_buf_data[tx_buf_head] = c;
-    tx_buf_head = (tx_buf_head + 1) % TX_BUF_SIZE;
-    tx_buf_count++;
-    return 0;
-}
-static int tx_buf_get(void) {
-    if (tx_buf_count == 0) return -1;
-    char c = tx_buf_data[tx_buf_tail];
-    tx_buf_tail = (tx_buf_tail + 1) % TX_BUF_SIZE;
-    tx_buf_count--;
-    return (unsigned char)c;
-}
+RING_BUFFER_DECLARE(TxBuffer_t, char, TX_BUF_SIZE);
+static TxBuffer_t tx_buf;
 
 // Terminal Server
 void terminal_server_task(void) {
@@ -86,7 +69,7 @@ void terminal_server_task(void) {
 
     RingBuffer_t rx_buffer;
     ring_buffer_init(&rx_buffer);
-    tx_buf_init();
+    ring_buffer_init(&tx_buf);
 
     int getc_waiters[MAX_GETC_WAITERS];
     int getc_waiter_count = 0;
@@ -124,13 +107,16 @@ void terminal_server_task(void) {
                 break;
 
             case TERM_MSG_TX_NOTIFY:
-                while (!tx_buf_is_empty() && uart_tx_ready(CONSOLE)) {
-                    int c = tx_buf_get();
-                    uart_putc_nonblocking(CONSOLE, (char)c);
+                while (!ring_buffer_is_empty(&tx_buf) && uart_tx_ready(CONSOLE)) {
+                    char c;
+                    if (ring_buffer_get(&tx_buf, &c) < 0) {
+                        break;
+                    }
+                    uart_putc_nonblocking(CONSOLE, c);
                 }
 
                 // If buffer is now empty, keep notifier blocked until we have more data
-                if (tx_buf_is_empty()) {
+                if (ring_buffer_is_empty(&tx_buf)) {
                     tx_notifier_blocked_tid = tid;  
                 } else {
                     // Still have data, reply to let notifier wait for next TX interrupt
@@ -143,7 +129,7 @@ void terminal_server_task(void) {
             case TERM_MSG_GETC:
                 if (!ring_buffer_is_empty(&rx_buffer)) {
                     reply.status = 0;
-                    reply.ch = (char)ring_buffer_get(&rx_buffer);
+                    ring_buffer_get(&rx_buffer, &reply.ch);
                     Reply(tid, (const char *)&reply, sizeof(reply));
                 } else {
                     // Queue the client
@@ -158,16 +144,19 @@ void terminal_server_task(void) {
                 break;
 
             case TERM_MSG_PUTC:
-                tx_buf_put(req.ch);
+                ring_buffer_put(&tx_buf, req.ch);
 
                 // Try to send immediately
-                while (!tx_buf_is_empty() && uart_tx_ready(CONSOLE)) {
-                    int c = tx_buf_get();
-                    uart_putc_nonblocking(CONSOLE, (char)c);
+                while (!ring_buffer_is_empty(&tx_buf) && uart_tx_ready(CONSOLE)) {
+                    char c;
+                    if (ring_buffer_get(&tx_buf, &c) < 0) {
+                        break;
+                    }
+                    uart_putc_nonblocking(CONSOLE, c);
                 }
 
                 // If there's still data and notifier is blocked, wake it up, to wait for next TX interrupt
-                if (tx_notifier_blocked_tid >= 0 && !tx_buf_is_empty()) {
+                if (tx_notifier_blocked_tid >= 0 && !ring_buffer_is_empty(&tx_buf)) {
                     TermReply_t tx_reply;
                     tx_reply.status = 0;
                     Reply(tx_notifier_blocked_tid, (const char *)&tx_reply, sizeof(tx_reply));
@@ -180,17 +169,20 @@ void terminal_server_task(void) {
 
             case TERM_MSG_PUTS:
                 for (int i = 0; i < req.len && i < TERM_MAX_STR_LEN; i++) {
-                    tx_buf_put(req.str[i]);
+                    ring_buffer_put(&tx_buf, req.str[i]);
                 }
 
                 // Try to send immediately
-                while (!tx_buf_is_empty() && uart_tx_ready(CONSOLE)) {
-                    int c = tx_buf_get();
-                    uart_putc_nonblocking(CONSOLE, (char)c);
+                while (!ring_buffer_is_empty(&tx_buf) && uart_tx_ready(CONSOLE)) {
+                    char c;
+                    if (ring_buffer_get(&tx_buf, &c) < 0) {
+                        break;
+                    }
+                    uart_putc_nonblocking(CONSOLE, c);
                 }
 
                 //still data and notifier is blocked, wake it up
-                if (tx_notifier_blocked_tid >= 0 && !tx_buf_is_empty()) {
+                if (tx_notifier_blocked_tid >= 0 && !ring_buffer_is_empty(&tx_buf)) {
                     TermReply_t tx_reply;
                     tx_reply.status = 0;
                     Reply(tx_notifier_blocked_tid, (const char *)&tx_reply, sizeof(tx_reply));
