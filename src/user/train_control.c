@@ -14,7 +14,7 @@
 #include "kassert.h"
 
 // Reverse delay pending queue
-#define RV_QUEUE_MAX 4
+#define RV_QUEUE_MAX 8
 RING_BUFFER_DECLARE(RVQueue_t, int, RV_QUEUE_MAX);
 static RVQueue_t rv_queue;
 
@@ -152,6 +152,7 @@ void train_control_task(void) {
                             running = 0;  // for 'q' command
                         }
                         if (rv_train >= 0) {
+                            // design limit, only allow 8 pending reversals. use kassert to check is not good, but for simplicity
                             KASSERT(ring_buffer_put(&rv_queue, rv_train) == 0);
                             Create(TRAIN_COURIER_PRIORITY, rv_delay_task);
                         }
