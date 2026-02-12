@@ -61,6 +61,24 @@ int execute_it(char *cmd, int *rv_train) {
         if (dir == 'c') dir = 'C';
         track_set_switch(sw, dir);
         track_update_switch(sw, dir);
+
+        // 153/154 and 155/156 cannot both be C
+        if (dir == 'C') {
+            int partner = -1;
+            if (sw == 153) partner = 154;
+            else if (sw == 154) partner = 153;
+            else if (sw == 155) partner = 156;
+            else if (sw == 156) partner = 155;
+
+            if (partner >= 0) {
+                int idx = track_switch_to_index(partner);
+                if (idx >= 0 && track_get_switch_state()[idx].state == 'C') {
+                    track_set_switch(partner, 'S');
+                    track_update_switch(partner, 'S');
+                }
+            }
+        }
+
         ui_mark_switches_dirty();
         return 1;
     }
