@@ -1,6 +1,7 @@
 #include "mcp2515.h"
 #include "spi.h"
 #include "ring_buffer.h"
+#include "can_data.h"
 
 // configuration registers
 static const uint8_t CNF3 = 0x28;
@@ -38,6 +39,8 @@ static const uint8_t TXB0EID0 = 0x34;  // Extended Identifier Low (Bits 7-0)
 
 // RX Buffer 0 registers
 static const uint8_t RXB0SIDH = 0x61;
+static const uint8_t RXB0DLC = 0x65;
+static const uint8_t RXB0D0 = 0x66;
 
 // RX Buffer 1 registers
 static const uint8_t RXB1SIDH = 0x71;
@@ -68,7 +71,7 @@ static const uint8_t CANINTE_RX1IE = 0x02;
 
 //TX Queue Management
 #define TX_QUEUE_SIZE 64 
-RING_BUFFER_DECLARE(CANTxQueue_t, can_frame_t, TX_QUEUE_SIZE);
+RING_BUFFER_DECLARE(CANTxQueue_t, CanData_t, TX_QUEUE_SIZE);
 static CANTxQueue_t tx_queue;
 
 /** Read n consecutive registers starting from the specified one. */
@@ -150,89 +153,56 @@ void mcp2515_init(void) {
 	while ((mcp2515_read_reg(CANSTAT) & CANSTAT_OPMOD) != OPMODE_NORMAL); // wait until mode is set
 }
 
-int can_send(const can_frame_t *frame)
+// mcp2515_put_can_tx_data(can_data): Writes a CAN data into the appropriate registers in the MCP2515 controller
+static void mcp2515_put_can_tx_data(CanData_t *can_data) {
+	mcp2515_write_regs(TXB0SIDH, can_data->id, CAN_ID_BYTE_LEN);
+	mcp2515_write_reg(TXB0DLC, can_data->length);
+	mcp2515_write_regs(TXB0D0, can_data->data, can_data->length);
+}
+
+// send_can_data(can_data): Action for sending out a CAN data
+static void send_can_data(CanData_t *can_data) {
+	mcp2515_put_can_tx_data(can_data);
+	mcp2515_modify_reg(TXB0CTRL, TXB_TXREQ, TXB_TXREQ);
+}
+
+int can_send(const CanData_t *frame)
 {
     uint8_t ctrl = mcp2515_read_reg(TXB0CTRL);
     if (ctrl & TXB_TXREQ) return 0;
 
-    if (frame->ext) {
-        uint32_t id = frame->id & 0x1FFFFFFF;
-
-        uint8_t sidh = (id >> 21) & 0xFF;              // id[28:21]
-        uint8_t sidl = (uint8_t)(((id >> 18) & 0x07) << 5); // id[20:18] -> SIDL[7:5]
-        sidl |= (1u << 3);                         // EXIDE = 1
-        sidl |= (uint8_t)((id >> 16) & 0x03);           // id[17:16] -> SIDL[1:0]
-
-        uint8_t eid8 = (id >> 8) & 0xFF;           // id[15:8]
-        uint8_t eid0 = id & 0xFF;                  // id[7:0]
-
-        mcp2515_write_reg(TXB0SIDH, sidh);
-        mcp2515_write_reg(TXB0SIDL, sidl);
-        mcp2515_write_reg(TXB0EID8, eid8);
-        mcp2515_write_reg(TXB0EID0, eid0);
-    }
-
-    uint8_t dlc = frame->dlc;
-    mcp2515_write_reg(TXB0DLC, dlc);
-    mcp2515_write_regs(TXB0D0, frame->data, dlc);
-
-    mcp2515_modify_reg(TXB0CTRL, TXB_TXREQ, TXB_TXREQ);
-
+    send_can_data(frame);
     return 1;
 }
 
+// mcp2515_get_can_rx_data(can_data, offset): Reads a CAN data from the appropriate registers
+// 	from the MCP2515 controller
+static void mcp2515_get_can_rx_data(CanData_t *can_data, uint8_t offset) {
+	mcp2515_read_regs(RXB0SIDH + offset, can_data->id, CAN_ID_BYTE_LEN);
 
-int can_try_recv(can_frame_t *frame) {
+	uint8_t length = mcp2515_read_reg(RXB0DLC + offset);
+	can_data->length = (length > CAN_DATA_MAX_BYTE_LEN) ? CAN_DATA_MAX_BYTE_LEN : length;
+
+	mcp2515_read_regs(RXB0D0 + offset, can_data->data, can_data->length);
+}
+
+int can_try_recv(CanData_t *frame) {
 	uint8_t status = mcp2515_read_status();
 
 	// Determine which buffer has data
-	uint8_t buf_base;
+	uint8_t offset = 0;
 	uint8_t clear_flag;
 
 	if (status & STATUS_RX0) {
-		buf_base = RXB0SIDH;
 		clear_flag = 0x01;
 	} else if (status & STATUS_RX1) {
-		buf_base = RXB1SIDH;
+		offset = 0x10;
 		clear_flag = 0x02;
 	} else {
 		return 0;
 	}
 
-	uint8_t rx_sidh = mcp2515_read_reg(buf_base);      // SIDH
-	uint8_t rx_sidl = mcp2515_read_reg(buf_base + 1);  // SIDL
-
-	// Check if extended frame (SIDL[3])
-	if (rx_sidl & (1 << 3)) {
-		uint8_t rx_eid8 = mcp2515_read_reg(buf_base + 2);  // EID8
-		uint8_t rx_eid0 = mcp2515_read_reg(buf_base + 3);  // EID0
-
-		// SIDH[7:0] = ID[28:21]
-		// SIDL[7:5] = ID[20:18]
-		// SIDL[1:0] = ID[17:16]
-		// EID8[7:0] = ID[15:8]
-		// EID0[7:0] = ID[7:0]
-		frame->id = ((uint32_t)rx_sidh << 21) |
-		            ((uint32_t)(rx_sidl >> 5) << 18) |
-		            ((uint32_t)(rx_sidl & 0x03) << 16) |
-		            ((uint32_t)rx_eid8 << 8) |
-		            ((uint32_t)rx_eid0);
-		frame->ext = 1;
-	} else {
-		// Standard frame, useless, keep for completeness
-		frame->id = ((uint32_t)rx_sidh << 3) | ((rx_sidl >> 5) & 0x07);
-		frame->ext = 0;
-	}
-
-	// Read DLC
-	uint8_t rx_dlc = mcp2515_read_reg(buf_base + 4);
-	frame->dlc = rx_dlc & 0x0F;
-
-	if (frame->dlc > 0) {
-		uint8_t data_base = buf_base + 5;
-		uint8_t read_len = (frame->dlc > 8) ? 8 : frame->dlc;
-		mcp2515_read_regs(data_base, frame->data, read_len);
-	}
+	mcp2515_get_can_rx_data(frame, offset);
 
 	// Clear interrupt flag to mark frame as read
 	mcp2515_modify_reg(CANINTF, clear_flag, 0x00);
@@ -242,7 +212,7 @@ int can_try_recv(can_frame_t *frame) {
 
 // TX Queue Functions
 
-int can_queue_frame(const can_frame_t *frame) {
+int can_queue_frame(const CanData_t *frame) {
 	return (ring_buffer_put(&tx_queue, *frame) == 0) ? 1 : 0;
 }
 
@@ -250,7 +220,7 @@ void can_queue_send(void) {
 	if (ring_buffer_is_empty(&tx_queue)) {
 		return;
 	}
-	can_frame_t frame;
+	CanData_t frame;
 	if (ring_buffer_peek(&tx_queue, &frame) < 0) {
 		return;
 	}

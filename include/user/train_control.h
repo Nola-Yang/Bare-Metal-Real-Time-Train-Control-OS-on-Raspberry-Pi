@@ -1,7 +1,7 @@
 #ifndef _train_control_h_
 #define _train_control_h_ 1
 
-#include "mcp2515.h"
+#include "can_data.h"
 #include "task_scheduler.h"
 
 // Message types for train control task
@@ -16,7 +16,7 @@ typedef struct {
     int type;
     char ch;
     int train;
-    can_frame_t frame;
+    CanData_t frame;
 } TrainControlMsg_t;
 
 typedef struct {

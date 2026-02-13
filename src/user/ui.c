@@ -88,6 +88,9 @@ void ui_draw_sensors(uint64_t start_us) {
     char *p = temp_buf;
     int head;
     const sensor_entry_t *sensors = track_get_sensor_log(&head);
+    sensor_entry_t *sensor_entry;
+    SensorData_t *sensor_data;
+
 
     p = buf_append(p, "\033[11;1HRecent Sensors:\033[K");
 
@@ -95,34 +98,32 @@ void ui_draw_sensors(uint64_t start_us) {
     // Display up to 10 most recent sensor events
     for (int i = 0; i < SENSOR_LOG_SIZE && count < 10; i++) {
         int idx = (head - 1 - i + SENSOR_LOG_SIZE) % SENSOR_LOG_SIZE;
-        if (sensors[idx].sensor_id != 0) {
-            uint64_t elapsed_us = sensors[idx].time_us - start_us;
-            uint64_t elapsed_tenths = elapsed_us / 100000;
-            uint32_t minutes = (elapsed_tenths / 600);
-            uint32_t seconds = (elapsed_tenths / 10) % 60;
-            uint32_t tenths = elapsed_tenths % 10;
 
-            // Formula: sensor_id = (bank - 'A') * 16 + (number - 1) + 1
-            // Reverse: bank = (sensor_id - 1) / 16, number = (sensor_id - 1) % 16 + 1
-            int bank = (sensors[idx].sensor_id - 1) / 16;
-            int number = (sensors[idx].sensor_id - 1) % 16 + 1;
+        sensor_entry = sensors + idx;
+        sensor_data = &(sensor_entry->sensor_data);
+        if (!sensor_data_is_valid(sensor_data)) continue;
 
-            p = buf_append(p, "\033[");
-            p = buf_append_int(p, 12 + count);
-            p = buf_append(p, ";1H  ");
-            p = buf_append_char(p, 'A' + bank);
-            p = buf_append_uint(p, number);
-            p = buf_append(p, sensors[idx].state ? " enter at " : " leave at ");
-            if (minutes < 10) p = buf_append_char(p, '0');
-            p = buf_append_uint(p, minutes);
-            p = buf_append_char(p, ':');
-            if (seconds < 10) p = buf_append_char(p, '0');
-            p = buf_append_uint(p, seconds);
-            p = buf_append_char(p, '.');
-            p = buf_append_uint(p, tenths);
-            p = buf_append(p, "\033[K");
-            count++;
-        }
+        uint64_t elapsed_us = sensor_entry->time_us - start_us;
+        uint64_t elapsed_tenths = elapsed_us / 100000;
+        uint32_t minutes = (elapsed_tenths / 600);
+        uint32_t seconds = (elapsed_tenths / 10) % 60;
+        uint32_t tenths = elapsed_tenths % 10;
+
+        p = buf_append(p, "\033[");
+        p = buf_append_int(p, 12 + count);
+        p = buf_append(p, ";1H  ");
+        p = buf_append_char(p, sensor_data->bank);
+        p = buf_append_uint(p, sensor_data->sensor_no);
+        p = buf_append(p, sensor_data->new_state ? " enter at " : " leave at ");
+        if (minutes < 10) p = buf_append_char(p, '0');
+        p = buf_append_uint(p, minutes);
+        p = buf_append_char(p, ':');
+        if (seconds < 10) p = buf_append_char(p, '0');
+        p = buf_append_uint(p, seconds);
+        p = buf_append_char(p, '.');
+        p = buf_append_uint(p, tenths);
+        p = buf_append(p, "\033[K");
+        count++;
     }
 
     for (int i = count; i < 10; i++) {

@@ -2,6 +2,7 @@
 #define _track_h_ 1
 
 #include <stdint.h>
+#include "sensor_data.h"
 
 #define MAX_SWITCHES 22
 #define SENSOR_LOG_SIZE 16
@@ -13,9 +14,8 @@ typedef struct {
 } switch_entry_t;
 
 typedef struct {
-    uint16_t sensor_id;
+    SensorData_t sensor_data;
     uint64_t time_us;
-    uint8_t state;  // 0=leaving, 1=entering
 } sensor_entry_t;
 
 typedef struct {
@@ -30,7 +30,7 @@ typedef struct {
 void track_init(int can_server_tid, int term_server_tid);
 
 // State management functions
-void track_log_sensor(uint16_t sensor_id, uint64_t time_us, uint8_t state);
+void track_log_sensor(SensorData_t *sensor_data, uint64_t time_us);
 void track_update_switch(int sw_id, char state);
 void track_update_speed(int train, int speed);
 void track_update_direction(int train, int direction);

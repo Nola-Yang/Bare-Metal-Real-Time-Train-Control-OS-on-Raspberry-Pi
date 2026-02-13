@@ -21,6 +21,12 @@ char* buf_append_int(char *p, int value);
 char* buf_append_uint(char *p, unsigned int value);
 char* buf_get_temp(void);
 
+// max_uint(a, b): Calculates the max of 2 integers
+uint32_t max_uint(uint32_t a, uint32_t b);
+
+// min_uint(a, b): Calulcates the min of 2 integers
+uint32_t min_uint(uint32_t a, uint32_t b);
+
 // Clock rendering
 void clock_render(uint64_t elapsed_us, char *buf);
 

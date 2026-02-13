@@ -82,22 +82,16 @@ void ui_tick_task(void) {
 }
 
 // Parse CAN frame for sensor data
-static void process_can_frame(const can_frame_t *frame, uint64_t now) {
-    uint8_t command = (frame->id >> 17) & 0xFF;
+static void process_can_frame(const CanData_t *frame, uint64_t now) {
+    if (!is_marklin_sensor_data(frame)) return;
 
-    if (command == 0x11 && frame->dlc >= 5) {
-        // Sensor event
-        // data[0,1]: unused identification
-        // data[2,3]: sensor ID = (bank-'A')*16 + (number-1) + 1 
-        // data[4]: state (1=entering, 0=leaving)
-        uint16_t sensor_id = ((uint16_t)frame->data[2] << 8) | frame->data[3];
-        uint8_t state = frame->data[4];
+    SensorData_t sensor_data;
+    can_data_get_sensor(frame, &sensor_data);
 
-        if (sensor_id > 0) {
-            track_log_sensor(sensor_id, now, state);
-            ui_mark_sensors_dirty();
-        }
-    }
+    if (!sensor_data_is_valid(&sensor_data)) return;
+    
+    track_log_sensor(&sensor_data, now);
+    ui_mark_sensors_dirty();
 }
 
 

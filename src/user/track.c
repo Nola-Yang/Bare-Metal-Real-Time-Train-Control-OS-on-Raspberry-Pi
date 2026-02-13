@@ -82,9 +82,7 @@ void track_init(int can_server_tid, int term_server_tid) {
     }
 
     for (int i = 0; i < SENSOR_LOG_SIZE; i++) {
-        sensor_log[i].sensor_id = 0;
-        sensor_log[i].time_us = 0;
-        sensor_log[i].state = 0;
+        default_init_sensor_data(sensor_log + i);
     }
     sensor_log_head = 0;
 
@@ -96,10 +94,9 @@ void track_init(int can_server_tid, int term_server_tid) {
     }
 }
 
-void track_log_sensor(uint16_t sensor_id, uint64_t time_us, uint8_t state) {
-    sensor_log[sensor_log_head].sensor_id = sensor_id;
+void track_log_sensor(SensorData_t *sensor_data, uint64_t time_us) {
+    memcpy(&(sensor_log[sensor_log_head].sensor_data), sensor_data, sizeof(SensorData_t));
     sensor_log[sensor_log_head].time_us = time_us;
-    sensor_log[sensor_log_head].state = state;
     sensor_log_head = (sensor_log_head + 1) % SENSOR_LOG_SIZE;
 }
 
