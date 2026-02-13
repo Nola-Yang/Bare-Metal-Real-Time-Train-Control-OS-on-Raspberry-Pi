@@ -2,6 +2,8 @@
 #include "util.h"
 #include "track.h"
 #include "ui.h"
+#include "can_data.h"
+
 
 // Returns number of tokens
 static int tokenize(char *cmd, char *argv[], int max_args) {
@@ -20,12 +22,12 @@ static int tokenize(char *cmd, char *argv[], int max_args) {
 }
 
 // Returns: 0 = exit, 1 = continue (no output), 2 = continue (has output)
-int execute_it(char *cmd, uint64_t now, int *rv_train) {
+int execute_it(char *cmd, int *rv_train) {
     *rv_train = -1;
     char *argv[4];
     int argc = tokenize(cmd, argv, 4);
 
-    if (argc == 0) return 1;
+    if (argc == 0) return 1;    
 
     // q
     if ((argv[0][0] == 'q' || argv[0][0] == 'Q') && argv[0][1] == '\0') {
@@ -53,12 +55,15 @@ int execute_it(char *cmd, uint64_t now, int *rv_train) {
         }
         int sw = str2int(argv[1]);
         char dir = argv[2][0];
-        if (dir != 'S' && dir != 'C' && dir != 's' && dir != 'c') {
+        
+        if (dir == 's') dir = SWITCH_STRAIGHT;
+        if (dir == 'c') dir = SWITCH_CURVED;
+        
+        if (dir != SWITCH_STRAIGHT && dir != SWITCH_CURVED) {
             ui_puts("Direction must be S or C\r\n");
             return 2;
         }
-        if (dir == 's') dir = 'S';
-        if (dir == 'c') dir = 'C';
+        
         track_set_switch(sw, dir);
         track_update_switch(sw, dir);
         ui_mark_switches_dirty();

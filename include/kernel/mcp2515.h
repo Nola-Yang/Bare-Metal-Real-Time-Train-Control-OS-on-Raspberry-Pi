@@ -13,7 +13,7 @@ void mcp2515_init(void);
 int can_try_recv(CanData_t *frame);
 
 /** Send a CAN frame directly. Returns 1 on success, 0 on failure (TX buffer full). */
-int can_send(const CanData_t *frame);
+int can_send(CanData_t *frame);
 
 /** Queue a CAN frame for transmission. Returns 1 on success, 0 if queue is full. */
 int can_queue_frame(const CanData_t *frame);

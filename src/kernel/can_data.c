@@ -23,7 +23,12 @@ static const uint8_t MARKLIN_RESP_HASH_BTM = 0x01;
 
 static const uint8_t SENSORS_PER_BANK = 16;
 
-static const uint32_t SENSOR_NO_OFFSET = 0x3000;
+static uint32_t MIN_MIDDLE_SWITCH_NO = 153;
+static uint32_t MAX_MIDDLE_SWITCH_NO = 156;
+static uint32_t MIN_REGULAR_SWITCH_NO = 1;
+static uint32_t MAX_REGULAR_SWITCH_NO = 18;
+
+static const uint32_t SWITCH_NO_OFFSET = 0x3000;
 
 
 void init_empty_can_data(CanData_t *can_data, uint8_t *data) {
@@ -75,7 +80,7 @@ static void set_train_no(uint8_t *data, uint32_t train_no) {
 // set_switch_no(data, switch_no): Sets the switch number for the data portion of a CAN data
 static void set_switch_no(uint8_t *data, uint32_t switch_no) {
     switch_no = max_uint(0, switch_no - 1);
-    switch_no += SENSOR_NO_OFFSET;
+    switch_no += SWITCH_NO_OFFSET;
     set_train_no(data, switch_no);
 }
 
@@ -96,10 +101,10 @@ static uint16_t get_speed(uint8_t *data) {
     return result;
 }
 
-// get_switch_no(data): Retrieves the switch number from the data portion of a CAN data
-static uint32_t get_switch_no(uint8_t *data) {
+// data_get_switch_no(data): Retrieves the switch number from the data portion of a CAN data
+static uint32_t data_get_switch_no(uint8_t *data) {
     uint32_t result = get_train_no(data);
-    return result + 1 - SENSOR_NO_OFFSET;
+    return result + 1 - SWITCH_NO_OFFSET;
 }
 
 void init_marklin_light_data(CanData_t *can_data, uint32_t train_no, uint8_t *data, bool is_on) {
@@ -180,7 +185,7 @@ bool can_switch_data_resp_confirm(CanData_t *can_data) {
 }
 
 uint32_t can_switch_data_get_switch_no(CanData_t *can_data) {
-    return get_switch_no(can_data->data);
+    return data_get_switch_no(can_data->data);
 }
 
 char can_switch_data_get_direction(CanData_t *can_data) {
@@ -197,4 +202,29 @@ uint32_t can_data_get_train_no(CanData_t *can_data){
 
 uint16_t can_data_get_speed(CanData_t *can_data) {
     return get_speed(can_data->data);
+}
+
+bool is_valid_switch_no(uint32_t switch_no) {
+    return (MIN_REGULAR_SWITCH_NO <= switch_no && switch_no <= MAX_REGULAR_SWITCH_NO) || 
+           (MIN_MIDDLE_SWITCH_NO <= switch_no && switch_no <= MAX_MIDDLE_SWITCH_NO);
+}
+
+uint32_t get_switch_no(uint32_t switch_ind) {
+    if (switch_ind < MAX_REGULAR_SWITCH_NO) {
+        return switch_ind + 1;
+    } else if (switch_ind < SWITCH_COUNT) {
+        return switch_ind + 135;
+    }
+
+    return -1;
+}
+
+uint32_t get_switch_ind(uint32_t switch_no) {
+    if (switch_no <= MAX_REGULAR_SWITCH_NO) {
+        return switch_no - 1;
+    } else if (MIN_MIDDLE_SWITCH_NO <= switch_no && switch_no <= MAX_MIDDLE_SWITCH_NO) {
+        return switch_no - 135;
+    }
+
+    return -1;
 }

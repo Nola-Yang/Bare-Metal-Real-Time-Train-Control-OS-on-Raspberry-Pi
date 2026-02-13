@@ -47,31 +47,6 @@ static train_state_t* find_or_create_train(int train_num) {
     return NULL;
 }
 
-// Switch number mapping functions
-// User switch numbers: 1-18, 153-156
-// Array indices: 0-21
-int track_switch_to_index(int sw_num) {
-    if (sw_num >= 1 && sw_num <= 18) {
-        return sw_num - 1;
-    } else if (sw_num >= 153 && sw_num <= 156) {
-        return 18 + (sw_num - 153);
-    }
-    return -1;
-}
-
-int track_index_to_switch(int index) {
-    if (index >= 0 && index <= 17) {
-        return index + 1;
-    } else if (index >= 18 && index <= 21) {
-        return 153 + (index - 18);
-    }
-    return -1;
-}
-
-int track_is_valid_switch(int sw_num) {
-    return (sw_num >= 1 && sw_num <= 18) || (sw_num >= 153 && sw_num <= 156);
-}
-
 void track_init(int can_server_tid, int term_server_tid) {
     can_tid = can_server_tid;
     term_tid = term_server_tid;
@@ -82,7 +57,7 @@ void track_init(int can_server_tid, int term_server_tid) {
     }
 
     for (int i = 0; i < SENSOR_LOG_SIZE; i++) {
-        default_init_sensor_data(sensor_log + i);
+        default_init_sensor_data(&(sensor_log[i].sensor_data));
     }
     sensor_log_head = 0;
 
@@ -101,11 +76,11 @@ void track_log_sensor(SensorData_t *sensor_data, uint64_t time_us) {
 }
 
 void track_update_switch(int sw_num, char state) {
-    int index = track_switch_to_index(sw_num);
-    if (index >= 0) {
-        switch_state[index].state = state;
-        switch_state[index].last_update_us = read_timer();
-    }
+    int index = get_switch_ind(sw_num);
+    if (index < 0) return;
+
+    switch_state[index].state = state;
+    switch_state[index].last_update_us = read_timer();
 }
 
 void track_update_speed(int train_num, int speed) {
@@ -118,7 +93,7 @@ void track_update_direction(int train_num, int direction) {
     if (t) t->direction = direction;
 }
 
-const sensor_entry_t* track_get_sensor_log(int *head) {
+sensor_entry_t* track_get_sensor_log(int *head) {
     if (head) *head = sensor_log_head;
     return sensor_log;
 }
@@ -132,112 +107,54 @@ const train_state_t* track_get_trains(void) {
 }
 
 void track_set_speed(int train, int speed) {
-    can_frame_t frame;
+    CanData_t frame;
+    uint8_t frame_data[CAN_DATA_MAX_BYTE_LEN];
 
-    if (speed < 0) speed = 0;
-    if (speed > 1000) speed = 1000;
+    init_marklin_speed_data_by_speed(&frame, train, speed, frame_data);
 
-    // 29-bit CAN Identifier
-    uint8_t  priority = 0;
-    uint8_t  command  = 0x04;   // Speed
-    uint8_t  response = 0;
-    uint16_t hash     = 0xC300;
-
-    frame.id =
-        ((uint32_t)priority << 25) |
-        ((uint32_t)command  << 17) |
-        ((uint32_t)response << 16) |
-        (uint32_t)hash;
-
-    frame.ext = 1;
-    frame.dlc = 6;
-
-    frame.data[0] = (train >> 24) & 0xFF;
-    frame.data[1] = (train >> 16) & 0xFF;
-    frame.data[2] = (train >>  8) & 0xFF;
-    frame.data[3] =  train        & 0xFF;
-    frame.data[4] = (speed >> 8) & 0xFF;
-    frame.data[5] = speed & 0xFF;
-
-    if (CANSend(can_tid, &frame) == 0) {
-        train_state_t* t = find_or_create_train(train);
-        if (t) {
-            if (t->rv_state == 1) {
-                t->rv_prev_speed = speed;
-            }
-            t->speed = speed;
-        }
-    } else {
+    int send_error = CANSend(can_tid, &frame);
+    if (send_error) {
         report_error("Error: CAN TX queue full\r\n");
+        return;
+    }
+
+    train_state_t* t = find_or_create_train(train);
+    if (t) {
+        t->speed = speed;
+        if (t->rv_state == 1) {
+            t->rv_prev_speed = speed;
+        }
     }
 }
 
 void track_reverse(int train) {
-    can_frame_t frame;
+    CanData_t frame;
+    uint8_t frame_data[CAN_DATA_MAX_BYTE_LEN];
 
-    uint8_t  priority = 0;
-    uint8_t  command  = 0x05;   // Direction
-    uint8_t  response = 0;
-    uint16_t hash     = 0xC300;
+    init_marklin_reverse_data(&frame, train, frame_data);
 
-    frame.id =
-        ((uint32_t)priority << 25) |
-        ((uint32_t)command  << 17) |
-        ((uint32_t)response << 16) |
-        (uint32_t)hash;
-
-    frame.ext = 1;
-    frame.dlc = 5;
-
-    frame.data[0] = (train >> 24) & 0xFF;
-    frame.data[1] = (train >> 16) & 0xFF;
-    frame.data[2] = (train >>  8) & 0xFF;
-    frame.data[3] =  train        & 0xFF;
-    frame.data[4] = 0x03;
-    frame.data[5] = 0;
-
-    if (CANSend(can_tid, &frame) == 0) {
-        train_state_t* t = find_or_create_train(train);
-        if (t) t->direction = 1 - t->direction;
-    } else {
+    int send_error = CANSend(can_tid, &frame);
+    if (send_error) {
         report_error("Error: CAN TX queue full\r\n");
+        return;
+    }
+
+    train_state_t* t = find_or_create_train(train);
+    if (t) {
+        t->direction = 1 - t->direction;
     }
 }
 
 void track_set_switch(int sw_num, char dir) {
-    if (!track_is_valid_switch(sw_num)) {
+    if (!is_valid_switch_no(sw_num)) {
         report_error("Invalid switch number (1-18, 153-156)\r\n");
         return;
     }
 
-    can_frame_t frame;
+    CanData_t frame;
+    uint8_t frame_data[CAN_DATA_MAX_BYTE_LEN];
 
-    uint8_t  priority = 0;
-    uint8_t  command  = 0x0B;   // Switch
-    uint8_t  response = 0;
-    uint16_t hash     = 0xC300;
-
-    frame.id =
-        ((uint32_t)priority << 25) |
-        ((uint32_t)command  << 17) |
-        ((uint32_t)response << 16) |
-        (uint32_t)hash;
-
-    frame.ext = 1;
-    frame.dlc = 6;
-
-    // Switch ID (Byte 0-3): 0x3000 + switch_number - 1
-    uint32_t switch_id = 0x3000 + sw_num - 1;
-    frame.data[0] = (switch_id >> 24) & 0xFF;
-    frame.data[1] = (switch_id >> 16) & 0xFF;
-    frame.data[2] = (switch_id >>  8) & 0xFF;
-    frame.data[3] =  switch_id        & 0xFF;
-
-    // Position (Byte 4): 0=curved, 1=straight
-    frame.data[4] = (dir == 'S') ? 0x01 : 0x00;
-
-    // Engage (Byte 5): 1 = engage solenoid
-    frame.data[5] = 0x01;
+    init_marklin_switch_data(&frame, sw_num, dir, frame_data);
 
     if (CANSend(can_tid, &frame) != 0) {
         report_error("Error: CAN TX queue full\r\n");
@@ -245,32 +162,10 @@ void track_set_switch(int sw_num, char dir) {
 }
 
 void track_set_light(int train, int on) {
-    can_frame_t frame;
+    CanData_t frame;
+    uint8_t frame_data[CAN_DATA_MAX_BYTE_LEN];
 
-    uint8_t  priority = 0;
-    uint8_t  command  = 0x06;   // Light
-    uint8_t  response = 0;
-    uint16_t hash     = 0xC300;
-
-    frame.id =
-        ((uint32_t)priority << 25) |
-        ((uint32_t)command  << 17) |
-        ((uint32_t)response << 16) |
-        (uint32_t)hash;
-
-    frame.ext = 1;
-    frame.dlc = 6;
-
-    frame.data[0] = (train >> 24) & 0xFF;
-    frame.data[1] = (train >> 16) & 0xFF;
-    frame.data[2] = (train >>  8) & 0xFF;
-    frame.data[3] =  train        & 0xFF;
-
-    // Function (Byte 4): 0 = light
-    frame.data[4] = 0x00;
-
-    // State (Byte 5): 0=off, 1=on
-    frame.data[5] = on ? 0x01 : 0x00;
+    init_marklin_light_data(&frame, train, frame_data, (bool)on);
 
     if (CANSend(can_tid, &frame) != 0) {
         report_error("Error: CAN TX queue full\r\n");
@@ -280,12 +175,12 @@ void track_set_light(int train, int on) {
 
 void track_complete_reverse(int train_num) {
     train_state_t *t = find_train(train_num);
-    if (t && t->rv_state == 1) {
-        int prev_speed = t->rv_prev_speed;
-        t->rv_state = 0;
-        track_reverse(train_num);
-        track_set_speed(train_num, prev_speed);
-    }
+    if (!t || t->rv_state != 1) return;
+
+    int prev_speed = t->rv_prev_speed;
+    t->rv_state = 0;
+    track_reverse(train_num);
+    track_set_speed(train_num, prev_speed);
 }
 
 int track_start_reverse(int train_num) {

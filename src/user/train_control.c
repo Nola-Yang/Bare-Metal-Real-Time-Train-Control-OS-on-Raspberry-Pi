@@ -82,7 +82,7 @@ void ui_tick_task(void) {
 }
 
 // Parse CAN frame for sensor data
-static void process_can_frame(const CanData_t *frame, uint64_t now) {
+static void process_can_frame(CanData_t *frame, uint64_t now) {
     if (!is_marklin_sensor_data(frame)) return;
 
     SensorData_t sensor_data;
@@ -142,9 +142,8 @@ void train_control_task(void) {
                     ui_scroll_cmd();
 
                     if (cmdlen > 0) {
-                        uint64_t now = read_timer();
                         int rv_train = -1;
-                        int result = execute_it(cmdline, now, &rv_train);
+                        int result = execute_it(cmdline, &rv_train);
                         if (result == 0) {
                             running = 0;  // for 'q' command
                         }

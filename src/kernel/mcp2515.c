@@ -166,7 +166,7 @@ static void send_can_data(CanData_t *can_data) {
 	mcp2515_modify_reg(TXB0CTRL, TXB_TXREQ, TXB_TXREQ);
 }
 
-int can_send(const CanData_t *frame)
+int can_send(CanData_t *frame)
 {
     uint8_t ctrl = mcp2515_read_reg(TXB0CTRL);
     if (ctrl & TXB_TXREQ) return 0;

@@ -13,12 +13,12 @@
 
 typedef struct {
     int type;
-    can_frame_t frame;
+    CanData_t frame;
 } CANRequest_t;
 
 typedef struct {
     int status;
-    can_frame_t frame;
+    CanData_t frame;
 } CANReply_t;
 
 // CAN server task 
@@ -28,11 +28,11 @@ void can_server_task(void);
 
 // Send a CAN frame 
 // Returns: 0 on success (queued), negative on error
-int CANSend(int tid, const can_frame_t *frame);
+int CANSend(int tid, const CanData_t *frame);
 
 // Receive a CAN frame 
 // Returns: 0 on success, negative on error
-int CANReceive(int tid, can_frame_t *frame);
+int CANReceive(int tid, CanData_t *frame);
 
 // Enable MCP2515/GPIO interrupt handling
 int CANEnableInterrupts(int tid);

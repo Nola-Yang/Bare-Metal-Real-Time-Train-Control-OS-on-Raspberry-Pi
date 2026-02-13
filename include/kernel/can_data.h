@@ -11,6 +11,7 @@
 
 #define SWITCH_CURVED 'C'
 #define SWITCH_STRAIGHT 'S'
+#define SWITCH_COUNT 22
 
 // Marklin command numbers
 #define MARKLIN_CMD_TRAIN_DISCOVER 0x01
@@ -81,14 +82,13 @@ uint16_t can_data_get_speed(CanData_t *can_data);
 // speed_step_to_speed(speed_step): Retrieves the speed based on the speed step
 uint16_t speed_step_to_speed(uint32_t speed_step);
 
-uint32_t model_get_switch_no(uint32_t switch_ind) {
-    if (switch_ind < MAX_REGULAR_SWITCH_NO) {
-        return switch_ind + 1;
-    } else if (switch_ind < SWITCH_COUNT) {
-        return switch_ind + 135;
-    }
+// is_valid_switch_no(switch_no): Determines if the switch number is valid
+bool is_valid_switch_no(uint32_t switch_no);
 
-    return -1;
-}
+// get_switch_no(switch_ind): Retrieves the switch number from the index of a switch
+uint32_t get_switch_no(uint32_t switch_ind);
+
+// get_switch_ind(switch_no): Retrieves the index for a switch from a switch number
+uint32_t get_switch_ind(uint32_t switch_no);
 
 #endif

@@ -34,14 +34,9 @@ void track_log_sensor(SensorData_t *sensor_data, uint64_t time_us);
 void track_update_switch(int sw_id, char state);
 void track_update_speed(int train, int speed);
 void track_update_direction(int train, int direction);
-const sensor_entry_t* track_get_sensor_log(int *head);
+sensor_entry_t* track_get_sensor_log(int *head);
 const switch_entry_t* track_get_switch_state(void);
 const train_state_t* track_get_trains(void);
-
-// Switch number mapping (user number 1-18, 153-156 to array index 0-21)
-int track_switch_to_index(int sw_num);
-int track_index_to_switch(int index);
-int track_is_valid_switch(int sw_num);
 
 // Control functions (send commands via CAN server)
 void track_set_speed(int train, int speed);

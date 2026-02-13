@@ -14,12 +14,8 @@ void i2a(int num, char *bf);
 // String to integer conversion
 int str2int(const char *str);
 
-// Buffer formatting helpers
-char* buf_append(char *p, const char *str);
-char* buf_append_char(char *p, char c);
-char* buf_append_int(char *p, int value);
-char* buf_append_uint(char *p, unsigned int value);
-char* buf_get_temp(void);
+// padded_ui2a: Convers a number to a string with some padding prefix
+void padded_ui2a(unsigned int num, unsigned int base, char *buf, unsigned int length, char pad_char);
 
 // max_uint(a, b): Calculates the max of 2 integers
 uint32_t max_uint(uint32_t a, uint32_t b);
