@@ -22,6 +22,13 @@ char* str_buf_append_int(char *p, int value);
 // str_buf_append_uint: Puts an unsinged integer into the string buffer
 char* str_buf_append_uint(char *p, unsigned int value);
 
+// str_buf_append_padded_uint(p, value, length, pad_char): Puts an unsigned integer with prefix
+//  padding into the string buffer
+char* str_buf_append_padded_uint(char *p, unsigned int value, uint32_t length, char pad_char);
+
+// str_buf_clear_line: Buffers to clears the entire line
+char *str_buf_clear_line(char *p);
+
 // str_buf_clear_to_line_end: Puts the ANSI code for clearing from the cursor
 //  to the end of the line
 char* str_buf_clear_to_line_end(char *p);

@@ -13,6 +13,8 @@
 #define SWITCH_STRAIGHT 'S'
 #define SWITCH_COUNT 22
 
+#define PHYSICAL_TRAINS_COUNT 6
+
 // Marklin command numbers
 #define MARKLIN_CMD_TRAIN_DISCOVER 0x01
 #define MARKLIN_CMD_ACCEL_TRAIN 0x04

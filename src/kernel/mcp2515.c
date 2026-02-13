@@ -240,7 +240,28 @@ void mcp2515_clear_interrupts(void) {
 }
 
 void mcp2515_enable_rx_interrupts(void) {
-	mcp2515_write_reg(CANINTE, CANINTE_RX0IE | CANINTE_RX1IE);
+	mcp2515_modify_reg(CANINTE, CANINTE_RX0IE | CANINTE_RX1IE,
+	                   CANINTE_RX0IE | CANINTE_RX1IE);
+}
+
+void mcp2515_disable_rx_interrupts(void) {
+	mcp2515_modify_reg(CANINTE, CANINTE_RX0IE | CANINTE_RX1IE, 0x00);
+}
+
+void mcp2515_enable_tx_interrupts(void) {
+	mcp2515_modify_reg(CANINTE, CANINTE_TX0IE, CANINTE_TX0IE);
+}
+
+void mcp2515_disable_tx_interrupts(void) {
+	mcp2515_modify_reg(CANINTE, CANINTE_TX0IE, 0x00);
+}
+
+uint8_t mcp2515_read_interrupt_flags(void) {
+	return mcp2515_read_reg(CANINTF);
+}
+
+void mcp2515_clear_interrupt_flags(uint8_t mask) {
+	mcp2515_modify_reg(CANINTF, mask, 0x00);
 }
 
 void mcp2515_disable_interrupts(void) {

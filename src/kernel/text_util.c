@@ -1,4 +1,6 @@
 #include "text_util.h"
+#include "util.h"
+
 
 #define TEMP_BUF_SIZE 768
 static char temp_buf[TEMP_BUF_SIZE];
@@ -47,12 +49,21 @@ char* str_buf_append_uint(char *p, unsigned int value) {
     return str_buf_append(p, num_buf);
 }
 
+char* str_buf_append_padded_uint(char *p, unsigned int value, uint32_t length, char pad_char) {
+    padded_ui2a(value, 10, p, length, pad_char);
+    return p + length;
+}
+
+char *str_buf_clear_line(char *p) {
+    return str_buf_append(p, "\033[2K");
+}
+
 char* str_buf_clear_to_line_end(char *p) {
     return str_buf_append(p, "\033[K");
 }
 
 char* str_buf_move_cursor(char *p, uint32_t line_pos, uint32_t cursor_pos) {
-    p = str_buf_append(p, "\033[7;1H");
+    p = str_buf_append(p, "\033[");
     p = str_buf_append_uint(p, line_pos);
     p = str_buf_append_char(p, ';');
     p = str_buf_append_uint(p, cursor_pos);

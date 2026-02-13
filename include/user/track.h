@@ -8,6 +8,10 @@
 #define SENSOR_LOG_SIZE 16
 #define MAX_ACTIVE_TRAINS 8
 
+// States for train reversal
+#define TRAIN_REVERSING 1
+#define TRAIN_REACCELERATING 2
+
 typedef struct {
     char state;           // 'S', 'C', or '?'
     uint64_t last_update_us;
@@ -44,8 +48,16 @@ void track_reverse(int train);
 void track_set_switch(int sw, char dir);
 void track_set_light(int train, int on);
 
+// is_train_reversing(train_num): Determines isf the train is in the middle of reversing
+bool is_train_reversing(int train_num);
+
+// get_train_rv_prev_speed: Retrieves the previous speed of the train
+//  during its reversal
+int get_train_rv_prev_speed(int train_num);
+
 // Reverse state machine
 int track_start_reverse(int train);
 void track_complete_reverse(int train_num);
+void track_reset_reverse(int train_num);
 
 #endif /* _track_h_ */
