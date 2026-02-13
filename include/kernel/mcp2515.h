@@ -6,6 +6,11 @@
 #include "can_data.h"
 
 
+// CANINTF flags
+#define MCP2515_CANINTF_RX0IF 0x01
+#define MCP2515_CANINTF_RX1IF 0x02
+#define MCP2515_CANINTF_TX0IF 0x04
+
 /** Initialize the MCP2515 CAN controller. Should be called after initializing GPIO and SPI. */
 void mcp2515_init(void);
 
@@ -26,6 +31,21 @@ void mcp2515_clear_interrupts(void);
 
 /** Enable MCP2515 RX interrupts (RX0/RX1). */
 void mcp2515_enable_rx_interrupts(void);
+
+/** Disable MCP2515 RX interrupts (RX0/RX1). */
+void mcp2515_disable_rx_interrupts(void);
+
+/** Enable MCP2515 TX interrupts (TX0). */
+void mcp2515_enable_tx_interrupts(void);
+
+/** Disable MCP2515 TX interrupts (TX0). */
+void mcp2515_disable_tx_interrupts(void);
+
+/** Read MCP2515 interrupt flags (CANINTF). */
+uint8_t mcp2515_read_interrupt_flags(void);
+
+/** Clear selected MCP2515 interrupt flags (CANINTF). */
+void mcp2515_clear_interrupt_flags(uint8_t mask);
 
 /** Disable all MCP2515 interrupts. */
 void mcp2515_disable_interrupts(void);

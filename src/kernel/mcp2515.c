@@ -68,6 +68,12 @@ static const uint8_t CANINTE = 0x2B;
 // CANINTE bits
 static const uint8_t CANINTE_RX0IE = 0x01;
 static const uint8_t CANINTE_RX1IE = 0x02;
+static const uint8_t CANINTE_TX0IE = 0x04;
+
+// CANINTF bits (interrupt flags)
+static const uint8_t CANINTF_RX0IF = 0x01;
+static const uint8_t CANINTF_RX1IF = 0x02;
+static const uint8_t CANINTF_TX0IF = 0x04;
 
 //TX Queue Management
 #define TX_QUEUE_SIZE 64 

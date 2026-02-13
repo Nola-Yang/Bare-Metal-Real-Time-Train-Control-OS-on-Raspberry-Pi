@@ -32,6 +32,12 @@ void toggle_caches(bool dcache_on, bool icache_on);
 // swap: Swaps the values from 2 variables
 void swap(void *a, void *b, size_t size);
 
+// max_uint(a, b): Calculates the max of 2 integers
+uint32_t max_uint(uint32_t a, uint32_t b);
+
+// min_uint(a, b): Calulcates the min of 2 integers
+uint32_t min_uint(uint32_t a, uint32_t b);
+
 #if !defined(MMU)
 
 // define our own memset to avoid SIMD instructions emitted from the compiler

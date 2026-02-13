@@ -6,6 +6,7 @@
 #include "timer.h"
 #include "idle_task.h"
 #include "rpi.h"
+#include "kassert.h"
 #include <string.h>
 
 
@@ -103,9 +104,8 @@ static void free_task_descriptor(TaskDescriptor_t *task) {
 
 static void check_stack_canary(TaskDescriptor_t *task) {
     if (task->stack_canary != STACK_CANARY_VALUE) {
-        uart_debug_printf(CONSOLE, "PANIC: User stack overflow detected! tid=%d canary=0x%lx\r\n",
-                    task->tid, task->stack_canary);
-        for (;;) __asm__ volatile("wfi");
+        panic("User stack overflow detected! tid=%d canary=0x%lx\r\n",
+              task->tid, task->stack_canary);
     }
 }
 
@@ -115,9 +115,16 @@ static void check_user_stack_bounds(TaskDescriptor_t *task) {
     uint64_t stack_top = stack_bottom + TASK_STACK_SIZE;
 
     if (sp < stack_bottom || sp > stack_top) {
-        uart_debug_printf(CONSOLE, "PANIC: User stack out of bounds! tid=%d sp=0x%lx bounds=[0x%lx, 0x%lx]\r\n",
-                    task->tid, sp, stack_bottom, stack_top);
-        for (;;) __asm__ volatile("wfi");
+        panic("User stack out of bounds! tid=%d sp=0x%lx bounds=[0x%lx, 0x%lx]\r\n",
+              task->tid, sp, stack_bottom, stack_top);
+    }
+}
+
+static void check_kernel_stack_canary(void) {
+    extern uint64_t __kernel_stack_canary;
+    if (*((volatile uint64_t *)&__kernel_stack_canary) != STACK_CANARY_VALUE) {
+        panic("Kernel stack overflow! canary=0x%lx\r\n",
+              *((volatile uint64_t *)&__kernel_stack_canary));
     }
 }
 
@@ -202,6 +209,7 @@ static void kern_Yield(void) {
     current_task->state = TASK_STATE_READY;
     global_task_scheduler_add_task(current_task);
     TaskDescriptor_t *next_task = schedule();
+    KASSERT(next_task != NULL);
     switch_to_task(next_task);
 }
 
@@ -223,8 +231,7 @@ static void kern_Exit(void) {
 
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        uart_debug_printf(CONSOLE, "PANIC: No runnable tasks in kern_Exit!\r\n");
-        for (;;) __asm__ volatile("wfi");
+        panic("No runnable tasks in kern_Exit!\r\n");
     }
     switch_to_task(next_task);
 }
@@ -264,8 +271,7 @@ static int kern_Send(int tid, const char *msg, int msglen, char *reply, int rple
     TaskDescriptor_t *receiver = get_task_by_tid(tid);
 
     if (receiver == NULL) {
-        uart_debug_printf(CONSOLE, "kern_Send: Invalid tid %d\r\n", tid);
-        return -1;  
+        return -1;
     }
 
     sender->msg_buf = msg;
@@ -292,8 +298,7 @@ static int kern_Send(int tid, const char *msg, int msglen, char *reply, int rple
     // Schedule next task (sender is blocked)
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        uart_debug_printf(CONSOLE, "PANIC: No runnable tasks in kern_Send!\r\n");
-        for (;;) __asm__ volatile("wfi");
+        panic("No runnable tasks in kern_Send!\r\n");
     }
     switch_to_task(next_task);
 
@@ -321,8 +326,7 @@ static int kern_Receive(int *tid, char *msg, int msglen) {
 
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        uart_debug_printf(CONSOLE, "PANIC: No runnable tasks in kern_Receive!\r\n");
-        for (;;) __asm__ volatile("wfi");
+        panic("No runnable tasks in kern_Receive!\r\n");
     }
     switch_to_task(next_task);
 
@@ -336,8 +340,7 @@ static int kern_Reply(int tid, const char *reply, int rplen) {
     TaskDescriptor_t *current = get_current_task();
 
     if (sender == NULL) {
-        uart_debug_printf(CONSOLE, "kern_Reply: Invalid tid %d\r\n", tid);
-        return -1;  
+        return -1;
     }
 
     if (sender->state != TASK_STATE_REPLY_BLOCKED) {
@@ -404,8 +407,7 @@ static int kern_AwaitEvent(int eventid) {
     // Schedule next task
     TaskDescriptor_t *next_task = schedule();
     if (next_task == NULL) {
-        uart_debug_printf(CONSOLE, "PANIC: No runnable tasks in kern_AwaitEvent!\r\n");
-        for (;;) __asm__ volatile("wfi");
+        panic("No runnable tasks in kern_AwaitEvent!\r\n");
     }
     switch_to_task(next_task);
 
@@ -478,6 +480,10 @@ void init_interrupts(void) {
 void irq_dispatch(void) {
     TaskDescriptor_t *current_task = get_current_task();
 
+    check_stack_canary(current_task);
+    check_user_stack_bounds(current_task);
+    check_kernel_stack_canary();
+
     uint32_t iar = gic_read_iar();
     uint32_t irq_id = iar & 0x3FF;  
 
@@ -536,8 +542,8 @@ void irq_dispatch(void) {
     } else if (irq_id == 1023) {
         // Spurious interrupt, ignore
     } else {
-        uart_debug_printf(CONSOLE, "Unknown IRQ: %d\r\n", irq_id);
         gic_write_eoir(iar);
+        panic("Unknown IRQ: %d\r\n", irq_id);
     }
 
     if (current_task->state == TASK_STATE_RUNNING) {
@@ -546,7 +552,7 @@ void irq_dispatch(void) {
     }
 
     TaskDescriptor_t *next_task = schedule();
-    // assert(next_task != NULL, "No runnable tasks in irq_dispatch!");
+    KASSERT(next_task != NULL);
     switch_to_task(next_task);
 }
 
@@ -560,6 +566,7 @@ void syscall_dispatch() {
     /* Check for user stack overflow on every syscall entry */
     check_stack_canary(current_task);
     check_user_stack_bounds(current_task);
+    check_kernel_stack_canary();
 
     uint64_t syscall_num = tf->x[8];
     int64_t ret = 0;
@@ -618,5 +625,6 @@ void syscall_dispatch() {
     current_task->state = TASK_STATE_READY;
     global_task_scheduler_add_task(current_task);
     TaskDescriptor_t *next_task = schedule();
+    KASSERT(next_task != NULL);
     switch_to_task(next_task);
 }

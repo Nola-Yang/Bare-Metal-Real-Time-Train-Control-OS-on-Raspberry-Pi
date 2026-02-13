@@ -8,6 +8,7 @@
 #include "mcp2515.h"
 #include "rpi.h"
 #include "ring_buffer.h"
+#include "kassert.h"
 
 
 //I guess only one for now implementation
@@ -55,38 +56,44 @@ void can_server_task(void) {
 
         switch (req.type) {
             case CAN_MSG_RX_NOTIFY: {
-                // Drain all available RX frames
-                CanData_t frame;
-                while (can_try_recv(&frame)) {
-                    if (recv_waiter_count > 0) {
-                        CANReply_t recv_reply;
-                        recv_reply.status = 0;
-                        recv_reply.frame = frame;
-                        Reply(recv_waiters[0], (const char *)&recv_reply, sizeof(recv_reply));
+                uint8_t flags = mcp2515_read_interrupt_flags();
 
-                        // in fact, only one waiter, maybe optimized later
-                        for (int i = 1; i < recv_waiter_count; i++) {
-                            recv_waiters[i-1] = recv_waiters[i];
+                // Drain all available RX frames if RX interrupt fired.
+                if (flags & (MCP2515_CANINTF_RX0IF | MCP2515_CANINTF_RX1IF)) {
+                    CanData_t frame;
+                    while (can_try_recv(&frame)) {
+                        if (recv_waiter_count > 0) {
+                            CANReply_t recv_reply;
+                            recv_reply.status = 0;
+                            recv_reply.frame = frame;
+                            Reply(recv_waiters[0], (const char *)&recv_reply, sizeof(recv_reply));
+
+                            // in fact, only one waiter, maybe optimized later
+                            for (int i = 1; i < recv_waiter_count; i++) {
+                                recv_waiters[i-1] = recv_waiters[i];
+                            }
+                            recv_waiter_count--;
+                        } else {
+                            // Buffer the frame
+                            KASSERT(ring_buffer_put(&rx_queue, frame) == 0);
                         }
-                        recv_waiter_count--;
-                    } else {
-                        // Buffer the frame
-                        ring_buffer_put(&rx_queue, frame);
                     }
                 }
 
-                //Todo: TX done interrupt instead of polling there
-                can_queue_send();
-
-                // Re-enable only when a client needs data (in CAN_MSG_RECV)
-                mcp2515_disable_interrupts(); // prevent notifier spinning
-                mcp2515_clear_interrupts();
-
-                // never be triggered? may be deleted?
-                if (recv_waiter_count > 0) {
-                    mcp2515_enable_rx_interrupts();
-                    gpio_enable_can_interrupt();
+                // TX done interrupt: clear flag and send next queued frame.
+                if (flags & MCP2515_CANINTF_TX0IF) {
+                    mcp2515_clear_interrupt_flags(MCP2515_CANINTF_TX0IF);
+                    can_queue_send();
                 }
+
+                // Keep RX interrupts enabled whenever there are waiters or RX queue has space.
+                if (recv_waiter_count > 0 || !ring_buffer_is_full(&rx_queue)) {
+                    mcp2515_enable_rx_interrupts();
+                } else {
+                    mcp2515_disable_rx_interrupts();
+                }
+
+                gpio_enable_can_interrupt();
 
                 reply.status = 0;
                 Reply(tid, (const char *)&reply, sizeof(reply));
@@ -97,6 +104,8 @@ void can_server_task(void) {
                 int queued = can_queue_frame(&req.frame);
 
                 can_queue_send();
+                mcp2515_enable_tx_interrupts();
+                gpio_enable_can_interrupt();
 
                 reply.status = queued ? 0 : -1;
                 Reply(tid, (const char *)&reply, sizeof(reply));
@@ -109,6 +118,12 @@ void can_server_task(void) {
                     reply.status = 0;
                     reply.frame = frame;
                     Reply(tid, (const char *)&reply, sizeof(reply));
+
+                    // If RX interrupts were disabled due to full queue, re-enable now.
+                    if (can_rx_notifier_tid >= 0) {
+                        mcp2515_enable_rx_interrupts();
+                        gpio_enable_can_interrupt();
+                    }
                 } else {
                     if (can_try_recv(&frame)) {
                         reply.status = 0;
@@ -137,6 +152,7 @@ void can_server_task(void) {
                 
                 mcp2515_clear_interrupts();
                 mcp2515_enable_rx_interrupts();
+                mcp2515_enable_tx_interrupts();
                 gpio_enable_can_interrupt();
                 reply.status = 0;
                 Reply(tid, (const char *)&reply, sizeof(reply));

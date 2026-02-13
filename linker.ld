@@ -22,8 +22,10 @@ SECTIONS {
 	__bss_start = ADDR(.bss);
 	__bss_end   = ADDR(.bss) + SIZEOF(.bss);
 
-	/* Kernel stack (4KB, 16-byte aligned) */
+	/* Kernel stack canary + stack (4KB, 16-byte aligned) */
 	. = ALIGN(16);
+	__kernel_stack_canary = .;
+	. = . + 8;
 	__kernel_stack_bottom = .;
 	. = . + 0x1000;
 	__kernel_stack_top = .;

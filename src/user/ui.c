@@ -115,7 +115,6 @@ void ui_draw_sensors(uint64_t start_us) {
     sensor_entry_t *sensor_entry;
     SensorData_t *sensor_data;
 
-
     p = str_buf_append(p, "\033[11;1HRecent Sensors:\033[K");
 
     int count = 0;

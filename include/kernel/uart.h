@@ -1,6 +1,7 @@
 #ifndef _uart_h_
 #define _uart_h_ 1
 
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -25,7 +26,9 @@
 #define UART_INT_STATUS_MASK (UART_INT_DSR | UART_INT_DCD | UART_INT_CTS | UART_INT_RI)
 
 void uart_config_and_enable(size_t line);
-void uart_debug_printf(size_t line, const char *fmt, ... );
+void uart_panic_vprintf(size_t line, const char *fmt, va_list va);
+void uart_panic_printf(size_t line, const char *fmt, ... );
+
 
 // Interrupt control functions
 void uart_enable_rx_interrupt(size_t line);

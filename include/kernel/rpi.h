@@ -14,4 +14,10 @@ void gpio_clr_event_detect_status(uint32_t pin);
 void gpio_enable_can_interrupt(void);
 void gpio_disable_can_interrupt(void);
 
+// Get event detect status for GPIO pin.
+uint32_t gpio_get_event_detect_status(uint32_t pin);
+
+// Clear event detect status for GPIO pin.
+void gpio_clr_event_detect_status(uint32_t pin);
+
 #endif /* _rpi_h_ */

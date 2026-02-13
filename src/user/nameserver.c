@@ -41,7 +41,8 @@ static int ns_add_entry(const char *name, int tid) {
 
     for (int i = 0; i < NS_MAX_ENTRIES; i++) {
         if (!NS_Entries[i].used) {
-            strncpy(NS_Entries[i].name, name, NS_MAX_NAME_LEN);
+            strncpy(NS_Entries[i].name, name, NS_MAX_NAME_LEN - 1);
+            NS_Entries[i].name[NS_MAX_NAME_LEN - 1] = '\0';
             NS_Entries[i].tid = tid;
             NS_Entries[i].used = 1;
             return 0;
@@ -98,7 +99,8 @@ int RegisterAs(const char *name) {
 
     req.type = NS_REGISTER;
     req.tid = MyTid();
-    strncpy(req.name, name, NS_MAX_NAME_LEN);
+    strncpy(req.name, name, NS_MAX_NAME_LEN - 1);
+    req.name[NS_MAX_NAME_LEN - 1] = '\0';
 
     int ret = Send(NAMESERVER_TID, (const char *)&req, sizeof(NsRequest),
                    (char *)&resp, sizeof(NsResponse));
@@ -112,7 +114,8 @@ int WhoIs(const char *name) {
     NsResponse resp;
 
     req.type = NS_WHOIS;
-    strncpy(req.name, name, NS_MAX_NAME_LEN);
+    strncpy(req.name, name, NS_MAX_NAME_LEN - 1);
+    req.name[NS_MAX_NAME_LEN - 1] = '\0';
 
     int ret = Send(NAMESERVER_TID, (const char *)&req, sizeof(NsRequest),
                    (char *)&resp, sizeof(NsResponse));

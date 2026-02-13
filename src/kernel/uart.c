@@ -60,6 +60,154 @@ static const uint32_t UART_IFLS_TX_SHIFT = 0;
 static const uint32_t UART_IFLS_RX_LEVEL = UART_IFLS_1_2;
 static const uint32_t UART_IFLS_TX_LEVEL = UART_IFLS_1_2;
 
+static void uart_putc_blocking(size_t line, char c) {
+	while (UART_REG(line, UART_FR) & UART_FR_TXFF);
+	UART_REG(line, UART_DR) = c;
+}
+
+static void uart_puts_blocking(size_t line, const char *buf) {
+	if (buf == NULL) {
+		buf = "(null)";
+	}
+	while (*buf) {
+		uart_putc_blocking(line, *buf++);
+	}
+}
+
+static void u64_to_hex(uint64_t num, char *buf) {
+	static const char hexdigits[] = "0123456789ABCDEF";
+	char tmp[16];
+	size_t i = 0;
+
+	if (num == 0) {
+		buf[0] = '0';
+		buf[1] = '\0';
+		return;
+	}
+
+	while (num != 0 && i < sizeof(tmp)) {
+		tmp[i++] = hexdigits[num & 0xF];
+		num >>= 4;
+	}
+
+	size_t j = 0;
+	while (i > 0) {
+		buf[j++] = tmp[--i];
+	}
+	buf[j] = '\0';
+}
+
+static void u64_to_dec(uint64_t num, char *buf) {
+	char tmp[20];
+	size_t i = 0;
+
+	if (num == 0) {
+		buf[0] = '0';
+		buf[1] = '\0';
+		return;
+	}
+
+	while (num != 0 && i < sizeof(tmp)) {
+		tmp[i++] = (char)('0' + (num % 10));
+		num /= 10;
+	}
+
+	size_t j = 0;
+	while (i > 0) {
+		buf[j++] = tmp[--i];
+	}
+	buf[j] = '\0';
+}
+
+static void i64_to_dec(int64_t num, char *buf) {
+	uint64_t mag;
+
+	if (num < 0) {
+		*buf++ = '-';
+		mag = (uint64_t)(-(num + 1)) + 1;
+	} else {
+		mag = (uint64_t)num;
+	}
+
+	u64_to_dec(mag, buf);
+}
+
+static void uart_internal_printf(size_t line, const char *fmt, va_list va) {
+	char ch, buf[32];
+
+	while ((ch = *(fmt++))) {
+		if (ch != '%') {
+			uart_putc_blocking(line, ch);
+			continue;
+		}
+
+		ch = *(fmt++);
+		if (ch == '\0') {
+			return;
+		}
+
+		if (ch == 'l') {
+			char next = *(fmt++);
+			if (next == '\0') {
+				return;
+			}
+			switch (next) {
+				case 'x':
+					u64_to_hex(va_arg(va, uint64_t), buf);
+					uart_puts_blocking(line, buf);
+					break;
+				case 'u':
+					u64_to_dec(va_arg(va, uint64_t), buf);
+					uart_puts_blocking(line, buf);
+					break;
+				case 'd':
+					i64_to_dec(va_arg(va, int64_t), buf);
+					uart_puts_blocking(line, buf);
+					break;
+				default:
+					uart_putc_blocking(line, '%');
+					uart_putc_blocking(line, 'l');
+					uart_putc_blocking(line, next);
+					break;
+			}
+			continue;
+		}
+
+		switch (ch) {
+			case 'u':
+				ui2a(va_arg(va, unsigned int), 10, buf);
+				uart_puts_blocking(line, buf);
+				break;
+			case 'd':
+				i2a(va_arg(va, int), buf);
+				uart_puts_blocking(line, buf);
+				break;
+			case 'x':
+				ui2a(va_arg(va, unsigned int), 16, buf);
+				uart_puts_blocking(line, buf);
+				break;
+			case 'p':
+				uart_puts_blocking(line, "0x");
+				u64_to_hex((uint64_t)(uintptr_t)va_arg(va, void *), buf);
+				uart_puts_blocking(line, buf);
+				break;
+			case 's':
+				uart_puts_blocking(line, va_arg(va, char *));
+				break;
+			case 'c':
+				uart_putc_blocking(line, (char)va_arg(va, int));
+				break;
+			case '%':
+				uart_putc_blocking(line, ch);
+				break;
+			default:
+				uart_putc_blocking(line, '%');
+				uart_putc_blocking(line, ch);
+				break;
+		}
+	}
+}
+
 // Configure the line properties (e.g, parity, baud rate) of a UART and ensure that it is enabled
 void uart_config_and_enable(size_t line) {
 	uint32_t baud_ival, baud_fval;
@@ -95,19 +243,18 @@ void uart_config_and_enable(size_t line) {
 	UART_REG(line, UART_IMSC) |= UART_INT_ERR_BITS;
 }
 
-void uart_debug_printf(size_t line, const char *fmt, ... ) {
-#ifdef VERBOSE
+void uart_panic_vprintf(size_t line, const char *fmt, va_list va) {
+	uart_internal_printf(line, fmt, va);
+}
+
+void uart_panic_printf(size_t line, const char *fmt, ... ) {
 	va_list va;
 
 	va_start(va, fmt);
 	uart_internal_printf(line, fmt, va);
 	va_end(va);
-#else
-	(void)line;
-	(void)fmt;
-	// for complier warnings
-#endif
 }
+
 
 // Interrupt control functions
 

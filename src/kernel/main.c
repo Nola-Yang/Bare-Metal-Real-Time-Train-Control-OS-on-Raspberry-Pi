@@ -22,6 +22,10 @@ static TaskList_t task_lists[PRIORITY_LEVELS];
 
 
 int kmain() {
+	/* Init kernel stack canary */
+	extern uint64_t __kernel_stack_canary;
+	*((volatile uint64_t *)&__kernel_stack_canary) = STACK_CANARY_VALUE;
+
 #if defined(MMU)
 	setup_mmu();
 #endif

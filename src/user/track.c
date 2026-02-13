@@ -4,6 +4,7 @@
 #include "timer.h"
 #include "util.h"
 #include "uart.h"
+#include "kassert.h"
 #include <stddef.h>
 
 // Server TIDs for communication
@@ -16,12 +17,6 @@ static sensor_entry_t sensor_log[SENSOR_LOG_SIZE];
 static train_state_t trains[MAX_ACTIVE_TRAINS];
 static int sensor_log_head = 0;
 
-// Helper: report error via terminal
-static void report_error(const char *msg) {
-    if (term_tid >= 0) {
-        uart_debug_printf(CONSOLE, "%s", msg);
-    }
-}
 
 // Find train by number, returns NULL if not found
 static train_state_t* find_train(int train_num) {
@@ -162,6 +157,8 @@ void track_set_switch(int sw_num, char dir) {
 }
 
 void track_set_light(int train, int on) {
+    KASSERT(on == 0 || on == 1);
+
     CanData_t frame;
     uint8_t frame_data[CAN_DATA_MAX_BYTE_LEN];
 
@@ -186,12 +183,12 @@ void track_complete_reverse(int train_num) {
 int track_start_reverse(int train_num) {
     train_state_t* t = find_or_create_train(train_num);
     if (!t) {
-        report_error("No free train slots\r\n");
+        panic("No free train slots\r\n");
         return 0;
     }
 
     if (t->rv_state == 1) {
-        report_error("Reverse already in progress\r\n");
+        // Already waiting for reverse to complete
         return 0;
     }
 
