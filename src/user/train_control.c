@@ -26,6 +26,15 @@ static CmdQueue_t Cmd_Queue;
 static const uint32_t REV_COOLDOWN_MULTIPLIER_NUMERATOR = 7;
 static const uint32_t REV_COOLDOWN_MULTIPLIER_DENOMINATOR = 10;
 
+#ifdef MEASURE
+static const char Sensor_Start_Bank = 'C';
+static const int Sensor_Start_No = 15;
+static const char Sensor_End_Bank = 'D';
+static const int Sensor_End_No = 12; 
+
+static uint64_t Sensor_Start_Time = 0;
+static uint64_t Sensor_End_Time = 0;
+#endif
 
 void rv_delay_task(void) {
     int parent = MyParentTid();
@@ -104,6 +113,22 @@ static void process_can_frame(CanData_t *frame, uint64_t now) {
     can_data_get_sensor(frame, &sensor_data);
 
     if (!sensor_data_is_valid(&sensor_data)) return;
+
+    #ifdef MEASURE
+    if (sensor_data.bank == Sensor_Start_Bank && sensor_data.sensor_no == Sensor_Start_No) {
+        Sensor_Start_Time = now;
+    } else if (sensor_data.bank == Sensor_End_Bank && sensor_data.sensor_no == Sensor_End_No) {
+        Sensor_End_Time = now;
+
+        if (Sensor_Start_Time > 0) {
+            ui_print_sensor_time(Sensor_Start_Time, Sensor_End_Time);
+        }
+
+        Sensor_Start_Time = 0;
+        Sensor_End_Time = 0;
+    }
+
+    #endif
     
     track_log_sensor(&sensor_data, now);
     ui_mark_sensors_dirty();
