@@ -25,7 +25,10 @@ void ui_mark_sensors_clean(void);
 void ui_mark_switches_dirty(void);
 void ui_mark_sensors_dirty(void);
 
-// Output helper
+// ui_puts: send string via terminal server
 void ui_puts(const char *str);
+
+// ui_clear_line: Clears a line
+void ui_clear_line();
 
 #endif /* _ui_h_ */

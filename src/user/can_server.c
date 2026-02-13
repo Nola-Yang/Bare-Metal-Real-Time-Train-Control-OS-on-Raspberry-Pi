@@ -17,7 +17,7 @@
 // server-side, receives frames from MCP2515
 #define RX_QUEUE_SIZE 16
 
-RING_BUFFER_DECLARE(CANRxQueue_t, can_frame_t, RX_QUEUE_SIZE);
+RING_BUFFER_DECLARE(CANRxQueue_t, CanData_t, RX_QUEUE_SIZE);
 
 static int can_rx_notifier_tid = -1;
 
@@ -60,7 +60,7 @@ void can_server_task(void) {
 
                 // Drain all available RX frames if RX interrupt fired.
                 if (flags & (MCP2515_CANINTF_RX0IF | MCP2515_CANINTF_RX1IF)) {
-                    can_frame_t frame;
+                    CanData_t frame;
                     while (can_try_recv(&frame)) {
                         if (recv_waiter_count > 0) {
                             CANReply_t recv_reply;
@@ -113,7 +113,7 @@ void can_server_task(void) {
             }
 
             case CAN_MSG_RECV: {
-                can_frame_t frame;
+                CanData_t frame;
                 if (ring_buffer_get(&rx_queue, &frame) == 0) {
                     reply.status = 0;
                     reply.frame = frame;
@@ -169,7 +169,7 @@ void can_server_task(void) {
 
 // User API implementations
 
-int CANSend(int tid, const can_frame_t *frame) {
+int CANSend(int tid, const CanData_t *frame) {
     CANRequest_t req;
     CANReply_t reply;
 
@@ -184,7 +184,7 @@ int CANSend(int tid, const can_frame_t *frame) {
     return reply.status;
 }
 
-int CANReceive(int tid, can_frame_t *frame) {
+int CANReceive(int tid, CanData_t *frame) {
     CANRequest_t req;
     CANReply_t reply;
 

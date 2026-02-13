@@ -2,9 +2,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define TEMP_BUF_SIZE 768
-static char temp_buf[TEMP_BUF_SIZE];
-
 
 // ascii digit to integer
 int a2d(char ch) {
@@ -56,6 +53,25 @@ void i2a(int num, char *buf) {
 		*buf++ = '-';
 	}
 	ui2a(num, 10, buf);
+}
+
+void padded_ui2a(unsigned int num, unsigned int base, char *buf, unsigned int length, char pad_char) {
+	unsigned int divide_result = num;
+	unsigned int num_of_digits = 0;
+
+	while (divide_result) {
+		divide_result /= base;
+		num_of_digits++;
+	}
+
+	unsigned int zero_pad_count = length - num_of_digits;
+	while (zero_pad_count > 0) {
+		*buf = pad_char;
+		buf++;
+		zero_pad_count--;
+	}
+
+	ui2a(num, base, buf);
 }
 
 void toggle_caches(bool dcache_on, bool icache_on) {
@@ -112,38 +128,6 @@ int str2int(const char *str) {
     }
 
     return result * sign;
-}
-
-// Buffer formatting helpers
-
-char* buf_append(char *p, const char *str) {
-    while (*str && (p - temp_buf) < TEMP_BUF_SIZE - 1) {
-        *p++ = *str++;
-    }
-    return p;
-}
-
-char* buf_append_char(char *p, char c) {
-    if ((p - temp_buf) < TEMP_BUF_SIZE - 1) {
-        *p++ = c;
-    }
-    return p;
-}
-
-char* buf_append_int(char *p, int value) {
-    char num_buf[12];
-    i2a(value, num_buf);
-    return buf_append(p, num_buf);
-}
-
-char* buf_append_uint(char *p, unsigned int value) {
-    char num_buf[12];
-    ui2a(value, 10, num_buf);
-    return buf_append(p, num_buf);
-}
-
-char* buf_get_temp(void) {
-    return temp_buf;
 }
 
 // Render elapsed microseconds as mm:ss.t string

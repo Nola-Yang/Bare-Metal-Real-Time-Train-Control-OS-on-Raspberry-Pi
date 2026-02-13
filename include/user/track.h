@@ -2,10 +2,15 @@
 #define _track_h_ 1
 
 #include <stdint.h>
+#include "sensor_data.h"
 
 #define MAX_SWITCHES 22
 #define SENSOR_LOG_SIZE 16
 #define MAX_ACTIVE_TRAINS 8
+
+// States for train reversal
+#define TRAIN_REVERSING 1
+#define TRAIN_REACCELERATING 2
 
 typedef struct {
     char state;           // 'S', 'C', or '?'
@@ -13,9 +18,8 @@ typedef struct {
 } switch_entry_t;
 
 typedef struct {
-    uint16_t sensor_id;
+    SensorData_t sensor_data;
     uint64_t time_us;
-    uint8_t state;  // 0=leaving, 1=entering
 } sensor_entry_t;
 
 typedef struct {
@@ -30,18 +34,13 @@ typedef struct {
 void track_init(int can_server_tid, int term_server_tid);
 
 // State management functions
-void track_log_sensor(uint16_t sensor_id, uint64_t time_us, uint8_t state);
+void track_log_sensor(SensorData_t *sensor_data, uint64_t time_us);
 void track_update_switch(int sw_id, char state);
 void track_update_speed(int train, int speed);
 void track_update_direction(int train, int direction);
-const sensor_entry_t* track_get_sensor_log(int *head);
+sensor_entry_t* track_get_sensor_log(int *head);
 const switch_entry_t* track_get_switch_state(void);
 const train_state_t* track_get_trains(void);
-
-// Switch number mapping (user number 1-18, 153-156 to array index 0-21)
-int track_switch_to_index(int sw_num);
-int track_index_to_switch(int index);
-int track_is_valid_switch(int sw_num);
 
 // Control functions (send commands via CAN server)
 void track_set_speed(int train, int speed);
@@ -49,8 +48,16 @@ void track_reverse(int train);
 void track_set_switch(int sw, char dir);
 void track_set_light(int train, int on);
 
+// is_train_reversing(train_num): Determines isf the train is in the middle of reversing
+bool is_train_reversing(int train_num);
+
+// get_train_rv_prev_speed: Retrieves the previous speed of the train
+//  during its reversal
+int get_train_rv_prev_speed(int train_num);
+
 // Reverse state machine
 int track_start_reverse(int train);
 void track_complete_reverse(int train_num);
+void track_reset_reverse(int train_num);
 
 #endif /* _track_h_ */

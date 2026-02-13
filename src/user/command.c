@@ -2,7 +2,10 @@
 #include "util.h"
 #include "track.h"
 #include "ui.h"
+#include "can_data.h"
 #include "kassert.h"
+#include "text_util.h"
+#include <stddef.h>
 
 // Returns number of tokens
 static int tokenize(char *cmd, char *argv[], int max_args) {
@@ -25,7 +28,7 @@ static int tokenize(char *cmd, char *argv[], int max_args) {
 }
 
 // Returns: 0 = exit, 1 = continue (no output), 2 = continue (has output)
-int execute_it(char *cmd, int *rv_train) {
+int execute_cmd(char *cmd, int *rv_train, CmdQueue_t *cmd_queue) {
     KASSERT(cmd != NULL);
     KASSERT(rv_train != NULL);
 
@@ -33,7 +36,7 @@ int execute_it(char *cmd, int *rv_train) {
     char *argv[4];
     int argc = tokenize(cmd, argv, 4);
 
-    if (argc == 0) return 1;
+    if (argc == 0) return 1;    
 
     // q
     if ((argv[0][0] == 'q' || argv[0][0] == 'Q') && argv[0][1] == '\0') {
@@ -53,7 +56,16 @@ int execute_it(char *cmd, int *rv_train) {
             ui_puts("Speed must be 0-14\r\n");
             return 2;
         }
-        int can_speed = speed * 1000 / 14;
+
+        int can_speed = speed_step_to_speed(speed);
+
+        bool is_reversing = is_train_reversing(train);
+        if (is_reversing) {
+            CommandData_t cmdData = {CMD_SPEED, train, can_speed};
+            ring_buffer_put(cmd_queue, cmdData);
+            return 1;
+        }
+
         track_set_speed(train, can_speed);
         return 1;
     }
@@ -65,22 +77,25 @@ int execute_it(char *cmd, int *rv_train) {
             return 2;
         }
         int sw = str2int(argv[1]);
-        if (!track_is_valid_switch(sw)) {
+        if (!is_valid_switch_no(sw)) {
             ui_puts("Invalid switch. Valid: 1-18, 153-156\r\n");
             return 2;
         }
         char dir = argv[2][0];
-        if (dir != 'S' && dir != 'C' && dir != 's' && dir != 'c') {
+        
+        if (dir == 's') dir = SWITCH_STRAIGHT;
+        if (dir == 'c') dir = SWITCH_CURVED;
+        
+        if (dir != SWITCH_STRAIGHT && dir != SWITCH_CURVED) {
             ui_puts("Direction must be S or C\r\n");
             return 2;
         }
-        if (dir == 's') dir = 'S';
-        if (dir == 'c') dir = 'C';
+        
         track_set_switch(sw, dir);
         track_update_switch(sw, dir);
 
         // 153/154 and 155/156 cannot both be C
-        if (dir == 'C') {
+        if (dir == SWITCH_CURVED) {
             int partner = -1;
             if (sw == 153) partner = 154;
             else if (sw == 154) partner = 153;
@@ -88,10 +103,10 @@ int execute_it(char *cmd, int *rv_train) {
             else if (sw == 156) partner = 155;
 
             if (partner >= 0) {
-                int idx = track_switch_to_index(partner);
-                if (idx >= 0 && track_get_switch_state()[idx].state == 'C') {
-                    track_set_switch(partner, 'S');
-                    track_update_switch(partner, 'S');
+                int idx = get_switch_ind(partner);
+                if (idx >= 0 && track_get_switch_state()[idx].state == SWITCH_CURVED) {
+                    track_set_switch(partner, SWITCH_STRAIGHT);
+                    track_update_switch(partner, SWITCH_STRAIGHT);
                 }
             }
         }
@@ -109,14 +124,16 @@ int execute_it(char *cmd, int *rv_train) {
 
         int train = str2int(argv[1]);
         int rv_result = track_start_reverse(train);
-        if (rv_result > 0) {
-            if (rv_result == 1) {
-                *rv_train = train;  
-            }
-            return 1;
-        } else {
-            return 2;
+        if (rv_result <= 0) return 2;
+
+        if (rv_result == 1) {
+            *rv_train = train;  
+        } else if (rv_result == 3) {
+            CommandData_t cmdData = {CMD_REVERSE, train, 0};
+            ring_buffer_put(cmd_queue, cmdData);
         }
+
+        return 1;
     }
 
     // li (light)
@@ -135,27 +152,38 @@ int execute_it(char *cmd, int *rv_train) {
         return 1;
     }
 
-    // init
-    if (argv[0][0] == 'i' && argv[0][1] == 'n' && argv[0][2] == 'i' && argv[0][3] == 't' && argv[0][4] == '\0') {
-        ui_puts("Initializing track...\r\n");
-
-        for (int i = 1; i <= 18; i++) {
-            track_set_switch(i, 'S');
-            track_update_switch(i, 'S');
-        }
-
-        for (int i = 153; i <= 156; i++) {
-            track_set_switch(i, 'S');
-            track_update_switch(i, 'S');
-        }
-        ui_mark_switches_dirty();
-
-        ui_puts("Track initialized: all switches set to straight\r\n");
-        return 2;
-    }
-
     ui_puts("Unknown command: ");
     ui_puts(argv[0]);
     ui_puts("\r\n");
+    return 2;
+}
+
+
+int execute_cmd_data(CommandData_t *cmd_data, int *rv_train, CmdQueue_t *cmd_queue) {
+    int train;
+
+    switch (cmd_data->command) {
+        case CMD_SPEED: {
+            train = cmd_data->arg1;
+            track_set_speed(train, cmd_data->arg2);
+            return 1;
+        }
+
+        case CMD_REVERSE: {
+            train = cmd_data->arg1;
+            int rv_result = track_start_reverse(train);
+            if (rv_result <= 0) return 2;
+
+            if (rv_result == 1) {
+                *rv_train = train;
+            } else if (rv_result == 3) {
+                CommandData_t new_cmd_data = {CMD_REVERSE, train, 0};
+                ring_buffer_put(cmd_queue, new_cmd_data);
+            }
+
+            return 1;
+        }
+    }
+
     return 2;
 }

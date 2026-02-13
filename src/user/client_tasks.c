@@ -11,6 +11,7 @@
 #include "spi.h"
 #include "mcp2515.h"
 #include "rpi.h"
+#include "uart.h"
 #include "kassert.h"
 
 
