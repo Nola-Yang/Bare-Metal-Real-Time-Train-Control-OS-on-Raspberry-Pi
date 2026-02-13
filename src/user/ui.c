@@ -17,6 +17,10 @@ static const int Switch_No_Display_Len = 3;
 static const int Switches_Per_Line = 5;
 static const int Sensor_No_Display_Len = 2;
 
+#ifdef MEASURE
+static int UI_MEASURE_LINE_POS = 60;
+#endif
+
 // UI layout constants
 enum {
     UI_CMD_SCROLL_TOP = 34,
@@ -30,6 +34,10 @@ enum {
     UI_SENSOR_LINE_POS = 20,
     UI_CMD_SEPERATOR_LINE_POS = 33
 };
+
+#ifdef MEASURE
+static int UI_CMD_LINE_POS = UI_CMD_SCROLL_TOP;
+#endif
 
 void ui_puts(const char *str) {
     if (term_tid < 0 || str == NULL) {
@@ -212,6 +220,10 @@ void ui_prepare_cmd(void) {
     p = str_buf_move_cursor(p, UI_CMD_SCROLL_TOP, 1);
     p = ui_print_cmd_prefix(p);
 
+    #ifdef MEASURE
+    UI_CMD_LINE_POS++; 
+    #endif
+
     *p = '\0';
     ui_puts(temp_buf);
 }
@@ -228,6 +240,11 @@ void ui_cmd_newprompt(void) {
 
     char *temp_buf = str_buf_get_temp();
     char *p = temp_buf;
+
+    #ifdef MEASURE
+    p = str_buf_move_cursor(p, UI_CMD_LINE_POS, 1);
+    UI_CMD_LINE_POS++;
+    #endif
 
     p = str_buf_clear_line(p);
     p = ui_print_cmd_prefix(p);
@@ -301,6 +318,22 @@ void ui_update_idle(int percent) {
     ui_puts(temp_buf);
     last_idle_percent = percent;
 }
+
+#ifdef MEASURE
+void ui_print_sensor_time(uint64_t start, uint64_t end) {
+    char *temp_buf = str_buf_get_temp();
+    char *p = temp_buf;
+
+    p = str_buf_move_cursor(p, UI_MEASURE_LINE_POS, 1);
+    p = str_buf_append_uint(p, start);
+    p = str_buf_append_char(p, ',');
+    p = str_buf_append_uint(p, end);
+
+    *p = '\0';
+    ui_puts(temp_buf);
+    UI_MEASURE_LINE_POS++;
+}
+#endif
 
 int ui_is_switches_dirty(void) {
     return ui_switches_dirty;
