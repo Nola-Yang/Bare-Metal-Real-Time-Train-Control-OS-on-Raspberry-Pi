@@ -63,7 +63,7 @@ dkms.conf
 .build_flags
 
 # custom upload script to the Raspberry Pi
-*upload*.sh
+*upload.sh
 
 # hidden saved MakeFile arguments
 .make_spec

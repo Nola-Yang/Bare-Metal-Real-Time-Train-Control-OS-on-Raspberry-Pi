@@ -3,8 +3,12 @@
 
 #include <stdint.h>
 
-#include "can_data.h"
-
+typedef struct {
+	uint32_t id;        // CAN identifier (11-bit or 29-bit)
+	uint8_t  dlc;
+	uint8_t  data[8];
+	uint8_t  ext;
+} can_frame_t;
 
 // CANINTF flags
 #define MCP2515_CANINTF_RX0IF 0x01
@@ -15,13 +19,13 @@
 void mcp2515_init(void);
 
 /** Non-blocking CAN frame reception. Returns 1 if frame received, 0 if no frame available. */
-int can_try_recv(CanData_t *frame);
+int can_try_recv(can_frame_t *frame);
 
 /** Send a CAN frame directly. Returns 1 on success, 0 on failure (TX buffer full). */
-int can_send(CanData_t *frame);
+int can_send(const can_frame_t *frame);
 
 /** Queue a CAN frame for transmission. Returns 1 on success, 0 if queue is full. */
-int can_queue_frame(const CanData_t *frame);
+int can_queue_frame(const can_frame_t *frame);
 
 /** Service the TX queue. */
 void can_queue_send(void);

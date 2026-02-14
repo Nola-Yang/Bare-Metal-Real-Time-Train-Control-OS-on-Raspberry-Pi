@@ -1,24 +1,22 @@
 #ifndef _train_control_h_
 #define _train_control_h_ 1
 
-#include "can_data.h"
+#include "mcp2515.h"
 #include "task_scheduler.h"
 
 // Message types for train control task
-#define TRAIN_MSG_CHAR                  0   // Keyboard character input
-#define TRAIN_MSG_CAN_FRAME             1   // CAN frame received
-#define TRAIN_MSG_TICK                  2   // Periodic UI tick
-#define TRAIN_MSG_RV_REQUEST            3   // Reverse delay task requests parameters
-#define TRAIN_MSG_RV_ACCEL_REQUEST      4   // Reverse Reacceleration delay 
-#define TRAIN_MSG_RV_COMPLETE           5   
+#define TRAIN_MSG_CHAR      0   // Keyboard character input
+#define TRAIN_MSG_CAN_FRAME 1   // CAN frame received
+#define TRAIN_MSG_TICK      2   // Periodic UI tick
+#define TRAIN_MSG_RV_REQUEST  3   // Reverse delay task requests parameters
+#define TRAIN_MSG_RV_COMPLETE 4   
 
 
 typedef struct {
     int type;
     char ch;
     int train;
-    int train_speed;
-    CanData_t frame;
+    can_frame_t frame;
 } TrainControlMsg_t;
 
 typedef struct {

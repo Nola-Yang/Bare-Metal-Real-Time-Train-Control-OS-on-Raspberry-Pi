@@ -247,7 +247,7 @@ void uart_panic_vprintf(size_t line, const char *fmt, va_list va) {
 	uart_internal_printf(line, fmt, va);
 }
 
-void c(size_t line, const char *fmt, ... ) {
+void uart_panic_printf(size_t line, const char *fmt, ... ) {
 	va_list va;
 
 	va_start(va, fmt);

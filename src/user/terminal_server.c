@@ -5,7 +5,6 @@
 #include "uart.h"
 #include "ring_buffer.h"
 #include "task_scheduler.h"
-#include "task_scheduler.h"
 #include "kassert.h"
 #include <string.h>
 

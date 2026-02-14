@@ -2,7 +2,7 @@ FILENAME=kernel
 SRC_DIR:=src
 INCLUDE_DIR:=include
 BUILD_DIR:=build
-XDIR:=/u/cs452/public/xdev
+XDIR:=/Applications/ArmGNUToolchain/15.2.rel1/aarch64-none-elf
 TRIPLE=aarch64-none-elf
 XBINDIR:=$(XDIR)/bin
 CC:=$(XBINDIR)/$(TRIPLE)-gcc -ffreestanding
@@ -21,10 +21,9 @@ LDFLAGS:=-Wl,-nmagic -Wl,-Tlinker.ld -Wl,--no-warn-rwx-segments -nostdlib -lgcc
 OPT?=1
 CACHE?=b
 VERBOSE?=0
-MEASURE?=0
 
 MAKESPEC:=.make_spec
-MAKESPEC_FORMAT:=$(VERBOSE) $(OPT) $(CACHE) $(MEASURE)
+MAKESPEC_FORMAT:=$(VERBOSE) $(OPT) $(CACHE)
 
 # clean up the built files, if the passed arguments have changed
 ifneq ($(shell cat $(MAKESPEC) 2>/dev/null), $(MAKESPEC_FORMAT))
@@ -41,11 +40,6 @@ endif
 # OPT (0, 1): Whether to use O3 optimization
 ifeq ($(OPT),1)
 	CFLAGS += -O3 -DOPT
-endif
-
-# MEASURE (0, 1): Whether to take measurements needed
-ifeq ($(MEASURE), 1)
-	CFLAGS += -DMEASURE
 endif
 
 # CACHE (n, i, d, b): Whether to enable the data caches or instruction caches

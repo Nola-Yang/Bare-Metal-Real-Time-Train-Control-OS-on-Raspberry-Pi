@@ -25,16 +25,7 @@ void ui_mark_sensors_clean(void);
 void ui_mark_switches_dirty(void);
 void ui_mark_sensors_dirty(void);
 
-// ui_puts: send string via terminal server
+// Output helper
 void ui_puts(const char *str);
-
-// ui_clear_line: Clears a line
-void ui_clear_line();
-
-#ifdef MEASURE
-// ui_print_sensor_time: Prints the starting and ending time a train
-//  passes over 2 sensors in a CSV format
-void ui_print_sensor_time(uint64_t start, uint64_t end);
-#endif
 
 #endif /* _ui_h_ */
