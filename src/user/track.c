@@ -199,8 +199,7 @@ void track_reverse(int train) {
     frame.data[1] = (train >> 16) & 0xFF;
     frame.data[2] = (train >>  8) & 0xFF;
     frame.data[3] =  train        & 0xFF;
-    frame.data[4] = 0x03;
-    frame.data[5] = 0;
+    frame.data[4] = 0x03;  
 
     if (CANSend(can_tid, &frame) == 0) {
         train_state_t* t = find_or_create_train(train);

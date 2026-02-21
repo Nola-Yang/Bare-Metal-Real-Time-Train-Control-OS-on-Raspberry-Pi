@@ -10,6 +10,41 @@
 
 // only 1 in fact
 #define MAX_GETC_WAITERS 8
+#define MAX_PUTC_WAITERS 8
+
+// maybe too large for kernel stack
+#define TX_BUF_SIZE 2048
+RING_BUFFER_DECLARE(TxBuffer_t, char, TX_BUF_SIZE);
+static TxBuffer_t tx_buf;
+
+// A blocked Puts/Putc caller waiting for TX buffer space
+typedef struct {
+    int tid;
+    char data[TERM_MAX_STR_LEN];
+    int len;    // total bytes to write
+    int offset; // bytes already written to tx_buf
+} PutcWaiter_t;
+
+// Try to drain putc waiters into tx_buf. Returns number of waiters fully drained.
+static int drain_putc_waiters(PutcWaiter_t *waiters, int count) {
+    int drained = 0;
+    for (int i = 0; i < count; i++) {
+        while (waiters[i].offset < waiters[i].len) {
+            if (ring_buffer_put(&tx_buf, waiters[i].data[waiters[i].offset]) < 0) {
+                // tx_buf full, can't drain any more
+                goto done;
+            }
+            waiters[i].offset++;
+        }
+        // This waiter is fully drained, reply to unblock it
+        TermReply_t r;
+        r.status = waiters[i].len;
+        Reply(waiters[i].tid, (const char *)&r, sizeof(r));
+        drained++;
+    }
+done:
+    return drained;
+}
 
 //waits for UART RX interrupt, drains FIFO, notifies server
 static void rx_notifier_task(void) {
@@ -56,11 +91,6 @@ static void tx_notifier_task(void) {
     }
 }
 
-// todo: maybe too large for kernel stack
-#define TX_BUF_SIZE 2048
-RING_BUFFER_DECLARE(TxBuffer_t, char, TX_BUF_SIZE);
-static TxBuffer_t tx_buf;
-
 // Terminal Server
 void terminal_server_task(void) {
     int tid;
@@ -73,6 +103,9 @@ void terminal_server_task(void) {
 
     int getc_waiters[MAX_GETC_WAITERS];
     int getc_waiter_count = 0;
+
+    PutcWaiter_t putc_waiters[MAX_PUTC_WAITERS];
+    int putc_waiter_count = 0;
 
     int tx_notifier_blocked_tid = -1;
 
@@ -101,12 +134,14 @@ void terminal_server_task(void) {
                     }
                     getc_waiter_count--;
                 } else {
-                    // Buffer the character
-                    KASSERT(ring_buffer_put(&rx_buffer, req.ch) == 0);
+                    // Buffer the character, slightly drop if buffer is full
+                    ring_buffer_put(&rx_buffer, req.ch);
+                    // KASSERT(ring_buffer_put(&rx_buffer, req.ch) == 0); 
                 }
                 break;
 
             case TERM_MSG_TX_NOTIFY:
+                // Drain tx_buf to UART hardware
                 while (!ring_buffer_is_empty(&tx_buf) && uart_tx_ready(CONSOLE)) {
                     char c;
                     if (ring_buffer_get(&tx_buf, &c) < 0) {
@@ -115,9 +150,18 @@ void terminal_server_task(void) {
                     uart_putc_nonblocking(CONSOLE, c);
                 }
 
+                // Buffer has space now — try to flush blocked putc waiters
+                if (putc_waiter_count > 0) {
+                    int drained = drain_putc_waiters(putc_waiters, putc_waiter_count);
+                    for (int i = drained; i < putc_waiter_count; i++) {
+                        putc_waiters[i - drained] = putc_waiters[i];
+                    }
+                    putc_waiter_count -= drained;
+                }
+
                 // If buffer is now empty, keep notifier blocked until we have more data
-                if (ring_buffer_is_empty(&tx_buf)) {
-                    tx_notifier_blocked_tid = tid;  
+                if (ring_buffer_is_empty(&tx_buf) && putc_waiter_count == 0) {
+                    tx_notifier_blocked_tid = tid;
                 } else {
                     // Still have data, reply to let notifier wait for next TX interrupt
                     reply.status = 0;
@@ -144,32 +188,21 @@ void terminal_server_task(void) {
                 break;
 
             case TERM_MSG_PUTC:
-                KASSERT(ring_buffer_put(&tx_buf, req.ch) == 0);
-
-                // Try to send immediately
-                while (!ring_buffer_is_empty(&tx_buf) && uart_tx_ready(CONSOLE)) {
-                    char c;
-                    if (ring_buffer_get(&tx_buf, &c) < 0) {
-                        break;
+                if (ring_buffer_put(&tx_buf, req.ch) < 0) {
+                    // Buffer full — block caller until space available
+                    if (putc_waiter_count < MAX_PUTC_WAITERS) {
+                        putc_waiters[putc_waiter_count].tid = tid;
+                        putc_waiters[putc_waiter_count].data[0] = req.ch;
+                        putc_waiters[putc_waiter_count].len = 1;
+                        putc_waiters[putc_waiter_count].offset = 0;
+                        putc_waiter_count++;
+                    } else {
+                        reply.status = -1;
+                        Reply(tid, (const char *)&reply, sizeof(reply));
                     }
-                    uart_putc_nonblocking(CONSOLE, c);
-                }
-
-                // If there's still data and notifier is blocked, wake it up, to wait for next TX interrupt
-                if (tx_notifier_blocked_tid >= 0 && !ring_buffer_is_empty(&tx_buf)) {
-                    TermReply_t tx_reply;
-                    tx_reply.status = 0;
-                    Reply(tx_notifier_blocked_tid, (const char *)&tx_reply, sizeof(tx_reply));
-                    tx_notifier_blocked_tid = -1;
-                }
-
-                reply.status = 0;
-                Reply(tid, (const char *)&reply, sizeof(reply));
-                break;
-
-            case TERM_MSG_PUTS:
-                for (int i = 0; i < req.len && i < TERM_MAX_STR_LEN; i++) {
-                    KASSERT(ring_buffer_put(&tx_buf, req.str[i]) == 0);
+                } else {
+                    reply.status = 0;
+                    Reply(tid, (const char *)&reply, sizeof(reply));
                 }
 
                 // Try to send immediately
@@ -181,17 +214,62 @@ void terminal_server_task(void) {
                     uart_putc_nonblocking(CONSOLE, c);
                 }
 
-                //still data and notifier is blocked, wake it up
-                if (tx_notifier_blocked_tid >= 0 && !ring_buffer_is_empty(&tx_buf)) {
+                // If there's pending data or blocked waiters, wake notifier
+                if (tx_notifier_blocked_tid >= 0 &&
+                    (!ring_buffer_is_empty(&tx_buf) || putc_waiter_count > 0)) {
                     TermReply_t tx_reply;
                     tx_reply.status = 0;
                     Reply(tx_notifier_blocked_tid, (const char *)&tx_reply, sizeof(tx_reply));
                     tx_notifier_blocked_tid = -1;
                 }
-
-                reply.status = req.len;
-                Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
+
+            case TERM_MSG_PUTS: {
+                int copy_len = (req.len < TERM_MAX_STR_LEN) ? req.len : TERM_MAX_STR_LEN;
+                int written = 0;
+                for (int i = 0; i < copy_len; i++) {
+                    if (ring_buffer_put(&tx_buf, req.str[i]) < 0) {
+                        break;
+                    }
+                    written++;
+                }
+
+                if (written < copy_len) {
+                    // Buffer full before all data written — block caller
+                    if (putc_waiter_count < MAX_PUTC_WAITERS) {
+                        putc_waiters[putc_waiter_count].tid = tid;
+                        memcpy(putc_waiters[putc_waiter_count].data, req.str, copy_len);
+                        putc_waiters[putc_waiter_count].len = copy_len;
+                        putc_waiters[putc_waiter_count].offset = written;
+                        putc_waiter_count++;
+                    } else {
+                        reply.status = -1;
+                        Reply(tid, (const char *)&reply, sizeof(reply));
+                    }
+                } else {
+                    reply.status = copy_len;
+                    Reply(tid, (const char *)&reply, sizeof(reply));
+                }
+
+                // Try to send immediately
+                while (!ring_buffer_is_empty(&tx_buf) && uart_tx_ready(CONSOLE)) {
+                    char c;
+                    if (ring_buffer_get(&tx_buf, &c) < 0) {
+                        break;
+                    }
+                    uart_putc_nonblocking(CONSOLE, c);
+                }
+
+                // If there's pending data or blocked waiters, wake notifier
+                if (tx_notifier_blocked_tid >= 0 &&
+                    (!ring_buffer_is_empty(&tx_buf) || putc_waiter_count > 0)) {
+                    TermReply_t tx_reply;
+                    tx_reply.status = 0;
+                    Reply(tx_notifier_blocked_tid, (const char *)&tx_reply, sizeof(tx_reply));
+                    tx_notifier_blocked_tid = -1;
+                }
+                break;
+            }
 
             default:
                 reply.status = -1;

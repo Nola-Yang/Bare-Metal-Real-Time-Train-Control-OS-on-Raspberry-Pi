@@ -53,7 +53,7 @@ int execute_it(char *cmd, int *rv_train) {
             ui_puts("Speed must be 0-14\r\n");
             return 2;
         }
-        int can_speed = speed * 1000 / 14;
+        int can_speed = (speed == 0) ? 0 : 1 + (speed - 1) * 77;
         track_set_speed(train, can_speed);
         return 1;
     }
