@@ -1,10 +1,15 @@
 #include "track.h"
+#include "track_data.h"
 #include "mcp2515.h"
 #include "can_server.h"
 #include "timer.h"
 #include "util.h"
 #include "kassert.h"
 #include <stddef.h>
+
+/* Global track graph */
+track_node g_track[TRACK_MAX];
+int g_track_type = 0;  /* 0 = Track A (default), 1 = Track B */
 
 // Server TIDs for communication
 static int can_tid = -1;
@@ -66,12 +71,22 @@ int track_is_valid_switch(int sw_num) {
     return (sw_num >= 1 && sw_num <= 18) || (sw_num >= 153 && sw_num <= 156);
 }
 
+void track_init_graph(void) {
+    if (g_track_type == 0) {
+        init_tracka(g_track);
+    } else {
+        init_trackb(g_track);
+    }
+}
+
 void track_init(int can_server_tid, int term_server_tid) {
     KASSERT(can_server_tid >= 0);
     KASSERT(term_server_tid >= 0);
 
     can_tid = can_server_tid;
     term_tid = term_server_tid;
+
+    track_init_graph();
 
     for (int i = 0; i < MAX_SWITCHES; i++) {
         switch_state[i].state = '?';

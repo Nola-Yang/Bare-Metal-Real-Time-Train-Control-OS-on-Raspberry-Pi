@@ -2,6 +2,8 @@
 #define _track_h_ 1
 
 #include <stdint.h>
+#include "track_node.h"
+#include "track_data.h"
 
 #define MAX_SWITCHES 22
 #define SENSOR_LOG_SIZE 16
@@ -26,8 +28,17 @@ typedef struct {
     int rv_prev_speed;
 } train_state_t;
 
+/* Global track graph */
+extern track_node g_track[TRACK_MAX];
+
+/* 0 = Track A, 1 = Track B.  Set before calling track_init_graph(). */
+extern int g_track_type;
+
 // Initialize track module with server TIDs
 void track_init(int can_server_tid, int term_server_tid);
+
+// (Re-)initialize the track graph using g_track_type
+void track_init_graph(void);
 
 // State management functions
 void track_log_sensor(uint16_t sensor_id, uint64_t time_us, uint8_t state);
