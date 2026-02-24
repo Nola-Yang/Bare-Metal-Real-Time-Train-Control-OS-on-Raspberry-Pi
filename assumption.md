@@ -1,0 +1,11 @@
+# assumptions for TC1
+- at the start of the control system: we assume the train stop at the loop, exact position unknown, direction unknown
+- will use level 8 speed for goto command (for stopping distance and actual velosity measuremnts)
+- the bigger loop will be used to gain stable speed (for track A: `A3, B15, C6, C13, C16, D7, D9, D11, E7, E12`)
+- no 2 consecutive sensors are broken
+- some switch may work after the sent repeated commands
+- goto：  
+  - **First**: train stop at the loop, exact position unknown, direction unknown → sensor trigger → get direction → stable spped → excute the route → stopped  
+  - **second**: with exact train position and direction 
+    -  if outside of the loop, back to loop to get stable speed
+    -  restart the train
