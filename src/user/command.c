@@ -32,7 +32,7 @@ static int tokenize(char *cmd, char *argv[], int max_args) {
 }
 
 // Returns: 0 = exit, 1 = continue (no output), 2 = continue (has output)
-int execute_it(char *cmd, int *rv_train) {
+int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
     KASSERT(cmd != NULL);
     KASSERT(rv_train != NULL);
 
@@ -55,6 +55,10 @@ int execute_it(char *cmd, int *rv_train) {
             return 2;
         }
         int train = str2int(argv[1]);
+        if (pos_is_train_goto_active(train)) {
+            ui_puts("Error: goto in progress for this train\r\n");
+            return 2;
+        }
         int speed = str2int(argv[2]);
         if (speed < 0 || speed > 14) {
             ui_puts("Speed must be 0-14\r\n");
@@ -118,6 +122,10 @@ int execute_it(char *cmd, int *rv_train) {
         }
 
         int train = str2int(argv[1]);
+        if (pos_is_train_goto_active(train)) {
+            ui_puts("Error: goto in progress for this train\r\n");
+            return 2;
+        }
         int rv_result = track_start_reverse(train);
         if (rv_result > 0) {
             if (rv_result == 1) {
@@ -154,6 +162,14 @@ int execute_it(char *cmd, int *rv_train) {
             return 2;
         }
         int train = str2int(argv[1]);
+        if (pos_is_train_goto_active(train)) {
+            ui_puts("Error: goto in progress for this train\r\n");
+            return 2;
+        }
+        if (rv_in_progress) {
+            ui_puts("goto: cannot execute while rv is in progress\r\n");
+            return 2;
+        }
         track_node *target = parse_sensor(argv[2]);
         if (!target) {
             ui_puts("Unknown sensor name\r\n");
