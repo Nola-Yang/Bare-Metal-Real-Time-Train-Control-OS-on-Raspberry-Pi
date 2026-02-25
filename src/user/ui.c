@@ -111,7 +111,6 @@ void ui_draw_position(void) {
         p = buf_append(p, " st=");
         switch (pos->route_state) {
         case TRAIN_STATE_UNKNOWN:        p = buf_append(p, "UNK");   break;
-        case TRAIN_STATE_EXITING:        p = buf_append(p, "EXIT");  break;
         case TRAIN_STATE_LOOP_FIND_DIR:  p = buf_append(p, "DIR?");  break;
         case TRAIN_STATE_LOOP_STABILIZE: p = buf_append(p, "STAB");  break;
         case TRAIN_STATE_ON_ROUTE:       p = buf_append(p, "ROUTE"); break;
