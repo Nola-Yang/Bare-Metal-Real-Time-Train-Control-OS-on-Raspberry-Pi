@@ -30,7 +30,7 @@ static const int32_t SPEED_V_CURVE_MM_S[15] = {
 static const int32_t SPEED_STOP_DIST_MM[15] = {
     0,
     100, 150, 220, 310, 420,
-    550, 700, 870, 1060, 1260,
+    550, 700, 200 , 1060, 1260,
     1480, 1720, 1980, 2260
 };
 
