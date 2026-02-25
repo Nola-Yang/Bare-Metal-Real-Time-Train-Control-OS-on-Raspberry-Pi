@@ -9,3 +9,4 @@
   - **second**: with exact train position and direction 
     -  if outside of the loop, back to loop to get stable speed
     -  restart the train
+  - no reverse command will be used in the goto process
