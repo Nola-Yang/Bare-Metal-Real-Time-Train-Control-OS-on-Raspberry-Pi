@@ -110,13 +110,18 @@ void ui_draw_position(void) {
         p = buf_append_int(p, pos->user_speed);
         p = buf_append(p, " st=");
         switch (pos->route_state) {
-        case TRAIN_STATE_UNKNOWN:        p = buf_append(p, "UNK");   break;
-        case TRAIN_STATE_LOOP_FIND_DIR:  p = buf_append(p, "DIR?");  break;
-        case TRAIN_STATE_LOOP_STABILIZE: p = buf_append(p, "STAB");  break;
-        case TRAIN_STATE_ON_ROUTE:       p = buf_append(p, "ROUTE"); break;
-        case TRAIN_STATE_STOPPING:       p = buf_append(p, "STOP");  break;
-        case TRAIN_STATE_STOPPED:        p = buf_append(p, "STPD");  break;
-        default:                         p = buf_append(p, "???");   break;
+        case TRAIN_STATE_UNKNOWN:           p = buf_append(p, "UNK");   break;
+        case TRAIN_STATE_KNOWN:             p = buf_append(p, "KNOW");  break;
+        case TRAIN_STATE_STOPPING_TR:       p = buf_append(p, "STR");   break;
+        case TRAIN_STATE_LOOP_FIND_DIR:     p = buf_append(p, "DIR?");  break;
+        case TRAIN_STATE_LOOP_STABILIZE:    p = buf_append(p, "STAB");  break;
+        case TRAIN_STATE_ON_ROUTE:          p = buf_append(p, "ROUTE"); break;
+        case TRAIN_STATE_STOPPING:          p = buf_append(p, "STOP");  break;
+        case TRAIN_STATE_STOPPED:           p = buf_append(p, "STPD");  break;
+        case TRAIN_STATE_RECOVERY_STOPPING: p = buf_append(p, "REC");   break;
+        case TRAIN_STATE_ENTER_LOOP:        p = buf_append(p, "ENT");   break;
+        case TRAIN_STATE_STOPPING_GOTO:     p = buf_append(p, "SGT");   break;
+        default:                            p = buf_append(p, "???");   break;
         }
         if (pos->target_sensor && pos->target_sensor->name) {
             p = buf_append(p, " tgt=");

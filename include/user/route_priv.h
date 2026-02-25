@@ -20,7 +20,7 @@ int  is_reverse_loop_sensor(track_node *n);
 
 /* Follow the track from cur forward until reaching to.
  * Returns accumulated distance (mm), or -1 if not reached within max_hops. */
-int32_t    follow_dist(track_node *cur, track_node *to, int max_hops);
+int32_t follow_dist(track_node *cur, track_node *to, int max_hops);
 
 /* Predict the next sensor after cur.  Writes dt (us) to *out_dt_us. */
 track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
