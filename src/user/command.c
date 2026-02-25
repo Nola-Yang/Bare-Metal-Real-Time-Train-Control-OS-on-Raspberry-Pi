@@ -184,16 +184,7 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
             ui_puts("goto: no slot available\r\n");
             return 2;
         }
-        // train_pos_t *gp = pos_get(train);
-        // if (gp) {
-        //     int position_unknown = (gp->cur_sensor == NULL);
-        //     int direction_unknown = (gp->route_state == TRAIN_STATE_UNKNOWN ||
-        //                              gp->route_state == TRAIN_STATE_LOOP_FIND_DIR);
-        //     if (position_unknown || direction_unknown) {
-        //         ui_puts("goto: position unknown, will execute on first sensor.\r\n");
-        //     }
-        // }
-        return 2;
+        return 1;
     }
 
     // usetrack <A|B>
