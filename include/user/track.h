@@ -11,7 +11,7 @@
 
 typedef struct {
     char state;           // 'S', 'C', or '?'
-    uint64_t last_update_us;
+    uint64_t last_update_us;  //Todo: unused, maybe deleted later
 } switch_entry_t;
 
 typedef struct {

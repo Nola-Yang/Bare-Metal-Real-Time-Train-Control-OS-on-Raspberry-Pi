@@ -1,21 +1,23 @@
 #include "ui.h"
 #include "util.h"
 #include "track.h"
+#include "position.h"
 #include "terminal_server.h"
 
 static int term_tid = -1;
-static int ui_switches_dirty = 1;
-static int ui_sensors_dirty = 1;
+static int ui_switches_dirty  = 1;
+static int ui_sensors_dirty   = 1;
+static int ui_position_dirty  = 1;
 
 static char last_clock_buf[8] = "00:00.0";
 static int last_idle_percent = -1;
 
 // UI layout constants
 enum {
-    UI_CMD_SCROLL_TOP = 24,
+    UI_CMD_SCROLL_TOP    = 27,   
     UI_CMD_SCROLL_BOTTOM = 47,
-    UI_CMD_ROW = 24,
-    UI_CMD_COL = 1
+    UI_CMD_ROW           = 27,
+    UI_CMD_COL           = 1
 };
 
 // Helper: send string via terminal server
@@ -83,6 +85,90 @@ void ui_switches(void) {
     ui_puts(temp_buf);
 }
 
+/* ---- Position / route info (Row 22) ---- */
+void ui_draw_position(void) {
+    char *temp_buf = buf_get_temp();
+    char *p = temp_buf;
+
+    p = buf_append(p, "\033[22;1H");
+
+    /* Find first active train */
+    int found = 0;
+    for (int t = 0; t < MAX_POS_TRAINS; t++) {
+        train_pos_t *pos = pos_get_by_index(t);
+        if (!pos || pos->train_num < 0) continue;
+
+        p = buf_append(p, "Pos: tr=");
+        p = buf_append_int(p, pos->train_num);
+        p = buf_append(p, " @ ");
+        if (pos->cur_sensor && pos->cur_sensor->name) {
+            p = buf_append(p, pos->cur_sensor->name);
+        } else {
+            p = buf_append(p, "?");
+        }
+        p = buf_append(p, " spd=");
+        p = buf_append_int(p, pos->user_speed);
+        p = buf_append(p, " st=");
+        switch (pos->route_state) {
+        case TRAIN_STATE_UNKNOWN:        p = buf_append(p, "UNK");   break;
+        case TRAIN_STATE_EXITING:        p = buf_append(p, "EXIT");  break;
+        case TRAIN_STATE_LOOP_FIND_DIR:  p = buf_append(p, "DIR?");  break;
+        case TRAIN_STATE_LOOP_STABILIZE: p = buf_append(p, "STAB");  break;
+        case TRAIN_STATE_ON_ROUTE:       p = buf_append(p, "ROUTE"); break;
+        case TRAIN_STATE_STOPPING:       p = buf_append(p, "STOP");  break;
+        case TRAIN_STATE_STOPPED:        p = buf_append(p, "STPD");  break;
+        default:                         p = buf_append(p, "???");   break;
+        }
+        if (pos->target_sensor && pos->target_sensor->name) {
+            p = buf_append(p, " tgt=");
+            p = buf_append(p, pos->target_sensor->name);
+            p = buf_append(p, " rem=");
+            p = buf_append_int(p, (int)pos->dist_to_target_mm);
+            p = buf_append(p, "mm");
+        }
+        found = 1;
+        break;
+    }
+    if (!found) {
+        p = buf_append(p, "Pos: no train tracked");
+    }
+    p = buf_append(p, "\033[K");
+    *p = '\0';
+    ui_puts(temp_buf);
+}
+
+/* ---- Prediction error (Row 23) ---- */
+void ui_draw_prediction_error(void) {
+    char *temp_buf = buf_get_temp();
+    char *p = temp_buf;
+
+    p = buf_append(p, "\033[23;1H");
+
+    for (int t = 0; t < MAX_POS_TRAINS; t++) {
+        train_pos_t *pos = pos_get_by_index(t);
+        if (!pos || pos->train_num < 0) continue;
+
+        p = buf_append(p, "Pred: next=");
+        if (pos->pred_next_sensor && pos->pred_next_sensor->name) {
+            p = buf_append(p, pos->pred_next_sensor->name);
+        } else {
+            p = buf_append(p, "?");
+        }
+        p = buf_append(p, " err_t=");
+        int err_ms = (int)(pos->last_time_err_us / 1000);
+        if (err_ms >= 0) p = buf_append_char(p, '+');
+        p = buf_append_int(p, err_ms);
+        p = buf_append(p, "ms err_d=");
+        if (pos->last_dist_err_mm >= 0) p = buf_append_char(p, '+');
+        p = buf_append_int(p, (int)pos->last_dist_err_mm);
+        p = buf_append(p, "mm");
+        break;
+    }
+    p = buf_append(p, "\033[K");
+    *p = '\0';
+    ui_puts(temp_buf);
+}
+
 void ui_draw_sensors(uint64_t start_us) {
     char *temp_buf = buf_get_temp();
     char *p = temp_buf;
@@ -143,7 +229,7 @@ void ui_init(int terminal_tid) {
     // Draw fixed header area (rows 1-5)
     ui_puts("=== Train Control System CS652 K4 ===\r\n");
     ui_puts("Version: " __DATE__ " / " __TIME__ "\r\n");
-    ui_puts("Commands: tr <t> <spd> | sw <s> <S|C> | rv <t> | li <t> <0|1> | init | q\r\n");
+    ui_puts("Cmds: tr|sw|rv|li|goto <t> <s> [+mm]|usetrack <A|B>|q\r\n");
     ui_puts("\r\n");
     ui_puts("Time: 00:00.0\r\n");
     ui_puts("Idle: 0%\r\n");
@@ -155,10 +241,15 @@ void ui_init(int terminal_tid) {
 
     // Sensors area (rows 11-21)
     ui_draw_sensors(0);
+
+    // Position / prediction / reliability rows (22, 23, 24)
+    ui_draw_position();
+    ui_puts("\r\n");
+    ui_draw_prediction_error();
     ui_puts("\r\n");
     ui_puts("======================================================================\r\n");
 
-    // Command area
+    // Command area (starts at row 27)
     ui_prepare_cmd();
 
     last_idle_percent = 0;
@@ -199,7 +290,7 @@ void ui_cmd_newprompt(void) {
     if (term_tid < 0) {
         return;
     }
-    ui_puts("\033[2Kcmd> ");
+    ui_puts("\r\033[2Kcmd> ");
 }
 
 void ui_cmd_backspace(void) {
@@ -288,4 +379,20 @@ void ui_mark_switches_dirty(void) {
 
 void ui_mark_sensors_dirty(void) {
     ui_sensors_dirty = 1;
+}
+
+int ui_is_position_dirty(void) {
+    return ui_position_dirty;
+}
+
+void ui_mark_position_clean(void) {
+    ui_position_dirty = 0;
+}
+
+void ui_mark_position_dirty(void) {
+    ui_position_dirty = 1;
+}
+
+void ui_mark_prediction_dirty(void) {
+    ui_position_dirty = 1;  /* prediction uses same dirty flag as position */
 }

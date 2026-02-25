@@ -5,6 +5,7 @@
 #include "terminal_server.h"
 #include "can_server.h"
 #include "track.h"
+#include "position.h"
 #include "ui.h"
 #include "idle_task.h"
 #include "command.h"
@@ -94,6 +95,9 @@ static void process_can_frame(const can_frame_t *frame, uint64_t now) {
         if (sensor_id > 0) {
             track_log_sensor(sensor_id, now, state);
             ui_mark_sensors_dirty();
+            if (state == 1) {
+                pos_on_sensor_trigger(sensor_id, now);
+            }
         }
     }
 }
@@ -113,17 +117,32 @@ void train_control_task(void) {
     KASSERT(clock_tid >= 0);
 
     track_init(can_tid, term_tid);
+    pos_init();
     ui_init(term_tid);
     ring_buffer_init(&rv_queue);
+
+    CANEnableInterrupts(can_tid);
+
+    // set all switches to straight, then override loop switches
+    for (int sw = 1; sw <= 18; sw++) {
+        track_set_switch(sw, 'S');
+        track_update_switch(sw, 'S');
+    }
+    for (int sw = 153; sw <= 156; sw++) {
+        track_set_switch(sw, 'S');
+        track_update_switch(sw, 'S');
+    }
+    pos_apply_loop_switches();
+    CANWaitTxIdle(can_tid);
+    ui_mark_switches_dirty();
 
     Create(TRAIN_COURIER_PRIORITY, can_rx_courier_task);
     Create(TRAIN_COURIER_PRIORITY, keyboard_courier_task);
     Create(TRAIN_COURIER_PRIORITY, ui_tick_task);
 
-    CANEnableInterrupts(can_tid);
-
     char cmdline[80];
     int cmdlen = 0;
+    int rv_pending_count = 0;  /* # rv still in progress */
 
     uint64_t start_us = read_timer();
     int running = 1;
@@ -147,13 +166,14 @@ void train_control_task(void) {
 
                     if (cmdlen > 0) {
                         int rv_train = -1;
-                        int result = execute_it(cmdline, &rv_train);
+                        int result = execute_it(cmdline, &rv_train, rv_pending_count > 0);
                         if (result == 0) {
                             running = 0;  // for 'q' command
                         }
                         if (rv_train >= 0) {
                             // design limit, only allow 8 pending reversals. use kassert to check is not good, but for simplicity
                             KASSERT(ring_buffer_put(&rv_queue, rv_train) == 0);
+                            rv_pending_count++;
                             Create(TRAIN_COURIER_PRIORITY, rv_delay_task);
                         }
                     }
@@ -193,6 +213,9 @@ void train_control_task(void) {
                 int idle_percent = get_idle_percentage();
                 ui_update_idle(idle_percent);
 
+                /* Todo: Update position tracking (STOPPING -> STOPPED, continuous stop-at check) */
+                pos_on_tick(tick_now);
+
                 if (ui_is_switches_dirty()) {
                     ui_puts("\033[s");
                     ui_switches();
@@ -204,6 +227,13 @@ void train_control_task(void) {
                     ui_draw_sensors(start_us);
                     ui_puts("\033[u");
                     ui_mark_sensors_clean();
+                }
+                if (ui_is_position_dirty()) {
+                    ui_puts("\033[s");
+                    ui_draw_position();
+                    ui_draw_prediction_error();
+                    ui_puts("\033[u");
+                    ui_mark_position_clean();
                 }
                 break;
             }
@@ -221,6 +251,7 @@ void train_control_task(void) {
 
             case TRAIN_MSG_RV_COMPLETE: {
                 track_complete_reverse(msg.train);
+                if (rv_pending_count > 0) rv_pending_count--;
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
             }

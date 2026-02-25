@@ -17,8 +17,7 @@ void ui_draw_sensors(uint64_t start_us);
 void ui_update_clock(uint64_t start_us, uint64_t now);
 void ui_update_idle(int percent);
 
-// Position / prediction / switch-reliability display (rows 10, 22, 23)
-void ui_draw_sw_reliability(void);
+// Position / prediction display (rows 22, 23)
 void ui_draw_position(void);
 void ui_draw_prediction_error(void);
 

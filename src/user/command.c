@@ -1,8 +1,15 @@
 #include "command.h"
 #include "util.h"
 #include "track.h"
+#include "position.h"
 #include "ui.h"
 #include "kassert.h"
+
+/* Parse sensor name token - > track_node*. Returns NULL on failure. */
+static track_node *parse_sensor(const char *tok) {
+    if (!tok || !tok[0]) return NULL;
+    return pos_find_sensor(tok);
+}
 
 // Returns number of tokens
 static int tokenize(char *cmd, char *argv[], int max_args) {
@@ -30,8 +37,8 @@ int execute_it(char *cmd, int *rv_train) {
     KASSERT(rv_train != NULL);
 
     *rv_train = -1;
-    char *argv[4];
-    int argc = tokenize(cmd, argv, 4);
+    char *argv[5];
+    int argc = tokenize(cmd, argv, 5);
 
     if (argc == 0) return 1;
 
@@ -55,6 +62,9 @@ int execute_it(char *cmd, int *rv_train) {
         }
         int can_speed = (speed == 0) ? 0 : 1 + (speed - 1) * 77;
         track_set_speed(train, can_speed);
+        // Todo: not sure do we allowe tr command during goto process?
+        // Todo: do we allow the excution of goto when the train is already moving?
+        pos_on_speed_change(train, speed);
         return 1;
     }
 
@@ -135,22 +145,60 @@ int execute_it(char *cmd, int *rv_train) {
         return 1;
     }
 
-    // init
-    if (argv[0][0] == 'i' && argv[0][1] == 'n' && argv[0][2] == 'i' && argv[0][3] == 't' && argv[0][4] == '\0') {
-        ui_puts("Initializing track...\r\n");
 
-        for (int i = 1; i <= 18; i++) {
-            track_set_switch(i, 'S');
-            track_update_switch(i, 'S');
+    // goto <sensor> [+offset_mm]
+    if (argv[0][0] == 'g' && argv[0][1] == 'o' && argv[0][2] == 't' &&
+        argv[0][3] == 'o' && argv[0][4] == '\0') {
+        if (argc < 3) {
+            ui_puts("Usage: goto <train> <sensor> [+offset_mm]\r\n");
+            return 2;
         }
-
-        for (int i = 153; i <= 156; i++) {
-            track_set_switch(i, 'S');
-            track_update_switch(i, 'S');
+        int train = str2int(argv[1]);
+        track_node *target = parse_sensor(argv[2]);
+        if (!target) {
+            ui_puts("Unknown sensor name\r\n");
+            return 2;
         }
-        ui_mark_switches_dirty();
+        int32_t offset = 0;
+        if (argc >= 4) {
+            offset = (int32_t)str2int(argv[3]);
+        }
+        int gr = pos_goto(train, target, offset);
+        if (!gr) {
+            ui_puts("goto: no slot available\r\n");
+            return 2;
+        }
+        // train_pos_t *gp = pos_get(train);
+        // if (gp) {
+        //     int position_unknown = (gp->cur_sensor == NULL);
+        //     int direction_unknown = (gp->route_state == TRAIN_STATE_UNKNOWN ||
+        //                              gp->route_state == TRAIN_STATE_LOOP_FIND_DIR);
+        //     if (position_unknown || direction_unknown) {
+        //         ui_puts("goto: position unknown, will execute on first sensor.\r\n");
+        //     }
+        // }
+        return 2;
+    }
 
-        ui_puts("Track initialized: all switches set to straight\r\n");
+    // usetrack <A|B>
+    if (argv[0][0] == 'u' && argv[0][1] == 's' && argv[0][2] == 'e' &&
+        argv[0][3] == 't' && argv[0][4] == 'r' && argv[0][5] == 'a' &&
+        argv[0][6] == 'c' && argv[0][7] == 'k' && argv[0][8] == '\0') {
+        if (argc != 2) {
+            ui_puts("Usage: usetrack <A|B>\r\n");
+            return 2;
+        }
+        char t = argv[1][0];
+        if (t == 'A' || t == 'a') {
+            g_track_type = 0;
+        } else if (t == 'B' || t == 'b') {
+            g_track_type = 1;
+        } else {
+            ui_puts("usetrack: must be A or B\r\n");
+            return 2;
+        }
+        track_init_graph();
+        ui_puts("Track graph reinitialised.\r\n");
         return 2;
     }
 
