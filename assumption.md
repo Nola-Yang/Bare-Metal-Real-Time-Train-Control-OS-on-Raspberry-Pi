@@ -37,33 +37,3 @@
 7. `consec_missed` has no actual use.
 8. STOPPING → STOPPED transition timing is approximate.
 
-### Full State Transition Diagram (goto perspective)
-
-```
-User issues goto
-    │
-    ▼ command.c:execute_it()
-    ├─ UNKNOWN ──────────────────────────────► LOOP_FIND_DIR
-    │   pos_goto(): set loop switches, launch speed 8        │
-    │                                                        │ two consecutive loop sensors
-    ├─ KNOWN ──► STOPPING_GOTO                               ▼
-    │   pos_goto(): brake                             LOOP_STABILIZE
-    │                                                        │
-    ├─ STOPPING_TR ──► STOPPING_GOTO                  stable_count >= 3
-    │   pos_goto(): update target state                      │
-    │                                                        ▼
-    └─ STOPPED ──────────────────────────► ENTER_LOOP ──► LOOP_STABILIZE
-        pos_goto(): directly call              first loop sensor
-        transition_to_enter_loop()
-                                             ▼ execute_pending_route()
-    STOPPING_GOTO                         ON_ROUTE
-    pos_on_tick():                            │
-    wait for braking ──► transition_to_enter_loop  │ rem <= braking distance
-                                              ▼
-                                           STOPPING
-                                              │
-                                              │ after brake_us
-                                              ▼
-                                           STOPPED ◄─── RECOVERY_STOPPING
-                                                          (off-route → back to ENTER_LOOP)
-```
