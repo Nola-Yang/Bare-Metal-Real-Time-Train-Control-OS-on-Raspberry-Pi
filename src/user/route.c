@@ -391,14 +391,16 @@ void execute_pending_route(train_pos_t *pos) {
                 }
             }
         }
-        ui_puts("BFS failed from plan_start; trying next loop sensor... ");
+        ui_puts("BFS failed from excute_pending_route... ");
 
         KASSERT(found && "No loop sensor reaches target");
     }
-    for (int i = 0; i < rp.sw_count; i++) {
+    /* Apply route switches from far to near along the path. */
+    for (int i = rp.sw_count - 1; i >= 0; i--) {
         track_set_switch(rp.sw_nums[i], rp.sw_dirs[i]);
         track_update_switch(rp.sw_nums[i], rp.sw_dirs[i]);
     }
+
     if (rp.sw_count > 0) {
         ui_mark_switches_dirty();
     }
@@ -437,4 +439,3 @@ void execute_pending_route(train_pos_t *pos) {
 
     ui_mark_position_dirty();
 }
-
