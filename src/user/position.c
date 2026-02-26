@@ -117,7 +117,8 @@ static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     }
 
     /* Restart the train */
-    if (pos->user_speed == 0) pos->user_speed = 8;
+    // if (pos->user_speed == 0) 
+    pos->user_speed = 8;
     int can_spd = 1 + (pos->user_speed - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
     pos->effective_v     = SPEED_V_MM_S[pos->user_speed];
@@ -174,11 +175,15 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
         ui_mark_prediction_dirty();
     }
 
-    /* EMA speed update */
+    /* EMA speed update.
+     * Require dt > 10 ms to reject sensor noise spikes: a legitimate reading
+     * at max speed (~869 mm/s) over the shortest sensor gap (~200 mm) takes
+     * ~230 ms, so anything under 10 ms implies an impossible speed and would
+     * produce a meas_v in the billions that corrupts effective_v */
     if (pos->cur_sensor && pos->effective_v > 0) {
         int32_t meas_dist = follow_dist(pos->cur_sensor, hit, 100);
         uint64_t dt = time_us - pos->cur_sensor_time;
-        if (dt > 0 && meas_dist > 0) {
+        if (dt > 10000 && meas_dist > 0) {
             int32_t meas_v =
                 (int32_t)((int64_t)meas_dist * 1000000LL / (int64_t)dt);
             pos->effective_v = (7 * pos->effective_v + meas_v) / 8;
