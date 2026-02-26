@@ -305,96 +305,61 @@ int bfs_find_route_to_loop(track_node *start, route_plan_t *plan) {
     return 0;
 }
 
-/* True if target is reachable from at least one fixed-loop sensor
- * (either forward or reverse direction node). */
-static int reachable_from_any_loop_sensor(track_node *target) {
-    if (!target) return 0;
-
-    route_plan_t rp_dummy;
-    for (int i = 0; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
-        track_node *fwd = &g_track[loop_sensor_idx()[i]];
-        if (bfs_find_route(fwd, target, &rp_dummy)) return 1;
-
-        track_node *rev = fwd->reverse;
-        if (rev && bfs_find_route(rev, target, &rp_dummy)) return 1;
-    }
-    return 0;
-}
-
 /* ===== Deferred route execution ===== */
 
 void execute_pending_route(train_pos_t *pos) {
     if (!pos->pending_target) return;
 
     track_node *user_target = pos->pending_target;
-    track_node *preferred_target = pos->going_forward ? user_target
-                                                      : (user_target->reverse ? user_target->reverse
-                                                                              : user_target);
-    track_node *alternate_target = (preferred_target == user_target)
-                                   ? user_target->reverse
-                                   : user_target;
-    track_node *target = preferred_target;
-
-    /* Some sensors are not reachable from the loop in
-     * one direction; auto-swap to reverse node if the preferred node is
-     * globally unreachable from loop sensors. */
-    if (alternate_target && alternate_target != preferred_target &&
-        !reachable_from_any_loop_sensor(preferred_target) &&
-        reachable_from_any_loop_sensor(alternate_target)) {
-        target = alternate_target;
-    }
-
-    int32_t     offset = pos->pending_offset_mm;
+    int32_t     offset      = pos->pending_offset_mm;
 
     track_node *plan_start = (pos->pred_next_sensor && pos->effective_v > 0)
                              ? pos->pred_next_sensor : pos->cur_sensor;
-    if (!plan_start) return;
+    if (!plan_start) KASSERT(0 && "No position anchor for route planning");
 
     if (!(is_forward_loop_sensor(plan_start) ||
           is_reverse_loop_sensor(plan_start))) return;
 
-    route_plan_t rp;
-    if (!bfs_find_route(plan_start, target, &rp)) {
-        /* BFS failed from plan_start (train has already passed the exit branch).
-         * Find the next loop sensor in the direction of travel from which the
-         * target IS reachable */
-        const int *order   = loop_sensor_forward_order();
-
-        track_node *ps_fwd = is_forward_loop_sensor(plan_start) ? plan_start
-                                                                 : plan_start->reverse;
-        int ps_idx    = (int)(ps_fwd - g_track);
-        int start_pos = 0;
-        for (int i = 0; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
-            if (order[i] == ps_idx) { start_pos = i; break; }
-        }
-
-        int found = 0;
-        if (pos->going_forward) {
-            for (int i = 1; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
-                int cand_idx = order[(start_pos + i) % LOOP_SENSOR_COUNT_INTERNAL];
-                track_node *cand = &g_track[cand_idx];
-                if (bfs_find_route(cand, target, &rp)) {
-                    plan_start = cand;
-                    found = 1;
-                    break;
-                }
-            }
-        } else {
-            for (int i = 1; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
-                int cand_idx = order[(start_pos + LOOP_SENSOR_COUNT_INTERNAL - i)
-                                     % LOOP_SENSOR_COUNT_INTERNAL];
-                track_node *cand = g_track[cand_idx].reverse;
-                if (cand && bfs_find_route(cand, target, &rp)) {
-                    plan_start = cand;
-                    found = 1;
-                    break;
-                }
-            }
-        }
-        ui_puts("BFS failed from excute_pending_route... ");
-
-        KASSERT(found && "No loop sensor reaches target");
+    track_node *ps_fwd = is_forward_loop_sensor(plan_start) ? plan_start
+                                                             : plan_start->reverse;
+    int ps_idx    = (int)(ps_fwd - g_track);
+    const int *order = loop_sensor_forward_order();
+    int start_pos = 0;
+    for (int i = 0; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
+        if (order[i] == ps_idx) { start_pos = i; break; }
     }
+
+    route_plan_t rp;
+    track_node  *target = NULL;
+
+    /* Try user_target first, then its reverse node.
+     * For each candidate target, iterate through all loop sensors in the
+     * direction of travel starting from plan_start. */
+    track_node *try_targets[2] = { user_target, user_target->reverse };
+
+    for (int t = 0; t < 2 && !target; t++) {
+        track_node *tgt = try_targets[t];
+        if (!tgt) continue;
+
+        for (int i = 0; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
+            track_node *cand;
+            if (pos->going_forward) {
+                int ci = order[(start_pos + i) % LOOP_SENSOR_COUNT_INTERNAL];
+                cand = &g_track[ci];
+            } else {
+                int ci = order[(start_pos + LOOP_SENSOR_COUNT_INTERNAL - i)
+                               % LOOP_SENSOR_COUNT_INTERNAL];
+                cand = g_track[ci].reverse;
+            }
+            if (!cand) continue;
+            if (bfs_find_route(cand, tgt, &rp)) {
+                target = tgt;
+                break;
+            }
+        }
+    }
+
+    KASSERT(target && "No loop sensor reaches target or target_reverse");
     /* Apply route switches from far to near along the path. */
     for (int i = rp.sw_count - 1; i >= 0; i--) {
         track_set_switch(rp.sw_nums[i], rp.sw_dirs[i]);
