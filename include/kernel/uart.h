@@ -28,6 +28,7 @@
 void uart_config_and_enable(size_t line);
 void uart_panic_vprintf(size_t line, const char *fmt, va_list va);
 void uart_panic_printf(size_t line, const char *fmt, ... );
+void uart_panic_flush(size_t line);
 
 
 // Interrupt control functions
