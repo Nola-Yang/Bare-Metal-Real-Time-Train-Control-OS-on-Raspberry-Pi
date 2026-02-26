@@ -66,6 +66,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->orig_user_target      = NULL;
             slot->orig_target_offset    = 0;
             slot->stopping_since_us     = 0;
+            for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
             return slot;
         }
     }
@@ -121,7 +122,8 @@ static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     pos->user_speed = 8;
     int can_spd = 1 + (pos->user_speed - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
-    pos->effective_v     = SPEED_V_MM_S[pos->user_speed];
+    int32_t cv_loop      = pos->cached_v[pos->user_speed];
+    pos->effective_v     = (cv_loop > 0) ? cv_loop : SPEED_V_MM_S[pos->user_speed];
     pos->cur_sensor_time = now_us;
 
     /* Prediction */
@@ -175,18 +177,30 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
         ui_mark_prediction_dirty();
     }
 
-    /* EMA speed update.
-     * Require dt > 10 ms to reject sensor noise spikes: a legitimate reading
-     * at max speed (~869 mm/s) over the shortest sensor gap (~200 mm) takes
-     * ~230 ms, so anything under 10 ms implies an impossible speed and would
-     * produce a meas_v in the billions that corrupts effective_v */
-    if (pos->cur_sensor && pos->effective_v > 0) {
-        int32_t meas_dist = follow_dist(pos->cur_sensor, hit, 100);
-        uint64_t dt = time_us - pos->cur_sensor_time;
-        if (dt > 10000 && meas_dist > 0) {
-            int32_t meas_v =
-                (int32_t)((int64_t)meas_dist * 1000000LL / (int64_t)dt);
-            pos->effective_v = (7 * pos->effective_v + meas_v) / 8;
+    /* EMA speed update
+     *
+     * LOOP_STABILIZE: must update so predict_next_sensor stays accurate and
+     *   last_time_err_us can converge.
+     * ON_ROUTE: steady cruise to target; primary source of calibration.
+     *
+     * All other states are excluded:
+     *   UNKNOWN / KNOWN         
+     *   LOOP_FIND_DIR            — train still accelerating from rest
+     *   STOPPING* / RECOVERY_*  — decelerating
+     *
+     * Also require dt > 10 ms to reject sensor noise spikes. */
+    {
+        train_route_state_t st = pos->route_state;
+        int ema_valid = (st == TRAIN_STATE_LOOP_STABILIZE ||
+                         st == TRAIN_STATE_ON_ROUTE);
+        if (ema_valid && pos->cur_sensor && pos->effective_v > 0) {
+            int32_t meas_dist = follow_dist(pos->cur_sensor, hit, 100);
+            uint64_t dt = time_us - pos->cur_sensor_time;
+            if (dt > 10000 && meas_dist > 0) {
+                int32_t meas_v =
+                    (int32_t)((int64_t)meas_dist * 1000000LL / (int64_t)dt);
+                pos->effective_v = (7 * pos->effective_v + meas_v) / 8;
+            }
         }
     }
 }
@@ -409,6 +423,8 @@ void pos_on_tick(uint64_t now_us) {
             }
             if (now_us < pos->stopping_since_us + brake_us) continue;
 
+            if (pos->user_speed > 0 && pos->user_speed <= 14)
+                pos->cached_v[pos->user_speed] = pos->effective_v;
             pos->effective_v = 0;
             transition_to_enter_loop(pos, now_us);
             continue;
@@ -443,6 +459,8 @@ void pos_on_tick(uint64_t now_us) {
                 brake_us  = brake_us * 3 / 2;
             }
             if (now_us >= pos->stopping_since_us + brake_us) {
+                if (pos->user_speed > 0 && pos->user_speed <= 14)
+                    pos->cached_v[pos->user_speed] = pos->effective_v;
                 pos->effective_v = 0;
                 transition_to_enter_loop(pos, now_us);
             }
@@ -465,6 +483,8 @@ void pos_on_tick(uint64_t now_us) {
                     brake_us = brake_us * 3 / 2;
                 }
                 if (now_us >= pos->stopping_since_us + brake_us) {
+                    if (pos->user_speed > 0 && pos->user_speed <= 14)
+                        pos->cached_v[pos->user_speed] = pos->effective_v;
                     pos->route_state       = TRAIN_STATE_STOPPED;
                     pos->effective_v       = 0;
                     pos->orig_user_target  = NULL;
@@ -538,10 +558,19 @@ void pos_on_speed_change(int train_num, int user_speed) {
     train_pos_t *pos = find_or_create_pos(train_num);
     if (!pos) return;
 
+    /* Save calibrated EMA before a stop wipes effective_v.
+     * Must happen before user_speed is updated so we know which slot to save. */
+    if (user_speed == 0 &&
+        pos->user_speed > 0 && pos->user_speed <= 14 &&
+        pos->effective_v > 0) {
+        pos->cached_v[pos->user_speed] = pos->effective_v;
+    }
+
     pos->user_speed = user_speed;
 
     if (user_speed > 0 && user_speed <= 14) {
-        pos->effective_v = SPEED_V_MM_S[user_speed];
+        int32_t cv = pos->cached_v[user_speed];
+        pos->effective_v = (cv > 0) ? cv : SPEED_V_MM_S[user_speed];
         /* Transition to KNOWN when the train resumes from a known-position state. */
         if (pos->cur_sensor != NULL &&
             (pos->route_state == TRAIN_STATE_STOPPED  ||
@@ -590,6 +619,12 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     pos->pending_offset_mm  = offset_mm;
     pos->orig_user_target   = target;
     pos->orig_target_offset = offset_mm;
+
+    
+    pos->target_sensor     = target;
+    pos->target_offset_mm  = offset_mm;
+    pos->dist_to_target_mm = 0;
+    ui_mark_position_dirty();
 
     if (pos->route_state == TRAIN_STATE_UNKNOWN) {
         /* assume train is on loop.
