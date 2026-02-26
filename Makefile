@@ -82,6 +82,9 @@ OBJECTS += $(TRACK_DATA_OBJ)
 
 DEPENDS := $(OBJECTS:.o=.d)
 
+# Compile user-space sources with USER_SPACE enabled so KASSERT traps via SVC.
+$(BUILD_DIR)/user/%.o: CFLAGS += -DUSER_SPACE
+
 .PHONY: all clean sim sim-debug sim-gui
 
 all: $(BUILD_DIR)/$(FILENAME).img

@@ -13,10 +13,8 @@ __attribute__((noreturn)) void __stack_chk_fail(void) {
 __attribute__((noreturn)) void panic(const char *fmt, ...) {
 	__asm__ volatile("msr daifset, #0xf" ::: "memory");
 
-	/* Print panic in command area (rows 27-47).*/
-	uart_panic_printf(CONSOLE, "\033[27;47r");
-	uart_panic_printf(CONSOLE, "\033[27;1H\033[2K");
-	uart_panic_printf(CONSOLE, "PANIC: ");
+	uart_config_and_enable(CONSOLE);
+	uart_panic_printf(CONSOLE, "\r\n\r\nPANIC: ");
 
 	va_list va;
 	va_start(va, fmt);
@@ -29,4 +27,12 @@ __attribute__((noreturn)) void panic(const char *fmt, ...) {
 	for (;;) {
 		__asm__ volatile("wfi");
 	}
+}
+
+__attribute__((noreturn)) void panic_exception(const char *reason,
+                                               uint64_t esr,
+                                               uint64_t elr,
+                                               uint64_t far) {
+    panic("Unhandled exception: %s esr=0x%lx elr=0x%lx far=0x%lx\r\n",
+          reason, esr, elr, far);
 }

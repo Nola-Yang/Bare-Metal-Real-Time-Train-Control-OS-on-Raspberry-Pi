@@ -16,6 +16,7 @@
 #define SYS_REPLY       7
 #define SYS_AWAITEVENT  8
 #define SYS_SHUTDOWN    9
+#define SYS_KASSERT_FAIL 10
 
 static inline int Create(int priority, void (*function)()) {
     register int64_t r0 __asm__("x0") = priority;

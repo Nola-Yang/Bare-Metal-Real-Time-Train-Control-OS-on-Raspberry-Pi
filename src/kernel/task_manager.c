@@ -21,6 +21,7 @@
 #define SYSCALL_REPLY        7
 #define SYSCALL_AWAITEVENT   8
 #define SYSCALL_SHUTDOWN     9
+#define SYSCALL_KASSERT_FAIL 10
 
 #define SPSR_FOR_EL0t 0x0
 
@@ -614,6 +615,10 @@ void syscall_dispatch() {
             break;  // Not blocked, continue to reschedule
         case SYSCALL_SHUTDOWN:
             _reboot();
+            __builtin_unreachable();
+        case SYSCALL_KASSERT_FAIL:
+            panic("KASSERT(user) tid=%d line=%d elr=0x%lx file_ptr=0x%lx cond_ptr=0x%lx\r\n",
+                  current_task->tid, (int)tf->x[1], tf->elr_el1, tf->x[0], tf->x[2]);
             __builtin_unreachable();
         default:
             ret = -1;

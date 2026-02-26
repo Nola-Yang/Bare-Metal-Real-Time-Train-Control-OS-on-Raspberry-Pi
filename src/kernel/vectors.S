@@ -106,8 +106,18 @@ VECTOR_ENTRY lower_el_a32_fiq
 VECTOR_ENTRY lower_el_a32_serror
     b unhandled_exception
 
+.extern panic_exception
 
 unhandled_exception:
+    // Switch to known-good kernel stack before calling C panic helper.
+    ldr x4, =__kernel_stack_top
+    mov sp, x4
+
+    mrs x1, esr_el1
+    mrs x2, elr_el1
+    mrs x3, far_el1
+    ldr x0, =unhandled_exception_msg
+    bl panic_exception
     b .
 
 
@@ -115,6 +125,14 @@ unhandled_exception:
  * Kernel stack overflow handler
  */
 kernel_stack_overflow:
+    ldr x4, =__kernel_stack_top
+    mov sp, x4
+
+    mrs x1, esr_el1
+    mrs x2, elr_el1
+    mrs x3, far_el1
+    ldr x0, =kernel_stack_overflow_msg
+    bl panic_exception
     b .
 
 
@@ -277,3 +295,9 @@ irq_entry:
 .global activate_first_task
 activate_first_task:
     b return_to_task
+
+.balign 8
+unhandled_exception_msg:
+    .asciz "vector"
+kernel_stack_overflow_msg:
+    .asciz "kernel stack overflow"

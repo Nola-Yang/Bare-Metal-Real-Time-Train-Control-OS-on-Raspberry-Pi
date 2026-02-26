@@ -191,7 +191,7 @@ void track_set_speed(int train, int speed) {
             t->speed = speed;
         }
     } else {
-        panic("CANsend fail in track_set_speed!\r\n");
+        KASSERT(0 && "CANsend fail in track_set_speed");
     }
 }
 
@@ -224,7 +224,7 @@ void track_reverse(int train) {
         train_state_t* t = find_or_create_train(train);
         if (t) t->direction = 1 - t->direction;
     } else {
-        panic("CANsend fail in track_reverse!\r\n");
+        KASSERT(0 && "CANsend fail in track_reverse");
     }
 }
 
@@ -299,7 +299,7 @@ void track_set_light(int train, int on) {
     frame.data[5] = on ? 0x01 : 0x00;
 
     if (CANSend(can_tid, &frame) != 0) {
-        panic("CANsend fail in track_set_light!\r\n");
+        KASSERT(0 && "CANsend fail in track_set_light");
     }
 }
 
@@ -317,7 +317,7 @@ void track_complete_reverse(int train_num) {
 int track_start_reverse(int train_num) {
     train_state_t* t = find_or_create_train(train_num);
     if (!t) {
-        panic("No free train slots\r\n");
+        KASSERT(0 && "No free train slots");
         return 0;
     }
 
