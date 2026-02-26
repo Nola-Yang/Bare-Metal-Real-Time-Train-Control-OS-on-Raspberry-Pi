@@ -277,14 +277,17 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         }
 
         else if (pos->route_state == TRAIN_STATE_LOOP_STABILIZE) {
-            int64_t abs_err = pos->last_time_err_us;
-            if (abs_err < 0) abs_err = -abs_err;
-
-            if (prev_sensor && abs_err < STABLE_TIME_ERR_US) {
-                pos->stable_sensor_count++;
-            } else {
-                pos->stable_sensor_count = 0;
+            if (b_was_predicted) {
+                int64_t abs_err = pos->last_time_err_us;
+                if (abs_err < 0) abs_err = -abs_err;
+                if (abs_err < STABLE_TIME_ERR_US) {
+                    pos->stable_sensor_count++;
+                } else {
+                    pos->stable_sensor_count = 0;
+                }
             }
+            /* b_is_skip: 
+             * Leave stable_sensor_count unchanged */
 
             if (pos->stable_sensor_count >= STABLE_SENSOR_MIN) {
                 execute_pending_route(pos);
@@ -502,9 +505,11 @@ void pos_on_tick(uint64_t now_us) {
         if (pos->pred_trigger_time == 0) continue;
         if (pos->pred_next_sensor == NULL) continue;
 
-        /* Todo：need calibration If twice the predicted time has elapsed, sensor may be missing */
-        if (now_us > pos->pred_trigger_time * 2 &&
-            pos->pred_trigger_time > 0) {
+        /* Todo: more calibrationon. If more than 2× the expected interval has elapsed since the last
+         * sensor, assume the predicted sensor was missed and advance. */
+        if (pos->cur_sensor_time > 0 &&
+            pos->pred_trigger_time > pos->cur_sensor_time &&
+            now_us > 2 * pos->pred_trigger_time - pos->cur_sensor_time) {
 
             pos->consec_missed++;
 
