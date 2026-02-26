@@ -91,6 +91,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
 static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     pos_apply_loop_switches();
     int reroute_switch_changed = 0;
+    int just_reversed = 0;
 
     /* BFS to loop entry if not already on the loop */
     if (pos->cur_sensor != NULL &&
@@ -113,6 +114,7 @@ static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
             track_reverse(pos->train_num);
             pos->cur_sensor = pos->cur_sensor->reverse;
             pos->going_forward = !pos->going_forward;
+            just_reversed = 1;
             for (int j = 0; j < rp.sw_count; j++) {
                 track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
                 track_update_switch(rp.sw_nums[j], rp.sw_dirs[j]);
@@ -139,9 +141,15 @@ static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
 
     /* Prediction */
     if (pos->cur_sensor != NULL) {
-        uint64_t dt = 0;
-        pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
-        pos->pred_trigger_time = now_us + dt;
+        if (just_reversed) {
+            /* The train is physically at cur_sensor's location after reversing. */
+            pos->pred_next_sensor  = pos->cur_sensor;
+            pos->pred_trigger_time = now_us;
+        } else {
+            uint64_t dt = 0;
+            pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
+            pos->pred_trigger_time = now_us + dt;
+        }
     }
 
     /* Restore pending_target from orig_user_target so that a second call
@@ -271,14 +279,39 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
          pos->route_state == TRAIN_STATE_ENTER_LOOP) &&
         pos->pred_next_sensor != NULL &&
         !b_was_predicted && !b_is_skip) {
-        pos->consec_missed         = 0;
-        pos->pred_next_sensor      = NULL;
-        pos->pred_trigger_time     = 0;
-        track_set_speed(pos->train_num, 0);
-        pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
-        pos->stopping_since_us = time_us;
-        ui_mark_position_dirty();
-        return;
+
+        /* Unexpected sensor: check if we can still reach the target from here.
+         * If yes, update prediction from hit and continue without off-route.
+        */
+       
+        int still_reachable = 0;
+
+        if (pos->route_state == TRAIN_STATE_ON_ROUTE ||
+            pos->route_state == TRAIN_STATE_STOPPING) {
+            if (pos->target_sensor &&
+                follow_dist(hit, pos->target_sensor, 200) >= 0) {
+                still_reachable = 1;
+            }
+        } else {
+            /* LOOP_FIND_DIR / LOOP_STABILIZE / ENTER_LOOP */
+            if (follow_reaches_loop(hit, 200)) {
+                still_reachable = 1;
+            }
+        }
+
+        if (!still_reachable) {
+            pos->consec_missed         = 0;
+            pos->pred_next_sensor      = NULL;
+            pos->pred_trigger_time     = 0;
+            track_set_speed(pos->train_num, 0);
+            pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
+            pos->stopping_since_us = time_us;
+            ui_mark_position_dirty();
+            return;
+        }
+
+        pos->consec_missed = 0;
+        /* Fall through: prediction is refreshed below from hit */
     }
 
     /* Predict next sensor */

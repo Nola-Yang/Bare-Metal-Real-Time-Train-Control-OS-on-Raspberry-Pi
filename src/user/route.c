@@ -162,6 +162,19 @@ int32_t follow_dist(track_node *cur, track_node *to, int max_hops) {
 }
 
 
+int follow_reaches_loop(track_node *start, int max_hops) {
+    if (!start) return 0;
+    track_node *n = start;
+    for (int h = 0; h < max_hops; h++) {
+        if (n->type == NODE_SENSOR && is_loop_sensor((int)(n - g_track))) return 1;
+        track_edge *e = get_next_edge(n);
+        if (!e || !e->dest) return 0;
+        n = e->dest;
+        if (n->type == NODE_EXIT) return 0;
+    }
+    return 0;
+}
+
 track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
                                 uint64_t *out_dt_us) {
     if (!cur || pos->effective_v <= 0) {
