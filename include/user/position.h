@@ -111,6 +111,10 @@ void pos_on_tick(uint64_t now_us);
 /* Register or update the speed of a tracked train (call after tr command). */
 void pos_on_speed_change(int train_num, int user_speed);
 
+/* Called when a physical reverse completes (rv command).
+ * Flips going_forward and cur_sensor to keep position tracking consistent. */
+void pos_on_reverse(int train_num);
+
 
 /* Apply loop switch settings (SW7/8/14=S, SW11=C) — same for Track A and B */
 void pos_apply_loop_switches(void);

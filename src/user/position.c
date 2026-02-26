@@ -283,7 +283,7 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         /* Unexpected sensor: check if we can still reach the target from here.
          * If yes, update prediction from hit and continue without off-route.
         */
-       
+
         int still_reachable = 0;
 
         if (pos->route_state == TRAIN_STATE_ON_ROUTE ||
@@ -596,6 +596,20 @@ void pos_on_tick(uint64_t now_us) {
             }
         }
     }
+}
+
+void pos_on_reverse(int train_num) {
+    train_pos_t *pos = find_pos(train_num);
+    if (!pos) return;
+
+    pos->going_forward = !pos->going_forward;
+    if (pos->cur_sensor && pos->cur_sensor->reverse)
+        pos->cur_sensor = pos->cur_sensor->reverse;
+
+    pos->pred_next_sensor  = NULL;
+    pos->pred_trigger_time = 0;
+
+    ui_mark_position_dirty();
 }
 
 void pos_on_speed_change(int train_num, int user_speed) {

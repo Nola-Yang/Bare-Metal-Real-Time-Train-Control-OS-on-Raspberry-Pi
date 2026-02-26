@@ -128,6 +128,9 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
         if (rv_result > 0) {
             if (rv_result == 1) {
                 *rv_train = train;  
+            } else {
+                /*train was stopped */
+                pos_on_reverse(train);
             }
             return 1;
         } else {

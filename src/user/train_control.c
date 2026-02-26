@@ -250,6 +250,7 @@ void train_control_task(void) {
 
             case TRAIN_MSG_RV_COMPLETE: {
                 track_complete_reverse(msg.train);
+                pos_on_reverse(msg.train);
                 if (rv_pending_count > 0) rv_pending_count--;
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
