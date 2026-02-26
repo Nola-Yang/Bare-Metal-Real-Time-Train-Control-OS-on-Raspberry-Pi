@@ -56,6 +56,7 @@ void track_set_speed(int train, int speed);
 void track_reverse(int train);
 void track_set_switch(int sw, char dir);
 void track_set_light(int train, int on);
+int  track_wait_tx_idle(void);
 
 // Reverse state machine
 int track_start_reverse(int train);

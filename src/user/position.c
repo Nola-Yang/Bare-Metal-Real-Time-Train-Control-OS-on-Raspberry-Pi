@@ -90,6 +90,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
  */
 static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     pos_apply_loop_switches();
+    int reroute_switch_changed = 0;
 
     /* BFS to loop entry if not already on the loop */
     if (pos->cur_sensor != NULL &&
@@ -101,7 +102,10 @@ static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
                 track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
                 track_update_switch(rp.sw_nums[j], rp.sw_dirs[j]);
             }
-            if (rp.sw_count > 0) ui_mark_switches_dirty();
+            if (rp.sw_count > 0) {
+                reroute_switch_changed = 1;
+                ui_mark_switches_dirty();
+            }
         } else {
             // try reverse
             KASSERT(pos->cur_sensor->reverse != NULL &&
@@ -113,7 +117,14 @@ static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
                 track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
                 track_update_switch(rp.sw_nums[j], rp.sw_dirs[j]);
             }
-            if (rp.sw_count > 0) ui_mark_switches_dirty();
+            if (rp.sw_count > 0) {
+                reroute_switch_changed = 1;
+                ui_mark_switches_dirty();
+            }
+        }
+
+        if (reroute_switch_changed) {
+            KASSERT(track_wait_tx_idle() == 0);
         }
     }
 

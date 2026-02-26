@@ -134,6 +134,11 @@ void track_update_direction(int train_num, int direction) {
     if (t) t->direction = direction;
 }
 
+int track_wait_tx_idle(void) {
+    KASSERT(can_tid >= 0);
+    return CANWaitTxIdle(can_tid);
+}
+
 const sensor_entry_t* track_get_sensor_log(int *head) {
     if (head) *head = sensor_log_head;
     return sensor_log;
