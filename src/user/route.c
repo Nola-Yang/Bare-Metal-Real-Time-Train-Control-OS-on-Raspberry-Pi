@@ -342,11 +342,12 @@ void execute_pending_route(train_pos_t *pos) {
     pos->route_state         = TRAIN_STATE_ON_ROUTE;
 
     /* Refresh prediction with the newly set route switches.
-     * The earlier prediction in handle_sensor F was computed before BFS
-     * changed the switches, so it may point to the wrong next sensor. */
+     *
+     * Must predict from cur_sensor, NOT from plan_start.
+     * and uses cur_sensor_time as the absolute time anchor. */
     uint64_t dt = 0;
-    pos->pred_next_sensor  = predict_next_sensor(pos, plan_start, &dt);
-    pos->pred_trigger_time = read_timer() + dt;
+    pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
+    pos->pred_trigger_time = pos->cur_sensor_time + dt;
 
     ui_mark_position_dirty();
 }
