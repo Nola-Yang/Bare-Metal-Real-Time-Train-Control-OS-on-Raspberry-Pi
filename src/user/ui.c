@@ -233,7 +233,7 @@ void ui_init(int terminal_tid) {
     // Draw fixed header area (rows 1-5)
     ui_puts("=== Train Control System CS652 K4 ===\r\n");
     ui_puts("Version: " __DATE__ " / " __TIME__ "\r\n");
-    ui_puts("Cmds: tr|sw|rv|li|goto <t> <s> [+mm]|usetrack <A|B>|q\r\n");
+    ui_puts("Cmds: tr|sw|rv|li|goto <t> <s> [+mm]|q\r\n");
     ui_puts("\r\n");
     ui_puts("Time: 00:00.0\r\n");
     ui_puts("Idle: 0%\r\n");

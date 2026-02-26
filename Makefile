@@ -21,9 +21,10 @@ LDFLAGS:=-Wl,-nmagic -Wl,-Tlinker.ld -Wl,--no-warn-rwx-segments -nostdlib -lgcc
 OPT?=1
 CACHE?=b
 VERBOSE?=0
+TRACK?=A
 
 MAKESPEC:=.make_spec
-MAKESPEC_FORMAT:=$(VERBOSE) $(OPT) $(CACHE)
+MAKESPEC_FORMAT:=$(VERBOSE) $(OPT) $(CACHE) $(TRACK)
 
 # clean up the built files, if the passed arguments have changed
 ifneq ($(shell cat $(MAKESPEC) 2>/dev/null), $(MAKESPEC_FORMAT))
@@ -40,6 +41,15 @@ endif
 # OPT (0, 1): Whether to use O3 optimization
 ifeq ($(OPT),1)
 	CFLAGS += -O3 -DOPT
+endif
+
+# TRACK (A, B): Which track layout to compile for
+ifeq ($(TRACK),A)
+	CFLAGS += -DTRACK_A
+else ifeq ($(TRACK),B)
+	CFLAGS += -DTRACK_B
+else
+$(error TRACK must be A or B)
 endif
 
 # CACHE (n, i, d, b): Whether to enable the data caches or instruction caches

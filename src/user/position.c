@@ -16,8 +16,18 @@ static train_pos_t g_pos[MAX_POS_TRAINS];
 /* ===== Fixed loop switch settings ===== */
 
 #define LOOP_SW_COUNT 4
-static const int  LOOP_SW_NUMS[LOOP_SW_COUNT] = { 7,   8,   14,  11  };
-static const char LOOP_SW_DIRS[LOOP_SW_COUNT] = { 'S', 'S', 'S', 'C' };
+
+/* Track A and Track B use the same inner loop, switch settings are identical.
+ * Loop path: A3->BR14(S)->MR11->C13->E7->D7->MR9->BR8(S)->D9->E12->BR7(S)->D11->C16->MR6->C6->MR15->B15->A3
+ *   SW7=S : BR7  straight -> D11
+ *   SW8=S : BR8  straight -> D9
+ *   SW14=S: BR14 straight -> MR11
+ *   SW11=C: BR11 curved   -> MR14  
+ */
+static const int  LOOP_SW_NUMS_A[LOOP_SW_COUNT] = { 7,   8,   14,  11  };
+static const char LOOP_SW_DIRS_A[LOOP_SW_COUNT] = { 'S', 'S', 'S', 'C' };
+static const int  LOOP_SW_NUMS_B[LOOP_SW_COUNT] = { 7,   8,   14,  11  };
+static const char LOOP_SW_DIRS_B[LOOP_SW_COUNT] = { 'S', 'S', 'S', 'C' };
 #define OFF_ROUTE_PATH_MAX_HOPS 120
 
 /* ===== Position slot management ===== */
@@ -544,9 +554,16 @@ void pos_on_speed_change(int train_num, int user_speed) {
 
 
 void pos_apply_loop_switches(void) {
+#ifdef TRACK_A
+    const int  *sw_nums = LOOP_SW_NUMS_A;
+    const char *sw_dirs = LOOP_SW_DIRS_A;
+#else
+    const int  *sw_nums = LOOP_SW_NUMS_B;
+    const char *sw_dirs = LOOP_SW_DIRS_B;
+#endif
     for (int i = 0; i < LOOP_SW_COUNT; i++) {
-        track_set_switch(LOOP_SW_NUMS[i], LOOP_SW_DIRS[i]);
-        track_update_switch(LOOP_SW_NUMS[i], LOOP_SW_DIRS[i]);
+        track_set_switch(sw_nums[i], sw_dirs[i]);
+        track_update_switch(sw_nums[i], sw_dirs[i]);
     }
     ui_mark_switches_dirty();
 }

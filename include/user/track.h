@@ -31,13 +31,10 @@ typedef struct {
 /* Global track graph */
 extern track_node g_track[TRACK_MAX];
 
-/* 0 = Track A, 1 = Track B.  Set before calling track_init_graph(). */
-extern int g_track_type;
-
 // Initialize track module with server TIDs
 void track_init(int can_server_tid, int term_server_tid);
 
-// (Re-)initialize the track graph using g_track_type
+// Initialize the track graph 
 void track_init_graph(void);
 
 // State management functions

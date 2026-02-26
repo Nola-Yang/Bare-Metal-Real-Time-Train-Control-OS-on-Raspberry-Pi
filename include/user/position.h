@@ -8,7 +8,7 @@
 /* Maximum number of trains tracked simultaneously */
 #define MAX_POS_TRAINS 4
 
-/* Number of sensors in the fixed loop (Track A) */
+/* Number of sensors in the fixed loop (same for Track A and Track B) */
 #define LOOP_SENSOR_COUNT 10
 
 /* Speed-stabilisation parameters for the goto loop phase */
@@ -105,7 +105,7 @@ void pos_on_tick(uint64_t now_us);
 void pos_on_speed_change(int train_num, int user_speed);
 
 
-/* Apply loop switch settings (SW7/8/14=S, SW11=C) */
+/* Apply loop switch settings (SW7/8/14=S, SW11=C) — same for Track A and B */
 void pos_apply_loop_switches(void);
 
 

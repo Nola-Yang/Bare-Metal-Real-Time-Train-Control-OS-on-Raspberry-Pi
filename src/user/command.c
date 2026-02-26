@@ -185,28 +185,6 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
         return 1;
     }
 
-    // usetrack <A|B>
-    if (argv[0][0] == 'u' && argv[0][1] == 's' && argv[0][2] == 'e' &&
-        argv[0][3] == 't' && argv[0][4] == 'r' && argv[0][5] == 'a' &&
-        argv[0][6] == 'c' && argv[0][7] == 'k' && argv[0][8] == '\0') {
-        if (argc != 2) {
-            ui_puts("Usage: usetrack <A|B>\r\n");
-            return 2;
-        }
-        char t = argv[1][0];
-        if (t == 'A' || t == 'a') {
-            g_track_type = 0;
-        } else if (t == 'B' || t == 'b') {
-            g_track_type = 1;
-        } else {
-            ui_puts("usetrack: must be A or B\r\n");
-            return 2;
-        }
-        track_init_graph();
-        ui_puts("Track graph reinitialised.\r\n");
-        return 2;
-    }
-
     ui_puts("Unknown command: ");
     ui_puts(argv[0]);
     ui_puts("\r\n");

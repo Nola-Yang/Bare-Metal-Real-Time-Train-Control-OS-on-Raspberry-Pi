@@ -19,9 +19,22 @@
 #define LOOP_SENSOR_COUNT_INTERNAL 10
 
 /* Track-array indices of the 10 fixed-loop sensors (in loop order).
- * A3=2, B15=30, C6=37, C13=44, C16=47, D7=54, D9=56, D11=58, E7=70, E12=75 */
-static const int LOOP_SENSOR_IDX[LOOP_SENSOR_COUNT_INTERNAL] =
+ * Both Track A and Track B share the same inner loop:
+ *   A3=2, B15=30, C6=37, C13=44, C16=47, D7=54, D9=56, D11=58, E7=70, E12=75
+ * Path: A3->BR14(S)->MR11->C13->E7->D7->MR9->BR8(S)->D9->E12->BR7(S)->D11->C16->MR6->C6->MR15->B15->A3
+ */
+static const int LOOP_SENSOR_IDX_A[LOOP_SENSOR_COUNT_INTERNAL] =
     { 2, 30, 37, 44, 47, 54, 56, 58, 70, 75 };
+static const int LOOP_SENSOR_IDX_B[LOOP_SENSOR_COUNT_INTERNAL] =
+    { 2, 30, 37, 44, 47, 54, 56, 58, 70, 75 };
+
+static inline const int *loop_sensor_idx(void) {
+#ifdef TRACK_A
+    return LOOP_SENSOR_IDX_A;
+#else
+    return LOOP_SENSOR_IDX_B;
+#endif
+}
 
 /* ===== BFS data ===== */
 
@@ -100,7 +113,7 @@ static void bfs_enqueue(int *tail, track_node *node, int parent_idx,
 
 int is_loop_sensor(int track_idx) {
     for (int i = 0; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
-        if (LOOP_SENSOR_IDX[i] == track_idx) return 1;
+        if (loop_sensor_idx()[i] == track_idx) return 1;
     }
     return 0;
 }
@@ -268,7 +281,7 @@ int bfs_find_route(track_node *start, track_node *target, route_plan_t *plan) {
 int bfs_find_route_to_loop(track_node *start, route_plan_t *plan) {
     if (!start || !plan) return 0;
     for (int i = 0; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
-        track_node *loop_entry = &g_track[LOOP_SENSOR_IDX[i]];
+        track_node *loop_entry = &g_track[loop_sensor_idx()[i]];
         if (bfs_find_route(start, loop_entry, plan)) {
             return 1;
         }

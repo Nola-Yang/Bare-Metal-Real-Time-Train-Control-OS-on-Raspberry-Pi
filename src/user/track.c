@@ -9,7 +9,6 @@
 
 /* Global track graph */
 track_node g_track[TRACK_MAX];
-int g_track_type = 0;  /* 0 = Track A (default), 1 = Track B */
 
 // Server TIDs for communication
 static int can_tid = -1;
@@ -72,11 +71,11 @@ int track_is_valid_switch(int sw_num) {
 }
 
 void track_init_graph(void) {
-    if (g_track_type == 0) {
-        init_tracka(g_track);
-    } else {
-        init_trackb(g_track);
-    }
+#ifdef TRACK_A
+    init_tracka(g_track);
+#else
+    init_trackb(g_track);
+#endif
 }
 
 void track_init(int can_server_tid, int term_server_tid) {
