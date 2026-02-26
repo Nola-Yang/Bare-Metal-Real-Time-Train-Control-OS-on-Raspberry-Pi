@@ -22,9 +22,10 @@ OPT?=1
 CACHE?=b
 VERBOSE?=0
 TRACK?=A
+IDLE_WINDOW_TICKS?=50
 
 MAKESPEC:=.make_spec
-MAKESPEC_FORMAT:=$(VERBOSE) $(OPT) $(CACHE) $(TRACK)
+MAKESPEC_FORMAT:=$(VERBOSE) $(OPT) $(CACHE) $(TRACK) $(IDLE_WINDOW_TICKS)
 
 # clean up the built files, if the passed arguments have changed
 ifneq ($(shell cat $(MAKESPEC) 2>/dev/null), $(MAKESPEC_FORMAT))
@@ -51,6 +52,9 @@ else ifeq ($(TRACK),B)
 else
 $(error TRACK must be A or B)
 endif
+
+# IDLE_WINDOW_TICKS (default 50): rolling window size for idle% display (50 ticks = 5s)
+CFLAGS += -DIDLE_WINDOW_TICKS=$(IDLE_WINDOW_TICKS)
 
 # CACHE (n, i, d, b): Whether to enable the data caches or instruction caches
 ifeq ($(CACHE),b)

@@ -79,6 +79,13 @@ typedef struct {
     /* Timestamp (us) when route_state entered TRAIN_STATE_STOPPING.
      * Used by pos_on_tick() to fire the STOPPING → STOPPED transition. */
     uint64_t    stopping_since_us;
+
+    /* Per-speed EMA cache.
+     * cached_v[s] holds the last calibrated effective_v for user speed s.
+     * 0 = unset; fall back to SPEED_V_MM_S[s] from the polynomial table.
+     * Saved on each stop; restored on restart at the same speed 
+    */
+    int32_t     cached_v[15];
 } train_pos_t;
 
 /* ---------- Route plan (from plan_route BFS) ---------- */
