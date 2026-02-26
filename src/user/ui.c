@@ -126,6 +126,9 @@ void ui_draw_position(void) {
         if (pos->target_sensor && pos->target_sensor->name) {
             p = buf_append(p, " tgt=");
             p = buf_append(p, pos->target_sensor->name);
+        }
+        if (pos->route_state == TRAIN_STATE_ON_ROUTE &&
+            pos->target_sensor && pos->target_sensor->name) {
             p = buf_append(p, " rem=");
             p = buf_append_int(p, (int)pos->dist_to_target_mm);
             p = buf_append(p, "mm");
