@@ -307,7 +307,26 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
 
 /* ===== Public API ===== */
 
+/*
+ * Fill SPEED_STOP_DIST_MM using the cubic formula calibrated from measurements:
+ *   dist(x) = 1.463*x^3 - 21.19*x^2 + 148.8*x - 216  (mm)
+ *
+ * Implemented in integer arithmetic (scaled by 1000) to avoid floating point.
+ */
+static void init_braking_table(void) {
+    SPEED_STOP_DIST_MM[0] = 0;
+    for (int x = 1; x <= 14; x++) {
+        int64_t val = (int64_t)1463 * x * x * x
+                    - (int64_t)21190 * x * x
+                    + (int64_t)148800 * x
+                    - (int64_t)216000;
+        val /= 1000;
+        SPEED_STOP_DIST_MM[x] = (val > 0) ? (int32_t)val : 0;
+    }
+}
+
 void pos_init(void) {
+    init_braking_table();
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         g_pos[i].train_num = -1;
     }

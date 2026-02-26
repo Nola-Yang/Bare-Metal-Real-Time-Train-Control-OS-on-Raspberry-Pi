@@ -24,14 +24,11 @@ static const int32_t SPEED_V_CURVE_MM_S[15] = {
 };
 
 /*
- * Braking distances in mm (placeholder — replace with measured values).
+ * Braking distances in mm.
  * SPEED_STOP_DIST_MM[n] = estimated distance to stop from user speed n.
+ * Filled at runtime by speed_table_init_braking() using the cubic formula:
+ *   dist(x) = 1.463*x^3 - 21.19*x^2 + 148.8*x - 216  (mm, x = speed step)
  */
-static const int32_t SPEED_STOP_DIST_MM[15] = {
-    0,
-    100, 150, 220, 310, 420,
-    550, 700, 200 , 1060, 1260,
-    1480, 1720, 1980, 2260
-};
+static int32_t SPEED_STOP_DIST_MM[15];
 
 #endif /* _speed_table_h_ */
