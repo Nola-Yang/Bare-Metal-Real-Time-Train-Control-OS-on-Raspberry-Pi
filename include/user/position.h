@@ -116,7 +116,7 @@ void pos_on_speed_change(int train_num, int user_speed);
 void pos_on_reverse(int train_num);
 
 
-/* Apply loop switch settings (SW7/8/14=S, SW11=C) — same for Track A and B */
+/* Apply loop switch settings (SW7/8/14/9/6/15=S, SW11=C). */
 void pos_apply_loop_switches(void);
 
 
