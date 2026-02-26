@@ -110,7 +110,7 @@ static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     if (pos->user_speed == 0) pos->user_speed = 8;
     int can_spd = 1 + (pos->user_speed - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
-    pos->effective_v     = SPEED_V_STRAIGHT_MM_S[pos->user_speed];
+    pos->effective_v     = SPEED_V_MM_S[pos->user_speed];
     pos->cur_sensor_time = now_us;
 
     /* Prediction */
@@ -308,6 +308,32 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
 /* ===== Public API ===== */
 
 /*
+ * Fill SPEED_V_MM_S (mm/s) from:
+ *   f(x) = -0.3358x^5 + 17.71x^4 - 375.3x^3 + 4053x^2 - 22980x + 58520
+ * Speed in mm/s = 1,000,000 / f(x).
+ *
+ * Integer arithmetic: coefficients scaled by 10000, so val = f(x)*10000.
+ * Then speed = 10^10 / val.
+ */
+static void init_speed_table(void) {
+    SPEED_V_MM_S[0] = 0;
+    for (int x = 1; x <= 14; x++) {
+        int64_t x2 = (int64_t)x * x;
+        int64_t x3 = x2 * x;
+        int64_t x4 = x3 * x;
+        int64_t x5 = x4 * x;
+        int64_t val = -3358LL    * x5
+                    + 177100LL   * x4
+                    - 3753000LL  * x3
+                    + 40530000LL * x2
+                    - 229800000LL* x
+                    + 585200000LL;
+        /* val = f(x)*10000 us/mm; speed = 1e6/(val/10000) = 1e10/val */
+        SPEED_V_MM_S[x] = (val > 0) ? (int32_t)(10000000000LL / val) : 0;
+    }
+}
+
+/*
  * Fill SPEED_STOP_DIST_MM using the cubic formula calibrated from measurements:
  *   dist(x) = 1.463*x^3 - 21.19*x^2 + 148.8*x - 216  (mm)
  *
@@ -326,6 +352,7 @@ static void init_braking_table(void) {
 }
 
 void pos_init(void) {
+    init_speed_table();
     init_braking_table();
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         g_pos[i].train_num = -1;
@@ -494,7 +521,7 @@ void pos_on_speed_change(int train_num, int user_speed) {
     pos->user_speed = user_speed;
 
     if (user_speed > 0 && user_speed <= 14) {
-        pos->effective_v = SPEED_V_STRAIGHT_MM_S[user_speed];
+        pos->effective_v = SPEED_V_MM_S[user_speed];
         /* Transition to KNOWN when the train resumes from a known-position state. */
         if (pos->cur_sensor != NULL &&
             (pos->route_state == TRAIN_STATE_STOPPED  ||
@@ -550,7 +577,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
         int can_spd = 1 + (pos->user_speed - 1) * 77;
         track_set_speed(train_num, can_spd);
 
-        pos->effective_v     = SPEED_V_STRAIGHT_MM_S[pos->user_speed];
+        pos->effective_v     = SPEED_V_MM_S[pos->user_speed];
         pos->cur_sensor_time = read_timer();
         pos->going_forward   = 1;
         pos->stable_sensor_count = 0;

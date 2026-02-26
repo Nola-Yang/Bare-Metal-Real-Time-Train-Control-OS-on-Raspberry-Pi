@@ -8,7 +8,6 @@
 #include "route_priv.h"
 #include "track.h"
 #include "track_data.h"
-#include "speed_table.h"
 #include "timer.h"
 #include "ui.h"
 #include "kassert.h"
@@ -150,10 +149,6 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
         if (!e || !e->dest) break;
 
         int32_t v = pos->effective_v;
-        if (n->type == NODE_BRANCH && e == &n->edge[DIR_CURVED]) {
-            int32_t curve_v = SPEED_V_CURVE_MM_S[pos->user_speed];
-            if (curve_v > 0) v = curve_v;
-        }
         total_us += (uint64_t)((int64_t)e->dist * 1000000LL / v);
 
         n = e->dest;

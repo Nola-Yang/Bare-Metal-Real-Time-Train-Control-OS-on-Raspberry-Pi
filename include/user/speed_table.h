@@ -11,17 +11,12 @@
  * CAN speed <-> user speed:  can = (user==0)?0 : 1+(user-1)*77
  */
 
-/* Straight track */
-static const int32_t SPEED_V_STRAIGHT_MM_S[15] = {
-    0,
-    20, 31, 49, 76, 117, 162, 222, 288, 359, 444, 548, 622, 754, 869
-};
-
-/* Curved track */
-static const int32_t SPEED_V_CURVE_MM_S[15] = {
-    0,
-    39, 48, 64, 78, 119, 164, 220, 287, 361, 438, 545, 624, 727, 833
-};
+/*
+ * speed table (mm/s).  Filled at runtime by init_speed_table() in position.c.
+ * Polynomial gives us/mm: f(x) = -0.3358x^5 + 17.71x^4 - 375.3x^3 + 4053x^2 - 22980x + 58520
+ * Speed (mm/s) = 1,000,000 / f(x),  x = user speed step (1–14); index 0 = 0.
+ */
+static int32_t SPEED_V_MM_S[15];
 
 /*
  * Braking distances in mm.
