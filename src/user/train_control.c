@@ -213,7 +213,6 @@ void train_control_task(void) {
                 int idle_percent = get_idle_percentage();
                 ui_update_idle(idle_percent);
 
-                /* Todo: Update position tracking (STOPPING -> STOPPED, continuous stop-at check) */
                 pos_on_tick(tick_now);
 
                 if (ui_is_switches_dirty()) {
