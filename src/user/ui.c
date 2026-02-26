@@ -337,7 +337,6 @@ void ui_update_clock(uint64_t start_us, uint64_t now) {
     }
 }
 
-// Todo: maybe deleted later
 void ui_update_idle(int percent) {
     if (percent < 0) {
         return;

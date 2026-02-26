@@ -66,8 +66,6 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
         }
         int can_speed = (speed == 0) ? 0 : 1 + (speed - 1) * 77;
         track_set_speed(train, can_speed);
-        // Todo: not sure do we allowe tr command during goto process?
-        // Todo: do we allow the excution of goto when the train is already moving?
         pos_on_speed_change(train, speed);
         return 1;
     }
