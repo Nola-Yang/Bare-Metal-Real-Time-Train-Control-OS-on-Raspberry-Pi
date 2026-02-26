@@ -64,26 +64,23 @@ static track_edge *get_next_edge(track_node *n) {
 }
 
 /*
- * Returns 1 if `target` sensor is reachable from `start` within max_hops
- * without passing through any intermediate sensor node.
- * At branch nodes, tries both directions recursively.
+ * Returns 1 if `target` is reachable from `start` within max_hops.
+ * Intermediate sensor nodes are treated as ordinary waypoints 
  */
-static int reaches_sensor_directly(track_node *start, track_node *target,
-                                   int max_hops) {
+static int reaches_target(track_node *start, track_node *target, int max_hops) {
     if (!start) return 0;
     if (start == target) return 1;
     if (max_hops <= 0) return 0;
     if (start->type == NODE_EXIT) return 0;
-    if (start->type == NODE_SENSOR) return 0;
 
     if (start->type == NODE_BRANCH) {
-        return (reaches_sensor_directly(start->edge[DIR_STRAIGHT].dest,
-                                        target, max_hops - 1) ||
-                reaches_sensor_directly(start->edge[DIR_CURVED].dest,
-                                        target, max_hops - 1));
+        return (reaches_target(start->edge[DIR_STRAIGHT].dest,
+                               target, max_hops - 1) ||
+                reaches_target(start->edge[DIR_CURVED].dest,
+                               target, max_hops - 1));
     }
-    return reaches_sensor_directly(start->edge[DIR_AHEAD].dest,
-                                   target, max_hops - 1);
+    if (!start->edge[DIR_AHEAD].dest) return 0;
+    return reaches_target(start->edge[DIR_AHEAD].dest, target, max_hops - 1);
 }
 
 static void bfs_enqueue(int *tail, track_node *node, int parent_idx,
@@ -184,29 +181,24 @@ void observe_path_and_correct_switches(track_node *from, track_node *to) {
 
         if (n->type == NODE_BRANCH) {
             track_node *branch = n;
-            char actual_dir = '?';
-            track_node *next = NULL;
 
-            if (branch->edge[DIR_STRAIGHT].dest &&
-                reaches_sensor_directly(branch->edge[DIR_STRAIGHT].dest, to, 12)) {
-                actual_dir = 'S';
-                next = branch->edge[DIR_STRAIGHT].dest;
-            } else if (branch->edge[DIR_CURVED].dest &&
-                       reaches_sensor_directly(branch->edge[DIR_CURVED].dest, to, 12)) {
-                actual_dir = 'C';
-                next = branch->edge[DIR_CURVED].dest;
-            } else {
-                break;
-            }
+            int s = branch->edge[DIR_STRAIGHT].dest &&
+                    reaches_target(branch->edge[DIR_STRAIGHT].dest, to, 40);
+            int c = branch->edge[DIR_CURVED].dest &&
+                    reaches_target(branch->edge[DIR_CURVED].dest, to, 40);
 
-            if (actual_dir != '?') {
-                int sw_idx = track_switch_to_index(branch->num);
-                if (sw_idx >= 0) {
-                    char stored = track_get_switch_state()[sw_idx].state;
-                    if (stored != actual_dir) {
-                        track_update_switch(branch->num, actual_dir);
-                        ui_mark_switches_dirty();
-                    }
+            if (s == c) break;
+
+            char actual_dir = s ? 'S' : 'C';
+            track_node *next = s ? branch->edge[DIR_STRAIGHT].dest
+                                 : branch->edge[DIR_CURVED].dest;
+
+            int sw_idx = track_switch_to_index(branch->num);
+            if (sw_idx >= 0) {
+                char stored = track_get_switch_state()[sw_idx].state;
+                if (stored != actual_dir) {
+                    track_update_switch(branch->num, actual_dir);
+                    ui_mark_switches_dirty();
                 }
             }
             n = next;
@@ -340,6 +332,14 @@ void execute_pending_route(train_pos_t *pos) {
     pos->pending_offset_mm   = 0;
     pos->stable_sensor_count = 0;
     pos->route_state         = TRAIN_STATE_ON_ROUTE;
+
+    /* Refresh prediction with the newly set route switches.
+     * The earlier prediction in handle_sensor F was computed before BFS
+     * changed the switches, so it may point to the wrong next sensor. */
+    uint64_t dt = 0;
+    pos->pred_next_sensor  = predict_next_sensor(pos, plan_start, &dt);
+    pos->pred_trigger_time = read_timer() + dt;
+
     ui_mark_position_dirty();
 }
 
