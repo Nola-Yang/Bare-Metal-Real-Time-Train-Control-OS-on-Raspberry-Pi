@@ -95,6 +95,9 @@ typedef struct {
      * Used by pos_on_tick() to fire the STOPPING → STOPPED transition. */
     uint64_t    stopping_since_us;
 
+    /* Speed used for the loop phase */
+    int         goto_speed;
+
     /* Per-speed EMA cache.
      * cached_v[s] holds the last calibrated effective_v for user speed s.
      * 0 = unset; fall back to SPEED_V_MM_S[s] from the polynomial table.
@@ -136,7 +139,7 @@ void pos_apply_loop_switches(void);
 
 
 /* Execute a goto */
-int pos_goto(int train_num, track_node *target, int32_t offset_mm);
+int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_speed);
 
 
 /* Returns 1 if the given train has an active goto in progress; 0 otherwise. */

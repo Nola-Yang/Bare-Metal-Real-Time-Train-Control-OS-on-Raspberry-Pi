@@ -76,6 +76,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->offroute_expected_sensor = NULL;
             slot->offroute_actual_sensor   = NULL;
             slot->stopping_since_us     = 0;
+            slot->goto_speed            = 8;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
             return slot;
         }
@@ -132,8 +133,7 @@ static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     }
 
     /* Restart the train */
-    // if (pos->user_speed == 0) 
-    pos->user_speed = 8;
+    pos->user_speed = pos->goto_speed;
     int can_spd = 1 + (pos->user_speed - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
     int32_t cv_loop      = pos->cached_v[pos->user_speed];
@@ -726,7 +726,7 @@ void pos_apply_loop_switches(void) {
     ui_mark_switches_dirty();
 }
 
-int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
+int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_speed) {
     KASSERT(target != NULL);
     if (!target) return 0;
 
@@ -734,6 +734,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     KASSERT(pos != NULL);
     if (!pos) return 0;
 
+    pos->goto_speed         = goto_speed;
     pos->pending_target     = target;
     pos->pending_offset_mm  = offset_mm;
     pos->orig_user_target   = target;
@@ -761,7 +762,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
         */
 
         pos_apply_loop_switches();
-        pos->user_speed = 8;
+        pos->user_speed = pos->goto_speed;
         int can_spd = 1 + (pos->user_speed - 1) * 77;
         track_set_speed(train_num, can_spd);
 
@@ -785,7 +786,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     } else if (pos->route_state == TRAIN_STATE_STOPPING_TR) {
         /* Train is already decelerating from a tr 0 command.
          * Redirect the post-stop action from STOPPED to ENTER_LOOP. */
-        if (pos->user_speed == 0) pos->user_speed = 8;
+        if (pos->user_speed == 0) pos->user_speed = pos->goto_speed;
         pos->route_state = TRAIN_STATE_STOPPING_GOTO;
 
     } else if (pos->route_state == TRAIN_STATE_STOPPED) {
@@ -805,7 +806,8 @@ int pos_is_train_goto_active(int train_num) {
             st == TRAIN_STATE_LOOP_STABILIZE   ||
             st == TRAIN_STATE_ON_ROUTE         ||
             st == TRAIN_STATE_STOPPING         ||
-            st == TRAIN_STATE_RECOVERY_STOPPING) ? 1 : 0;
+            st == TRAIN_STATE_RECOVERY_STOPPING||
+            st == TRAIN_STATE_DEAD_TRACK) ? 1 : 0;
 }
 
 train_pos_t *pos_get(int train_num) {

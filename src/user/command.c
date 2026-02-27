@@ -37,8 +37,8 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
     KASSERT(rv_train != NULL);
 
     *rv_train = -1;
-    char *argv[5];
-    int argc = tokenize(cmd, argv, 5);
+    char *argv[6];
+    int argc = tokenize(cmd, argv, 6);
 
     if (argc == 0) return 1;
 
@@ -155,11 +155,11 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
     }
 
 
-    // goto <sensor> [+offset_mm]
+    // goto <train> <sensor> [offset_mm] [speed 8-12]
     if (argv[0][0] == 'g' && argv[0][1] == 'o' && argv[0][2] == 't' &&
         argv[0][3] == 'o' && argv[0][4] == '\0') {
         if (argc < 3) {
-            ui_puts("Usage: goto <train> <sensor> [+offset_mm]\r\n");
+            ui_puts("Usage: goto <train> <sensor> [offset_mm] [speed 8-12]\r\n");
             return 2;
         }
         int train = str2int(argv[1]);
@@ -180,7 +180,15 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
         if (argc >= 4) {
             offset = (int32_t)str2int(argv[3]);
         }
-        int gr = pos_goto(train, target, offset);
+        int goto_speed = 8;
+        if (argc >= 5) {
+            goto_speed = str2int(argv[4]);
+            if (goto_speed < 8 || goto_speed > 12) {
+                ui_puts("goto: speed must be 8-12\r\n");
+                return 2;
+            }
+        }
+        int gr = pos_goto(train, target, offset, goto_speed);
         if (!gr) {
             ui_puts("goto: no slot available\r\n");
             return 2;
