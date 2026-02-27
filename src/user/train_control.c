@@ -82,7 +82,8 @@ void ui_tick_task(void) {
 
 // Parse CAN frame for sensor data
 static void process_can_frame(const can_frame_t *frame, uint64_t now) {
-    uint8_t command = (frame->id >> 17) & 0xFF;
+    uint8_t command     = (uint8_t)((frame->id >> 17) & 0xFF);
+    int     is_response = (int)((frame->id >> 16) & 1);
 
     if (command == 0x11 && frame->dlc >= 5) {
         // Sensor event
@@ -98,6 +99,19 @@ static void process_can_frame(const can_frame_t *frame, uint64_t now) {
             if (state == 1) {
                 pos_on_sensor_trigger(sensor_id, now);
             }
+        }
+    } else if (command == 0x0B && is_response && frame->dlc >= 5) {
+        // physical switch has been commanded.
+        // Update software state here so predict_next_sensor reflects reality.
+        uint32_t sw_id_raw = ((uint32_t)frame->data[0] << 24) |
+                             ((uint32_t)frame->data[1] << 16) |
+                             ((uint32_t)frame->data[2] << 8)  |
+                              (uint32_t)frame->data[3];
+        int  sw_num = (int)(sw_id_raw - 0x3000 + 1);
+        char dir    = (frame->data[4] == 0x01) ? 'S' : 'C';
+        if (track_is_valid_switch(sw_num)) {
+            track_update_switch(sw_num, dir);
+            ui_mark_switches_dirty();
         }
     }
 }
@@ -126,15 +140,11 @@ void train_control_task(void) {
     // set all switches to straight, then override loop switches
     for (int sw = 1; sw <= 18; sw++) {
         track_set_switch(sw, 'S');
-        track_update_switch(sw, 'S');
     }
     for (int sw = 153; sw <= 156; sw++) {
         track_set_switch(sw, 'S');
-        track_update_switch(sw, 'S');
     }
     pos_apply_loop_switches();
-    // Wait for all switch commands to be acknowledged, but give up after 1 s
-    CANFlushTxTimeout(can_tid, clock_tid, 100);
     ui_mark_switches_dirty();
 
     Create(TRAIN_COURIER_PRIORITY, can_rx_courier_task);

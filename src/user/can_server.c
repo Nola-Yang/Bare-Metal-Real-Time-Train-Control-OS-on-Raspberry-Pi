@@ -9,12 +9,10 @@
 #include "rpi.h"
 #include "ring_buffer.h"
 #include "kassert.h"
-#include "clock_server.h"
 
 
 //I guess only one for now implementation
 #define MAX_RECV_WAITERS 8
-#define MAX_IDLE_WAITERS 8
 
 // server-side, receives frames from MCP2515
 #define RX_QUEUE_SIZE 16
@@ -95,27 +93,6 @@ static void try_send_next_queued(CANTxQueue_t *tx_queue, int *waiting_reply,
     set_pending_reply(pending_reply, &frame);
 }
 
-static int can_tx_pipeline_idle(const CANTxQueue_t *tx_queue, int waiting_reply) {
-    return (waiting_reply == 0) && ring_buffer_is_empty(tx_queue);
-}
-
-static void maybe_reply_idle_waiters(const CANTxQueue_t *tx_queue,
-                                     int waiting_reply,
-                                     int waiters[],
-                                     int *waiter_count) {
-    if (!can_tx_pipeline_idle(tx_queue, waiting_reply)) return;
-
-    CANReply_t done_reply;
-    done_reply.status = 0;
-    while (*waiter_count > 0) {
-        Reply(waiters[0], (const char *)&done_reply, sizeof(done_reply));
-        for (int i = 1; i < *waiter_count; i++) {
-            waiters[i - 1] = waiters[i];
-        }
-        (*waiter_count)--;
-    }
-}
-
 // CAN RX Notifier
 static void can_rx_notifier_task(void) {
     int server_tid = MyParentTid();
@@ -144,8 +121,6 @@ void can_server_task(void) {
 
     int recv_waiters[MAX_RECV_WAITERS];
     int recv_waiter_count = 0;
-    int idle_waiters[MAX_IDLE_WAITERS];
-    int idle_waiter_count = 0;
     int tx_waiting_reply = 0;
     PendingReply_t pending_reply = {0};
 
@@ -176,15 +151,11 @@ void can_server_task(void) {
                     }
                 }
 
-                // TX done only means hardware buffer is free; route advance is
-                // still gated by command reply.
                 if (flags & MCP2515_CANINTF_TX0IF) {
                     mcp2515_clear_interrupt_flags(MCP2515_CANINTF_TX0IF);
                     try_send_next_queued(&tx_queue, &tx_waiting_reply,
                                          &pending_reply);
                 }
-                maybe_reply_idle_waiters(&tx_queue, tx_waiting_reply,
-                                         idle_waiters, &idle_waiter_count);
 
                 // Keep RX interrupts enabled whenever there are waiters or RX queue has space.
                 if (recv_waiter_count > 0 || !ring_buffer_is_full(&rx_queue)) {
@@ -208,8 +179,6 @@ void can_server_task(void) {
                     mcp2515_enable_tx_interrupts();
                     gpio_enable_can_interrupt();
                 }
-                maybe_reply_idle_waiters(&tx_queue, tx_waiting_reply,
-                                         idle_waiters, &idle_waiter_count);
 
                 reply.status = queued ? 0 : -1;
                 Reply(tid, (const char *)&reply, sizeof(reply));
@@ -258,39 +227,6 @@ void can_server_task(void) {
                 mcp2515_enable_rx_interrupts();
                 mcp2515_enable_tx_interrupts();
                 gpio_enable_can_interrupt();
-                reply.status = 0;
-                Reply(tid, (const char *)&reply, sizeof(reply));
-                break;
-            }
-
-            case CAN_MSG_WAIT_IDLE: {
-                if (can_tx_pipeline_idle(&tx_queue, tx_waiting_reply)) {
-                    reply.status = 0;
-                    Reply(tid, (const char *)&reply, sizeof(reply));
-                } else if (idle_waiter_count < MAX_IDLE_WAITERS) {
-                    idle_waiters[idle_waiter_count++] = tid;
-                } else {
-                    reply.status = -1;
-                    Reply(tid, (const char *)&reply, sizeof(reply));
-                }
-                break;
-            }
-
-            case CAN_MSG_CANCEL_IDLE_WAIT: {
-                CANReply_t cancel_reply;
-                cancel_reply.status = -1;
-                while (idle_waiter_count > 0) {
-                    Reply(idle_waiters[0], (const char *)&cancel_reply,
-                          sizeof(cancel_reply));
-                    for (int i = 1; i < idle_waiter_count; i++) {
-                        idle_waiters[i - 1] = idle_waiters[i];
-                    }
-                    idle_waiter_count--;
-                }
-                tx_waiting_reply = 0;
-                pending_reply.active = 0;
-                try_send_next_queued(&tx_queue, &tx_waiting_reply, &pending_reply);
-
                 reply.status = 0;
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
@@ -350,51 +286,4 @@ int CANEnableInterrupts(int tid) {
         return -1;
     }
     return reply.status;
-}
-
-int CANWaitTxIdle(int tid) {
-    CANRequest_t req;
-    CANReply_t reply;
-
-    req.type = CAN_MSG_WAIT_IDLE;
-
-    int ret = Send(tid, (const char *)&req, sizeof(req),
-                   (char *)&reply, sizeof(reply));
-    if (ret < 0) {
-        return -1;
-    }
-    return reply.status;
-}
-
-
-// CANWaitTxIdle with a hard timeout
-
-static struct {
-    int can_tid;
-    int clock_tid;
-    int timeout_ticks;
-} g_flush_timeout_params;
-
-static void can_flush_timeout_task(void) {
-    int can_tid       = g_flush_timeout_params.can_tid;
-    int clock_tid     = g_flush_timeout_params.clock_tid;
-    int timeout_ticks = g_flush_timeout_params.timeout_ticks;
-
-    Delay(clock_tid, timeout_ticks);
-
-    CANRequest_t req;
-    CANReply_t   reply;
-    req.type = CAN_MSG_CANCEL_IDLE_WAIT;
-    Send(can_tid, (const char *)&req, sizeof(req), (char *)&reply, sizeof(reply));
-
-    Exit();
-}
-
-int CANFlushTxTimeout(int can_tid, int clock_tid, int timeout_ticks) {
-    g_flush_timeout_params.can_tid       = can_tid;
-    g_flush_timeout_params.clock_tid     = clock_tid;
-    g_flush_timeout_params.timeout_ticks = timeout_ticks;
-
-    Create(TRAIN_COURIER_PRIORITY, can_flush_timeout_task);
-    return CANWaitTxIdle(can_tid);
 }

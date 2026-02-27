@@ -100,7 +100,6 @@ static train_pos_t *find_or_create_pos(int train_num) {
  */
 static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     pos_apply_loop_switches();
-    int reroute_switch_changed = 0;
     int just_reversed = 0;
 
     /* BFS to loop entry if not already on the loop */
@@ -111,10 +110,8 @@ static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
         if (bfs_find_route_to_loop(pos->cur_sensor, &rp)) {
             for (int j = 0; j < rp.sw_count; j++) {
                 track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
-                track_update_switch(rp.sw_nums[j], rp.sw_dirs[j]);
             }
             if (rp.sw_count > 0) {
-                reroute_switch_changed = 1;
                 ui_mark_switches_dirty();
             }
         } else {
@@ -124,20 +121,13 @@ static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
             track_reverse(pos->train_num);
             pos->cur_sensor = pos->cur_sensor->reverse;
             pos->going_forward = !pos->going_forward;
-            track_wait_tx_idle();
             just_reversed = 1;
             for (int j = 0; j < rp.sw_count; j++) {
                 track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
-                track_update_switch(rp.sw_nums[j], rp.sw_dirs[j]);
             }
             if (rp.sw_count > 0) {
-                reroute_switch_changed = 1;
                 ui_mark_switches_dirty();
             }
-        }
-
-        if (reroute_switch_changed) {
-            KASSERT(track_wait_tx_idle() == 0);
         }
     }
 
@@ -675,7 +665,6 @@ void pos_apply_loop_switches(void) {
 #endif
     for (int i = 0; i < LOOP_SW_COUNT; i++) {
         track_set_switch(sw_nums[i], sw_dirs[i]);
-        track_update_switch(sw_nums[i], sw_dirs[i]);
     }
     ui_mark_switches_dirty();
 }

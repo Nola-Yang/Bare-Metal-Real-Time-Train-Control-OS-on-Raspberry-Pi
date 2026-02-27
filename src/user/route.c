@@ -379,11 +379,9 @@ void execute_pending_route(train_pos_t *pos) {
     /* Apply route switches from far to near along the path. */
     for (int i = rp.sw_count - 1; i >= 0; i--) {
         track_set_switch(rp.sw_nums[i], rp.sw_dirs[i]);
-        track_update_switch(rp.sw_nums[i], rp.sw_dirs[i]);
     }
 
     if (rp.sw_count > 0) {
-        KASSERT(track_wait_tx_idle() == 0);
         ui_mark_switches_dirty();
     }
 
