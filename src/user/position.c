@@ -216,16 +216,19 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
      * ON_ROUTE: steady cruise to target; primary source of calibration.
      *
      * All other states are excluded:
-     *   UNKNOWN / KNOWN         
+     *   UNKNOWN / KNOWN
      *   LOOP_FIND_DIR            — train still accelerating from rest
      *   STOPPING* / RECOVERY_*  — decelerating
      *
-     * Also require dt > 10 ms to reject sensor noise spikes. */
+     * Also require dt > 10 ms to reject sensor noise spikes.
+     *
+     * Require *out_was_predicted: 
+     */
     {
         train_route_state_t st = pos->route_state;
         int ema_valid = (st == TRAIN_STATE_LOOP_STABILIZE ||
                          st == TRAIN_STATE_ON_ROUTE);
-        if (ema_valid && pos->cur_sensor && pos->effective_v > 0) {
+        if (ema_valid && *out_was_predicted && pos->cur_sensor && pos->effective_v > 0) {
             int32_t meas_dist = follow_dist(pos->cur_sensor, hit, 100);
             uint64_t dt = time_us - pos->cur_sensor_time;
             if (dt > 10000 && meas_dist > 0) {
