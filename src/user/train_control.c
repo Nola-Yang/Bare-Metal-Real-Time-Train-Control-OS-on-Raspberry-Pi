@@ -133,7 +133,8 @@ void train_control_task(void) {
         track_update_switch(sw, 'S');
     }
     pos_apply_loop_switches();
-    CANWaitTxIdle(can_tid);
+    // Wait for all switch commands to be acknowledged, but give up after 1 s
+    CANFlushTxTimeout(can_tid, clock_tid, 100);
     ui_mark_switches_dirty();
 
     Create(TRAIN_COURIER_PRIORITY, can_rx_courier_task);

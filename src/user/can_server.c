@@ -9,6 +9,7 @@
 #include "rpi.h"
 #include "ring_buffer.h"
 #include "kassert.h"
+#include "clock_server.h"
 
 
 //I guess only one for now implementation
@@ -275,6 +276,26 @@ void can_server_task(void) {
                 break;
             }
 
+            case CAN_MSG_CANCEL_IDLE_WAIT: {
+                CANReply_t cancel_reply;
+                cancel_reply.status = -1;
+                while (idle_waiter_count > 0) {
+                    Reply(idle_waiters[0], (const char *)&cancel_reply,
+                          sizeof(cancel_reply));
+                    for (int i = 1; i < idle_waiter_count; i++) {
+                        idle_waiters[i - 1] = idle_waiters[i];
+                    }
+                    idle_waiter_count--;
+                }
+                tx_waiting_reply = 0;
+                pending_reply.active = 0;
+                try_send_next_queued(&tx_queue, &tx_waiting_reply, &pending_reply);
+
+                reply.status = 0;
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                break;
+            }
+
             default:
                 reply.status = -1;
                 Reply(tid, (const char *)&reply, sizeof(reply));
@@ -343,4 +364,37 @@ int CANWaitTxIdle(int tid) {
         return -1;
     }
     return reply.status;
+}
+
+
+// CANWaitTxIdle with a hard timeout
+
+static struct {
+    int can_tid;
+    int clock_tid;
+    int timeout_ticks;
+} g_flush_timeout_params;
+
+static void can_flush_timeout_task(void) {
+    int can_tid       = g_flush_timeout_params.can_tid;
+    int clock_tid     = g_flush_timeout_params.clock_tid;
+    int timeout_ticks = g_flush_timeout_params.timeout_ticks;
+
+    Delay(clock_tid, timeout_ticks);
+
+    CANRequest_t req;
+    CANReply_t   reply;
+    req.type = CAN_MSG_CANCEL_IDLE_WAIT;
+    Send(can_tid, (const char *)&req, sizeof(req), (char *)&reply, sizeof(reply));
+
+    Exit();
+}
+
+int CANFlushTxTimeout(int can_tid, int clock_tid, int timeout_ticks) {
+    g_flush_timeout_params.can_tid       = can_tid;
+    g_flush_timeout_params.clock_tid     = clock_tid;
+    g_flush_timeout_params.timeout_ticks = timeout_ticks;
+
+    Create(TRAIN_COURIER_PRIORITY, can_flush_timeout_task);
+    return CANWaitTxIdle(can_tid);
 }
