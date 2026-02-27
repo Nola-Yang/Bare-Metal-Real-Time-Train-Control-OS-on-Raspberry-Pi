@@ -33,7 +33,6 @@
 3. Manual physical repositioning of the train (unknown to the system) is not considered.
 4. Route planning start point should be `prediction->pos`, not the last sensor already passed.
 5. RECOVERY_STOPPING condition: during `goto`, the train did not follow the planned route AND it is not a sensor-skip situation.
-6. `observe_path_and_correct_switches` only checks adjacent sensors; skip cases are ignored.
-7. `consec_missed` has no actual use.
-8. STOPPING → STOPPED transition timing is approximate.
+6. `consec_missed` has no actual use.
+7. STOPPING → STOPPED transition timing is approximate.
 
