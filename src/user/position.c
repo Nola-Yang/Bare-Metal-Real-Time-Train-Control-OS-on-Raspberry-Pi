@@ -14,6 +14,9 @@
 
 train_pos_t g_pos[MAX_POS_TRAINS];
 
+int32_t SPEED_V_MM_S[15];
+int32_t SPEED_STOP_DIST_MM[15];
+
 /* ===== Fixed loop switch settings ===== */
 
 #define LOOP_SW_COUNT 7
