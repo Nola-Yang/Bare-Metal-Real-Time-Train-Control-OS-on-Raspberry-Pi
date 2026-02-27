@@ -231,6 +231,7 @@ void train_control_task(void) {
                     ui_puts("\033[s");
                     ui_draw_position();
                     ui_draw_prediction_error();
+                    ui_draw_offroute();
                     ui_puts("\033[u");
                     ui_mark_position_clean();
                 }

@@ -344,6 +344,7 @@ void execute_pending_route(train_pos_t *pos) {
 
     route_plan_t rp;
     track_node  *target = NULL;
+    track_node  *loop_plan_start = NULL;
 
     /* Try user_target first, then its reverse node.
      * For each candidate target, iterate through all loop sensors in the
@@ -367,12 +368,14 @@ void execute_pending_route(train_pos_t *pos) {
             if (!cand) continue;
             if (bfs_find_route(cand, tgt, &rp)) {
                 target = tgt;
+                loop_plan_start = cand;
                 break;
             }
         }
     }
 
-    KASSERT(target && "No loop sensor reaches target or target_reverse");
+    KASSERT(target && loop_plan_start &&
+            "No loop sensor reaches target or target_reverse");
     /* Apply route switches from far to near along the path. */
     for (int i = rp.sw_count - 1; i >= 0; i--) {
         track_set_switch(rp.sw_nums[i], rp.sw_dirs[i]);
@@ -380,11 +383,23 @@ void execute_pending_route(train_pos_t *pos) {
     }
 
     if (rp.sw_count > 0) {
+        KASSERT(track_wait_tx_idle() == 0);
         ui_mark_switches_dirty();
     }
 
     pos->target_sensor    = target;
     pos->target_offset_mm = offset;
+    pos->last_plan_valid      = 1;
+    pos->last_plan_loop_start = loop_plan_start;
+    pos->last_plan_target     = target;
+    pos->last_plan_sw_count   = rp.sw_count;
+    for (int i = 0; i < rp.sw_count; i++) {
+        pos->last_plan_sw_nums[i] = rp.sw_nums[i];
+        pos->last_plan_sw_dirs[i] = rp.sw_dirs[i];
+    }
+    pos->offroute_valid           = 0;
+    pos->offroute_expected_sensor = NULL;
+    pos->offroute_actual_sensor   = NULL;
 
     track_node *cur = pos->cur_sensor;
     if (cur) {

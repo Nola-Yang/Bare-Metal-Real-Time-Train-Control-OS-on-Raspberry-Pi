@@ -133,6 +133,24 @@ void ui_draw_position(void) {
             p = buf_append_int(p, (int)pos->dist_to_target_mm);
             p = buf_append(p, "mm");
         }
+        if (pos->last_plan_valid &&
+            pos->last_plan_loop_start && pos->last_plan_loop_start->name &&
+            pos->last_plan_target && pos->last_plan_target->name) {
+            p = buf_append(p, " plan=");
+            p = buf_append(p, pos->last_plan_loop_start->name);
+            p = buf_append(p, "->");
+            p = buf_append(p, pos->last_plan_target->name);
+            p = buf_append(p, " sw=");
+            if (pos->last_plan_sw_count <= 0) {
+                p = buf_append(p, "none");
+            } else {
+                for (int i = pos->last_plan_sw_count - 1; i >= 0; i--) {
+                    p = buf_append_int(p, pos->last_plan_sw_nums[i]);
+                    p = buf_append_char(p, pos->last_plan_sw_dirs[i]);
+                    if (i > 0) p = buf_append_char(p, ',');
+                }
+            }
+        }
         found = 1;
         break;
     }
@@ -171,6 +189,38 @@ void ui_draw_prediction_error(void) {
         p = buf_append(p, "mm");
         break;
     }
+    p = buf_append(p, "\033[K");
+    *p = '\0';
+    ui_puts(temp_buf);
+}
+
+/* ---- Off-route mismatch snapshot (Row 24) ---- */
+void ui_draw_offroute(void) {
+    char *temp_buf = buf_get_temp();
+    char *p = temp_buf;
+
+    p = buf_append(p, "\033[24;1H");
+
+    for (int t = 0; t < MAX_POS_TRAINS; t++) {
+        train_pos_t *pos = pos_get_by_index(t);
+        if (!pos || pos->train_num < 0) continue;
+
+        p = buf_append(p, "OffRoute: ");
+        if (pos->offroute_valid &&
+            pos->offroute_expected_sensor &&
+            pos->offroute_actual_sensor &&
+            pos->offroute_expected_sensor->name &&
+            pos->offroute_actual_sensor->name) {
+            p = buf_append(p, "exp=");
+            p = buf_append(p, pos->offroute_expected_sensor->name);
+            p = buf_append(p, " act=");
+            p = buf_append(p, pos->offroute_actual_sensor->name);
+        } else {
+            p = buf_append(p, "-");
+        }
+        break;
+    }
+
     p = buf_append(p, "\033[K");
     *p = '\0';
     ui_puts(temp_buf);
@@ -249,12 +299,11 @@ void ui_init(int terminal_tid) {
     // Sensors area (rows 11-21)
     ui_draw_sensors(0);
 
-    // Position / prediction / reliability rows (22, 23, 24)
+    // Position / prediction / off-route rows (22, 23, 24)
     ui_draw_position();
-    ui_puts("\r\n");
     ui_draw_prediction_error();
-    ui_puts("\r\n");
-    ui_puts("======================================================================\r\n");
+    ui_draw_offroute();
+    ui_puts("\033[25;1H======================================================================\r\n");
 
     // Command area (starts at row 27)
     ui_prepare_cmd();

@@ -20,6 +20,7 @@ void ui_update_idle(int percent);
 // Position / prediction display (rows 22, 23)
 void ui_draw_position(void);
 void ui_draw_prediction_error(void);
+void ui_draw_offroute(void);
 
 // Dirty flag management
 int ui_is_switches_dirty(void);

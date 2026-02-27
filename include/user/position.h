@@ -76,6 +76,20 @@ typedef struct {
     track_node *orig_user_target;
     int32_t     orig_target_offset;
 
+    /* Last planned route from loop to destination (for UI display). */
+    int         last_plan_valid;
+    track_node *last_plan_loop_start;
+    track_node *last_plan_target;
+    int         last_plan_sw_count;
+    int         last_plan_sw_nums[20];
+    char        last_plan_sw_dirs[20];
+
+    /* Last off-route mismatch snapshot for UI:
+     * expected sensor vs actual hit sensor. */
+    int         offroute_valid;
+    track_node *offroute_expected_sensor;
+    track_node *offroute_actual_sensor;
+
     /* Timestamp (us) when route_state entered TRAIN_STATE_STOPPING.
      * Used by pos_on_tick() to fire the STOPPING → STOPPED transition. */
     uint64_t    stopping_since_us;

@@ -64,6 +64,17 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->going_forward         = 1;
             slot->orig_user_target      = NULL;
             slot->orig_target_offset    = 0;
+            slot->last_plan_valid       = 0;
+            slot->last_plan_loop_start  = NULL;
+            slot->last_plan_target      = NULL;
+            slot->last_plan_sw_count    = 0;
+            for (int k = 0; k < 20; k++) {
+                slot->last_plan_sw_nums[k] = 0;
+                slot->last_plan_sw_dirs[k] = '?';
+            }
+            slot->offroute_valid           = 0;
+            slot->offroute_expected_sensor = NULL;
+            slot->offroute_actual_sensor   = NULL;
             slot->stopping_since_us     = 0;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
             return slot;
@@ -113,6 +124,7 @@ static void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
             track_reverse(pos->train_num);
             pos->cur_sensor = pos->cur_sensor->reverse;
             pos->going_forward = !pos->going_forward;
+            track_wait_tx_idle();
             just_reversed = 1;
             for (int j = 0; j < rp.sw_count; j++) {
                 track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
@@ -226,6 +238,7 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
 static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     int b_was_predicted, b_is_skip;
     update_sensor_stats(pos, hit, time_us, &b_was_predicted, &b_is_skip);
+    track_node *expected_sensor = pos->pred_next_sensor;
 
     track_node *prev_sensor = pos->cur_sensor;
     pos->cur_sensor      = hit;
@@ -285,20 +298,23 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
 
         int still_reachable = 0;
 
-        if (pos->route_state == TRAIN_STATE_ON_ROUTE ||
-            pos->route_state == TRAIN_STATE_STOPPING) {
-            if (pos->target_sensor &&
-                follow_dist(hit, pos->target_sensor, 200) >= 0) {
-                still_reachable = 1;
-            }
-        } else {
-            /* LOOP_FIND_DIR / LOOP_STABILIZE / ENTER_LOOP */
-            if (follow_reaches_loop(hit, 200)) {
-                still_reachable = 1;
-            }
-        }
+        // if (pos->route_state == TRAIN_STATE_ON_ROUTE ||
+        //     pos->route_state == TRAIN_STATE_STOPPING) {
+        //     if (pos->target_sensor &&
+        //         follow_dist(hit, pos->target_sensor, 200) >= 0) {
+        //         still_reachable = 1;
+        //     }
+        // } else {
+        //     /* LOOP_FIND_DIR / LOOP_STABILIZE / ENTER_LOOP */
+        //     if (follow_reaches_loop(hit, 200)) {
+        //         still_reachable = 1;
+        //     }
+        // }
 
         if (!still_reachable) {
+            pos->offroute_valid           = 1;
+            pos->offroute_expected_sensor = expected_sensor;
+            pos->offroute_actual_sensor   = hit;
             pos->consec_missed         = 0;
             pos->pred_next_sensor      = NULL;
             pos->pred_trigger_time     = 0;
@@ -676,6 +692,13 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     pos->pending_offset_mm  = offset_mm;
     pos->orig_user_target   = target;
     pos->orig_target_offset = offset_mm;
+    pos->last_plan_valid    = 0;
+    pos->last_plan_loop_start = NULL;
+    pos->last_plan_target   = NULL;
+    pos->last_plan_sw_count = 0;
+    pos->offroute_valid           = 0;
+    pos->offroute_expected_sensor = NULL;
+    pos->offroute_actual_sensor   = NULL;
 
     
     pos->target_sensor     = target;
