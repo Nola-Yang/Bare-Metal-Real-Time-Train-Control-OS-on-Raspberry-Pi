@@ -7,11 +7,11 @@
  *
  */
 
-#include "position_priv.h"
-#include "route_priv.h"
+#include "train_tracking/position_priv.h"
+#include "train_tracking/route_priv.h"
 #include "track.h"
-#include "track_data.h"
-#include "speed_table.h"
+#include "train_tracking/track_data.h"
+#include "train_tracking/speed_table.h"
 #include "timer.h"
 #include "kassert.h"
 #include "ui.h"

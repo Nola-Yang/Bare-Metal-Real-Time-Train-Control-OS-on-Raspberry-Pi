@@ -1,8 +1,8 @@
 #include "ui.h"
 #include "util.h"
 #include "track.h"
-#include "position.h"
-#include "terminal_server.h"
+#include "train_tracking/position.h"
+#include "server/terminal_server.h"
 
 static int term_tid = -1;
 static int ui_switches_dirty  = 1;

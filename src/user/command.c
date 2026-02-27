@@ -1,7 +1,7 @@
 #include "command.h"
 #include "util.h"
 #include "track.h"
-#include "position.h"
+#include "train_tracking/position.h"
 #include "ui.h"
 #include "kassert.h"
 

@@ -5,9 +5,9 @@
  * All functions here are called exclusively from position.c.
  */
 
-#include "route_priv.h"
+#include "train_tracking/route_priv.h"
 #include "track.h"
-#include "track_data.h"
+#include "train_tracking/track_data.h"
 #include "timer.h"
 #include "ui.h"
 #include "kassert.h"

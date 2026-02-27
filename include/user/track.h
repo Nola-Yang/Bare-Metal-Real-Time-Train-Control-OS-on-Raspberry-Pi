@@ -2,8 +2,8 @@
 #define _track_h_ 1
 
 #include <stdint.h>
-#include "track_node.h"
-#include "track_data.h"
+#include "train_tracking/track_node.h"
+#include "train_tracking/track_data.h"
 
 #define MAX_SWITCHES 22
 #define SENSOR_LOG_SIZE 16

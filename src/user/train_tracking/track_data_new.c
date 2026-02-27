@@ -1,6 +1,6 @@
 /* THIS FILE IS GENERATED CODE -- DO NOT EDIT */
 
-#include "track_data.h"
+#include "train_tracking/track_data.h"
 
 static void *memset(void *s, int c, unsigned int n) {
   unsigned char *p = s;

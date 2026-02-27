@@ -75,10 +75,6 @@ SOURCES := $(SRCS) $(ASM_SRCS)
 OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
 OBJECTS += $(patsubst $(SRC_DIR)/%.S,$(BUILD_DIR)/%.o,$(ASM_SRCS))
 
-# Extra source: track graph data (generated code in trach_data/)
-TRACK_DATA_SRC := trach_data/track_data_new.c
-TRACK_DATA_OBJ := $(BUILD_DIR)/trach_data/track_data_new.o
-OBJECTS += $(TRACK_DATA_OBJ)
 
 DEPENDS := $(OBJECTS:.o=.d)
 
@@ -107,10 +103,6 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c Makefile
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
-# Rule for track graph data source
-$(TRACK_DATA_OBJ): $(TRACK_DATA_SRC) Makefile
-	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
 
 
 # =========================================

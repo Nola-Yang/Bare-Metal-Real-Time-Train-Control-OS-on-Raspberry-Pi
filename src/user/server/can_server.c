@@ -1,6 +1,6 @@
-#include "can_server.h"
+#include "server/can_server.h"
 #include "syscall.h"
-#include "nameserver.h"
+#include "server/nameserver.h"
 #include "gic.h"
 #include "uart.h"
 #include "task_scheduler.h"
