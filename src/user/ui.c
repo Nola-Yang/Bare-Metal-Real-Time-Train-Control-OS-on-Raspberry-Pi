@@ -206,11 +206,20 @@ void ui_draw_offroute(void) {
         if (!pos || pos->train_num < 0) continue;
 
         p = buf_append(p, "OffRoute: ");
-        if (pos->offroute_valid &&
-            pos->offroute_expected_sensor &&
-            pos->offroute_actual_sensor &&
-            pos->offroute_expected_sensor->name &&
-            pos->offroute_actual_sensor->name) {
+        if (pos->route_state == TRAIN_STATE_DEAD_TRACK) {
+            p = buf_append(p, "DEAD TRACK");
+            if (pos->offroute_expected_sensor && pos->offroute_expected_sensor->name) {
+                p = buf_append(p, " (missed ");
+                p = buf_append(p, pos->offroute_expected_sensor->name);
+                p = buf_append(p, ") push train to recover");
+            } else {
+                p = buf_append(p, " push train to recover");
+            }
+        } else if (pos->offroute_valid &&
+                   pos->offroute_expected_sensor &&
+                   pos->offroute_actual_sensor &&
+                   pos->offroute_expected_sensor->name &&
+                   pos->offroute_actual_sensor->name) {
             p = buf_append(p, "exp=");
             p = buf_append(p, pos->offroute_expected_sensor->name);
             p = buf_append(p, " act=");

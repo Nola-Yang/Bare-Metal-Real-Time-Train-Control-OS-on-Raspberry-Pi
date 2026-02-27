@@ -33,6 +33,6 @@
 3. Manual physical repositioning of the train (unknown to the system) is not considered.
 4. Route planning start point should be `prediction->pos`, not the last sensor already passed.
 5. RECOVERY_STOPPING condition: during `goto`, the train did not follow the planned route AND it is not a sensor-skip situation.
-6. `consec_missed` has no actual use.
+6. `consec_missed >= 2` in `pos_on_tick` means dead track: train physically stopped on a powerless section. State -> `DEAD_TRACK`; orig_user_target preserved. When a sensor fires (train pushed to powered track), transitions to `ENTER_LOOP` to resume the goto via normal recovery flow.
 7. STOPPING → STOPPED transition timing is approximate.
 

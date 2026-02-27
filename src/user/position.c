@@ -272,6 +272,16 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         
     }
 
+    /* Dead track recovery: a sensor fired after the user manually pushed
+     * the train to a powered section.  Restart the goto via the normal
+     * recovery flow */
+    if (pos->route_state == TRAIN_STATE_DEAD_TRACK) {
+        pos->offroute_valid = 0;
+        transition_to_enter_loop(pos, time_us);
+        ui_mark_position_dirty();
+        return;
+    }
+
     /* ENTER_LOOP: first loop sensor confirms the train is back on the
      * loop.  Re-assert loop switches, update going_forward, and advance to
      * LOOP_STABILIZE.  
@@ -476,6 +486,9 @@ void pos_on_tick(uint64_t now_us) {
         train_pos_t *pos = &g_pos[i];
         if (pos->train_num < 0) continue;
 
+        /* train physically stopped; no estimation until sensor fires. */
+        if (pos->route_state == TRAIN_STATE_DEAD_TRACK) continue;
+
         /* Once braking is complete, state transition to ENTER_LOOP */
         if (pos->route_state == TRAIN_STATE_RECOVERY_STOPPING) {
             uint64_t brake_us = 1000000ULL;
@@ -612,6 +625,24 @@ void pos_on_tick(uint64_t now_us) {
             now_us > 2 * pos->pred_trigger_time - pos->cur_sensor_time) {
 
             pos->consec_missed++;
+
+            /* track is dead.
+             * Abort the current route so
+             * dead-reckoning does not spuriously "arrive" at the target. */
+            if (pos->consec_missed >= 2) {
+                pos->effective_v              = 0;
+                pos->route_state              = TRAIN_STATE_DEAD_TRACK;
+                pos->target_sensor            = NULL;
+                pos->target_offset_mm         = 0;
+                pos->offroute_valid           = 1;
+                pos->offroute_expected_sensor = pos->pred_next_sensor;
+                pos->offroute_actual_sensor   = NULL;
+                pos->pred_next_sensor         = NULL;
+                pos->pred_trigger_time        = 0;
+                /* orig_user_target / orig_target_offset kept for recovery */
+                ui_mark_position_dirty();
+                continue;
+            }
 
             track_node *skipped = pos->pred_next_sensor;
             uint64_t dt = 0;

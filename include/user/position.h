@@ -29,6 +29,7 @@ typedef enum {
     TRAIN_STATE_RECOVERY_STOPPING = 8,  /* off-route deviation; stopping -> ENTER_LOOP */
     TRAIN_STATE_ENTER_LOOP        = 9,  /* pos/dir known, stationary; driving back to loop */
     TRAIN_STATE_STOPPING_GOTO     = 10, /* goto while running; stop sent -> ENTER_LOOP */
+    TRAIN_STATE_DEAD_TRACK        = 11, /* stopped on powerless track; waiting for manual push */
 } train_route_state_t;
 
 /* ---------- Per-train position state ---------- */
