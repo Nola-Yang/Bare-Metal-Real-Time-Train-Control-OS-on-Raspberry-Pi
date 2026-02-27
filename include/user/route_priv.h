@@ -35,6 +35,11 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
 /* Trace path from to; observe actual switch directions; correct stored state. */
 void observe_path_and_correct_switches(track_node *from, track_node *to);
 
+/* Walk the path from `from` to `to` and
+ * update each edge's time_factor_q8 via EMA using ratio_q8 (Q8 fixed-point
+ * ratio = actual_dt * 256 / pred_dt).  Clamps factor to [128, 512]. */
+void update_edge_factors(track_node *from, track_node *to, int32_t ratio_q8);
+
 /* ===== BFS route planning ===== */
 
 /* BFS from start to target; fills plan.  Returns 1 on success, 0 if no path. */

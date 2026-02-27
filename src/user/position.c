@@ -188,13 +188,25 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
         pos->consec_missed = 0;
     }
 
-    /* Prediction error accounting */
+    /* Prediction error accounting + per-edge factor update */
     if (*out_was_predicted && pos->pred_trigger_time > 0) {
         pos->last_time_err_us =
             (int64_t)time_us - (int64_t)pos->pred_trigger_time;
         pos->last_dist_err_mm = (int32_t)(
             pos->effective_v * pos->last_time_err_us / 1000000LL);
         ui_mark_prediction_dirty();
+
+        if (pos->cur_sensor != NULL && pos->cur_sensor_time > 0) {
+            uint64_t actual_dt = time_us - pos->cur_sensor_time;
+            uint64_t pred_dt   = pos->pred_trigger_time - pos->cur_sensor_time;
+            if (actual_dt > 10000 && pred_dt > 0) {
+                int32_t ratio_q8 = (int32_t)((int64_t)actual_dt * 256
+                                             / (int64_t)pred_dt);
+                if (ratio_q8 < 128) ratio_q8 = 128;
+                if (ratio_q8 > 512) ratio_q8 = 512;
+                update_edge_factors(pos->cur_sensor, hit, ratio_q8);
+            }
+        }
     }
 
     /* EMA speed update
