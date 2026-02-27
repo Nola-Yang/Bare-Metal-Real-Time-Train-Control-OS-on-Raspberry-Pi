@@ -18,7 +18,7 @@ void gic_init(void) {
 
     // Enable both Group 0 and Group 1 at both distributor and CPU interface.
     GICD_CTLR = 0x3;
-    GICC_CTLR = 0x3;
+    GICC_CTLR = 0x7;
 }
 
 void gic_enable_interrupt(uint32_t irq_id) {

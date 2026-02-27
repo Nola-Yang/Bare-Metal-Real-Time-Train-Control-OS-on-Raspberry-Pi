@@ -106,20 +106,16 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     pos_apply_loop_switches();
     int just_reversed = 0;
 
-    /* BFS to loop entry if not already on the loop */
+    /* BFS to loop entry if not already on a forward loop sensor. */
     if (pos->cur_sensor != NULL &&
-        !(is_forward_loop_sensor(pos->cur_sensor) ||
-          is_reverse_loop_sensor(pos->cur_sensor))) {
+        !is_forward_loop_sensor(pos->cur_sensor)) {
         route_plan_t rp;
-        if (bfs_find_route_to_loop(pos->cur_sensor, &rp)) {
-            for (int j = 0; j < rp.sw_count; j++) {
-                track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
-            }
-            if (rp.sw_count > 0) {
-                ui_mark_switches_dirty();
-            }
+        int bfs_ok = bfs_find_route_to_loop(pos->cur_sensor, &rp);
+        if (bfs_ok && rp.sw_count == 0) {
+            /* Switch-free path to loop: no reverse. */
         } else {
-            // try reverse
+            /* Either no forward path, or switches are needed (and the train
+             * may be past them).  Reverse */
             KASSERT(pos->cur_sensor->reverse != NULL &&
                     bfs_find_route_to_loop(pos->cur_sensor->reverse, &rp));
             track_reverse(pos->train_num);
