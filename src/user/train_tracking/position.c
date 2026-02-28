@@ -60,7 +60,6 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->target_sensor         = NULL;
             slot->target_offset_mm      = 0;
             slot->dist_to_target_mm     = 0;
-            slot->consec_missed         = 0;
             slot->pending_target        = NULL;
             slot->pending_offset_mm     = 0;
             slot->stable_sensor_count   = 0;
@@ -78,7 +77,8 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->offroute_valid           = 0;
             slot->offroute_expected_sensor = NULL;
             slot->offroute_actual_sensor   = NULL;
-            slot->stopping_since_us     = 0;
+            slot->stopping_since_us       = 0;
+            slot->dead_track_deadline_us  = 0;
             slot->goto_speed            = 8;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
             return slot;
@@ -176,6 +176,16 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
             uint64_t dt = 0;
             pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
             pos->pred_trigger_time = now_us + dt;
+        }
+
+        /* Set dead-track deadline = now + 2*(T1+T2) */
+        if (pos->pred_next_sensor != NULL && pos->pred_trigger_time > now_us) {
+            uint64_t T1 = pos->pred_trigger_time - now_us;
+            uint64_t T2 = 0;
+            predict_next_sensor(pos, pos->pred_next_sensor, &T2);
+            pos->dead_track_deadline_us = now_us + 2 * (T1 + T2);
+        } else {
+            pos->dead_track_deadline_us = 0;
         }
     }
 
@@ -358,6 +368,13 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_spee
         uint64_t dt = 0;
         pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
         pos->pred_trigger_time = pos->cur_sensor_time + dt;
+        if (pos->pred_next_sensor != NULL && dt > 0) {
+            uint64_t T2 = 0;
+            predict_next_sensor(pos, pos->pred_next_sensor, &T2);
+            pos->dead_track_deadline_us = pos->cur_sensor_time + 2 * (dt + T2);
+        } else {
+            pos->dead_track_deadline_us = 0;
+        }
 
     } else if (pos->route_state == TRAIN_STATE_KNOWN) {
         /* pos Known, running via tr.

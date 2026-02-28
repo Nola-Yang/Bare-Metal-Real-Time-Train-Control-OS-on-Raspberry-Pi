@@ -55,9 +55,6 @@ typedef struct {
     int32_t     target_offset_mm;  /* additional mm past target_sensor */
     int32_t     dist_to_target_mm; 
 
-    /* Bad-sensor tracking */
-    int consec_missed;  
-
     /* Deferred goto: target stored here until speed is stable on the loop.
      * Cleared when the route is actually executed. */
     track_node *pending_target;
@@ -94,6 +91,11 @@ typedef struct {
     /* Timestamp (us) when route_state entered TRAIN_STATE_STOPPING.
      * Used by pos_on_tick() to fire the STOPPING → STOPPED transition. */
     uint64_t    stopping_since_us;
+
+    /* cur_sensor_time + 2*(T1+T2), where T1/T2 are the
+     * expected travel times to the next two sensors.  
+     */
+    uint64_t    dead_track_deadline_us;
 
     /* Speed used for the loop phase */
     int         goto_speed;

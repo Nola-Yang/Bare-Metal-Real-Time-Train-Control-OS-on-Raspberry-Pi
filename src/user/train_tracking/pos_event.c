@@ -31,13 +31,8 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
     *out_is_skip = 0;
     if (pos->pred_next_sensor && !*out_was_predicted) {
         if (follow_dist(pos->pred_next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS) >= 0) {
-            pos->consec_missed++;
             *out_is_skip = 1;
-        } else {
-            pos->consec_missed = 0;
         }
-    } else {
-        pos->consec_missed = 0;
     }
 
     /* Prediction error accounting + per-edge factor update */
@@ -145,7 +140,6 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         pos_apply_loop_switches();
 
         pos->going_forward    = is_forward_loop_sensor(hit) ? 1 : 0;
-        pos->consec_missed    = 0;
         pos->route_state      = TRAIN_STATE_LOOP_STABILIZE;
         pos->stable_sensor_count = 0;
         ui_mark_position_dirty();
@@ -184,7 +178,6 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
             pos->offroute_valid           = 1;
             pos->offroute_expected_sensor = expected_sensor;
             pos->offroute_actual_sensor   = hit;
-            pos->consec_missed         = 0;
             pos->pred_next_sensor      = NULL;
             pos->pred_trigger_time     = 0;
             track_set_speed(pos->train_num, 0);
@@ -194,7 +187,6 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
             return;
         }
 
-        pos->consec_missed = 0;
         /* Fall through: prediction is refreshed below from hit */
     }
 
@@ -202,6 +194,14 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     uint64_t dt_pred = 0;
     pos->pred_next_sensor  = predict_next_sensor(pos, hit, &dt_pred);
     pos->pred_trigger_time = time_us + dt_pred;
+
+    if (pos->pred_next_sensor != NULL && dt_pred > 0) {
+        uint64_t T2 = 0;
+        predict_next_sensor(pos, pos->pred_next_sensor, &T2);
+        pos->dead_track_deadline_us = time_us + 2 * (dt_pred + T2);
+    } else {
+        pos->dead_track_deadline_us = 0;
+    }
 
     /* Direction detection and speed-stabilisation */
     if (pos->pending_target) {
@@ -417,37 +417,38 @@ void pos_on_tick(uint64_t now_us) {
             }
         }
 
+        /* Dead-track detection */
+        if ((pos->route_state == TRAIN_STATE_LOOP_FIND_DIR  ||
+             pos->route_state == TRAIN_STATE_LOOP_STABILIZE ||
+             pos->route_state == TRAIN_STATE_ENTER_LOOP     ||
+             pos->route_state == TRAIN_STATE_ON_ROUTE) &&
+            pos->dead_track_deadline_us > 0 &&
+            now_us > pos->dead_track_deadline_us) {
+
+            pos->effective_v              = 0;
+            pos->route_state              = TRAIN_STATE_DEAD_TRACK;
+            pos->target_sensor            = NULL;
+            pos->target_offset_mm         = 0;
+            pos->offroute_valid           = 1;
+            pos->offroute_expected_sensor = pos->pred_next_sensor;
+            pos->offroute_actual_sensor   = NULL;
+            pos->pred_next_sensor         = NULL;
+            pos->pred_trigger_time        = 0;
+            pos->dead_track_deadline_us   = 0;
+            /* orig_user_target / orig_target_offset kept for recovery */
+            ui_mark_position_dirty();
+            continue;
+        }
+
         if (pos->pred_trigger_time == 0) continue;
         if (pos->pred_next_sensor == NULL) continue;
 
-        /* Todo: more calibrationon. If more than 2x the expected interval has elapsed since the last
-         * sensor, assume the predicted sensor was missed and advance. */
+        /* If more than 2x the expected interval has elapsed without a sensor,
+         * advance the prediction to the next node (handles broken/missing
+         * sensors without declaring dead track). */
         if (pos->cur_sensor_time > 0 &&
             pos->pred_trigger_time > pos->cur_sensor_time &&
             now_us > 2 * pos->pred_trigger_time - pos->cur_sensor_time) {
-
-            pos->consec_missed++;
-
-            /* Two consecutive sensor timeouts with no real sensor hit in
-             * between means the track is dead (no power), not just a broken
-             * sensor.  Because no two consecutive sensors are broken, a second
-             * consecutive timeout can only occur if the train has physically
-             * stopped on a powerless section.  Abort the current route so
-             * dead-reckoning does not spuriously "arrive" at the target. */
-            if (pos->consec_missed >= 2) {
-                pos->effective_v              = 0;
-                pos->route_state              = TRAIN_STATE_DEAD_TRACK;
-                pos->target_sensor            = NULL;
-                pos->target_offset_mm         = 0;
-                pos->offroute_valid           = 1;
-                pos->offroute_expected_sensor = pos->pred_next_sensor;
-                pos->offroute_actual_sensor   = NULL;
-                pos->pred_next_sensor         = NULL;
-                pos->pred_trigger_time        = 0;
-                /* orig_user_target / orig_target_offset kept for recovery */
-                ui_mark_position_dirty();
-                continue;
-            }
 
             track_node *skipped = pos->pred_next_sensor;
             uint64_t dt = 0;
