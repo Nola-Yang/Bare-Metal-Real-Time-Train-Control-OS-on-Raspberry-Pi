@@ -103,31 +103,50 @@ static train_pos_t *find_or_create_pos(int train_num) {
  *   5. Set route_state = ENTER_LOOP.
  */
 void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
-    pos_apply_loop_switches();
-    int just_reversed = 0;
+    int just_reversed         = 0;
+    int physical_anchor_pending = 0;
 
-    /* BFS to loop entry if not already on a forward loop sensor. */
-    if (pos->cur_sensor != NULL &&
-        !is_forward_loop_sensor(pos->cur_sensor)) {
+
+    track_node *physical_anchor = NULL;
+    int32_t     anchor_dist_mm  = 0;
+    if (pos->cur_sensor != NULL) {
+        int32_t saved_ev = pos->effective_v;
+        if (saved_ev == 0) {
+            int32_t tv = SPEED_V_MM_S[pos->goto_speed];
+            pos->effective_v = (tv > 0) ? tv : 100;
+        }
+        uint64_t dummy_dt = 0;
+        physical_anchor = predict_next_sensor(pos, pos->cur_sensor, &dummy_dt);
+        pos->effective_v = saved_ev;
+
+        if (physical_anchor != NULL) {
+            anchor_dist_mm = follow_dist(pos->cur_sensor, physical_anchor, 80);
+            if (anchor_dist_mm < 0) anchor_dist_mm = 0;
+        }
+    }
+
+    pos_apply_loop_switches();
+
+    if (pos->cur_sensor != NULL && !is_forward_loop_sensor(pos->cur_sensor)) {
         route_plan_t rp;
-        int bfs_ok = bfs_find_route_to_loop(pos->cur_sensor, &rp);
-        if (bfs_ok && rp.sw_count == 0) {
-            /* Switch-free path to loop: no reverse. */
-        } else {
-            /* Either no forward path, or switches are needed (and the train
-             * may be past them).  Reverse */
-            KASSERT(pos->cur_sensor->reverse != NULL &&
-                    bfs_find_route_to_loop(pos->cur_sensor->reverse, &rp));
+
+        if (physical_anchor == NULL || !bfs_find_route_to_loop(physical_anchor, &rp)) {
+            track_node *rev = pos->cur_sensor->reverse;
+            KASSERT(rev != NULL && bfs_find_route_to_loop(rev, &rp));
             track_reverse(pos->train_num);
-            pos->cur_sensor = pos->cur_sensor->reverse;
+            pos->cur_sensor    = rev;
             pos->going_forward = !pos->going_forward;
-            just_reversed = 1;
-            for (int j = 0; j < rp.sw_count; j++) {
+            just_reversed      = 1;
+            for (int j = 0; j < rp.sw_count; j++)
                 track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
-            }
-            if (rp.sw_count > 0) {
-                ui_mark_switches_dirty();
-            }
+            if (rp.sw_count > 0) ui_mark_switches_dirty();
+
+        } else {
+            pos->cur_sensor = physical_anchor;
+            for (int j = 0; j < rp.sw_count; j++)
+                track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
+            if (rp.sw_count > 0) ui_mark_switches_dirty();
+            physical_anchor_pending = 1;
         }
     }
 
@@ -135,16 +154,24 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     pos->user_speed = pos->goto_speed;
     int can_spd = 1 + (pos->user_speed - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
-    int32_t cv_loop      = pos->cached_v[pos->user_speed];
-    pos->effective_v     = (cv_loop > 0) ? cv_loop : SPEED_V_MM_S[pos->user_speed];
+    int32_t cv_loop  = pos->cached_v[pos->user_speed];
+    pos->effective_v = (cv_loop > 0) ? cv_loop : SPEED_V_MM_S[pos->user_speed];
     pos->cur_sensor_time = now_us;
 
     /* Prediction */
     if (pos->cur_sensor != NULL) {
         if (just_reversed) {
-            /* The train is physically at cur_sensor's location after reversing. */
             pos->pred_next_sensor  = pos->cur_sensor;
             pos->pred_trigger_time = now_us;
+
+        } else if (physical_anchor_pending) {
+            pos->pred_next_sensor = pos->cur_sensor;  
+            uint64_t dt = (anchor_dist_mm > 0 && pos->effective_v > 0)
+                          ? (uint64_t)(uint32_t)anchor_dist_mm * 1000000ULL
+                            / (uint64_t)(uint32_t)pos->effective_v
+                          : 10000000ULL;              
+            pos->pred_trigger_time = now_us + dt;
+
         } else {
             uint64_t dt = 0;
             pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
