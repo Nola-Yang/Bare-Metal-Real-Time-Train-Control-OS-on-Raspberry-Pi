@@ -125,29 +125,39 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
         }
     }
 
-    pos_apply_loop_switches();
-
     if (pos->cur_sensor != NULL && !is_forward_loop_sensor(pos->cur_sensor)) {
         route_plan_t rp;
+        track_node *rev = pos->cur_sensor->reverse;
 
-        if (physical_anchor == NULL || !bfs_find_route_to_loop(physical_anchor, &rp)) {
-            track_node *rev = pos->cur_sensor->reverse;
-            KASSERT(rev != NULL && bfs_find_route_to_loop(rev, &rp));
+        /* Priority 1: reverse direction reaches loop with current switches unchanged. */
+        if (rev != NULL && follow_reaches_loop(rev, 80)) {
             track_reverse(pos->train_num);
             pos->cur_sensor    = rev;
             pos->going_forward = !pos->going_forward;
             just_reversed      = 1;
-            for (int j = 0; j < rp.sw_count; j++)
-                track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
-            if (rp.sw_count > 0) ui_mark_switches_dirty();
 
         } else {
-            pos->cur_sensor = physical_anchor;
-            for (int j = 0; j < rp.sw_count; j++)
-                track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
-            if (rp.sw_count > 0) ui_mark_switches_dirty();
-            physical_anchor_pending = 1;
+            /* Priority 2:BFS */
+            if (physical_anchor == NULL || !bfs_find_route_to_loop(physical_anchor, &rp)) {
+                KASSERT(rev != NULL && bfs_find_route_to_loop(rev, &rp));
+                track_reverse(pos->train_num);
+                pos->cur_sensor    = rev;
+                pos->going_forward = !pos->going_forward;
+                just_reversed      = 1;
+                for (int j = 0; j < rp.sw_count; j++)
+                    track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
+                if (rp.sw_count > 0) ui_mark_switches_dirty();
+
+            } else {
+                pos->cur_sensor = physical_anchor;
+                for (int j = 0; j < rp.sw_count; j++)
+                    track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
+                if (rp.sw_count > 0) ui_mark_switches_dirty();
+                physical_anchor_pending = 1;
+            }
         }
+    } else {
+        pos_apply_loop_switches();
     }
 
     /* Restart the train */
