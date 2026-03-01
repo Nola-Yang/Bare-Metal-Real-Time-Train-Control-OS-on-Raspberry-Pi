@@ -13,7 +13,7 @@
 
 /*
  * speed table (mm/s).  Filled at runtime by init_speed_table() in position.c.
- * Polynomial gives us/mm: f(x) = -0.3358x^5 + 17.71x^4 - 375.3x^3 + 4053x^2 - 22980x + 58520
+ * Polynomial gives us/mm: f(x) = 1.335e-08x^5 - 5.583e-07x^4 + 8.883e-06x^3 - 6.228e-05x^2 + 0.0002327x - 0.000273
  * Speed (mm/s) = 1,000,000 / f(x),  x = user speed step (1–14); index 0 = 0.
  */
 extern int32_t SPEED_V_MM_S[15];
@@ -21,8 +21,8 @@ extern int32_t SPEED_V_MM_S[15];
 /*
  * Braking distances in mm.
  * SPEED_STOP_DIST_MM[n] = estimated distance to stop from user speed n.
- * Filled at runtime by speed_table_init_braking() using the cubic formula:
- *   dist(x) = 1.463*x^3 - 21.19*x^2 + 148.8*x - 216  (mm, x = speed step)
+ * Filled at runtime by init_braking_table() using the 5th-degree polynomial:
+ *   dist(x) = -0.02836x^5 + 1.244x^4 - 19.68x^3 + 149.5x^2 - 487.8x + 636  (mm, x = speed step)
  */
 extern int32_t SPEED_STOP_DIST_MM[15];
 

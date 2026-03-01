@@ -216,11 +216,11 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
 
 /*
  * Fill SPEED_V_MM_S (mm/s) from:
- *   f(x) = -0.3358x^5 + 17.71x^4 - 375.3x^3 + 4053x^2 - 22980x + 58520
+ *   f(x) = 1.335e-08x^5 - 5.583e-07x^4 + 8.883e-06x^3 - 6.228e-05x^2 + 0.0002327x - 0.000273
  * Speed in mm/s = 1,000,000 / f(x).
  *
- * Integer arithmetic: coefficients scaled by 10000, so val = f(x)*10000.
- * Then speed = 10^10 / val.
+ * Integer arithmetic: coefficients scaled by 1e12, so val = f(x)*1e12.
+ * Then speed = 1e18 / val.
  */
 static void init_speed_table(void) {
     SPEED_V_MM_S[0] = 0;
@@ -229,31 +229,43 @@ static void init_speed_table(void) {
         int64_t x3 = x2 * x;
         int64_t x4 = x3 * x;
         int64_t x5 = x4 * x;
-        int64_t val = -3358LL    * x5
-                    + 177100LL   * x4
-                    - 3753000LL  * x3
-                    + 40530000LL * x2
-                    - 229800000LL* x
-                    + 585200000LL;
-        /* val = f(x)*10000 us/mm; speed = 1e6/(val/10000) = 1e10/val */
-        SPEED_V_MM_S[x] = (val > 0) ? (int32_t)(10000000000LL / val) : 0;
+        /* val = f(x) * 1e12 (us/mm * 1e12) */
+        int64_t val = (int64_t)13350      * x5
+                    - (int64_t)558300     * x4
+                    + (int64_t)8883000    * x3
+                    - (int64_t)62280000   * x2
+                    + (int64_t)232700000  * x
+                    - (int64_t)273000000;
+        /* speed (mm/s) = 1e6 / f(x) = 1e18 / val */
+        if (val <= 0) {
+            SPEED_V_MM_S[x] = 0;
+        } else {
+            int64_t spd = 1000000000000000000LL / val;
+            SPEED_V_MM_S[x] = (spd > INT32_MAX) ? INT32_MAX : (int32_t)spd;
+        }
     }
 }
 
 /*
- * Fill SPEED_STOP_DIST_MM using the cubic formula calibrated from measurements:
- *   dist(x) = 1.463*x^3 - 21.19*x^2 + 148.8*x - 216  (mm)
+ * Fill SPEED_STOP_DIST_MM using the 5th-degree polynomial calibrated from measurements:
+ *   dist(x) = -0.02836x^5 + 1.244x^4 - 19.68x^3 + 149.5x^2 - 487.8x + 636  (mm)
  *
- * Implemented in integer arithmetic (scaled by 1000) to avoid floating point.
+ * Implemented in integer arithmetic (scaled by 100000) to avoid floating point.
  */
 static void init_braking_table(void) {
     SPEED_STOP_DIST_MM[0] = 0;
     for (int x = 1; x <= 14; x++) {
-        int64_t val = (int64_t)1463 * x * x * x
-                    - (int64_t)21190 * x * x
-                    + (int64_t)148800 * x
-                    - (int64_t)216000;
-        val /= 1000;
+        int64_t x2 = (int64_t)x * x;
+        int64_t x3 = x2 * x;
+        int64_t x4 = x3 * x;
+        int64_t x5 = x4 * x;
+        int64_t val = (int64_t)(-2836)    * x5
+                    + (int64_t)124400     * x4
+                    + (int64_t)(-1968000) * x3
+                    + (int64_t)14950000   * x2
+                    + (int64_t)(-48780000)* x
+                    + (int64_t)63600000;
+        val /= 100000;
         SPEED_STOP_DIST_MM[x] = (val > 0) ? (int32_t)val : 0;
     }
 }
