@@ -12,7 +12,7 @@
 #define LOOP_SENSOR_COUNT 10
 
 /* Speed-stabilisation parameters for the goto loop phase */
-#define STABLE_TIME_ERR_US  150000LL  
+#define STABLE_TIME_ERR_US  30000LL  
 #define STABLE_SENSOR_MIN   3         
 
 /* ---------- Train route state ---------- */
