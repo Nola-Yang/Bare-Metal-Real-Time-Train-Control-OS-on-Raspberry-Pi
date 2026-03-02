@@ -246,6 +246,14 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
 static void init_speed_table(void) {
     SPEED_V_MM_S[0] = 0;
     for (int x = 1; x <= 14; x++) {
+        if (x == 8) {
+#ifdef TRACK_A
+            SPEED_V_MM_S[x] = 230;
+#else
+            SPEED_V_MM_S[x] = 230;
+#endif
+            continue;
+        }
         int64_t x2 = (int64_t)x * x;
         int64_t x3 = x2 * x;
         int64_t x4 = x3 * x;
