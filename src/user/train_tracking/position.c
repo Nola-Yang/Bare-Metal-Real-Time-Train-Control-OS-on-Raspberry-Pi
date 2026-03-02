@@ -15,7 +15,7 @@
 train_pos_t g_pos[MAX_POS_TRAINS];
 
 int32_t SPEED_V_MM_S[15];
-int32_t SPEED_STOP_DIST_MM[15];
+int32_t SPEED_DECEL_MM_S2[15];
 
 /* ===== Fixed loop switch settings ===== */
 
@@ -81,6 +81,9 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->dead_track_deadline_us  = 0;
             slot->goto_speed            = 8;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
+            for (int s = 0; s < 15; s++) slot->brake_a_eff[s] = SPEED_DECEL_MM_S2[s];
+            slot->brake_v_saved      = 0;
+            slot->overshoot_detected = 0;
             return slot;
         }
     }
@@ -247,32 +250,18 @@ static void init_speed_table(void) {
 }
 
 /*
- * Fill SPEED_STOP_DIST_MM using the 5th-degree polynomial calibrated from measurements:
- *   dist(x) = -0.02836x^5 + 1.244x^4 - 19.68x^3 + 149.5x^2 - 487.8x + 636  (mm)
- *
- * Implemented in integer arithmetic (scaled by 100000) to avoid floating point.
+ * Fill SPEED_DECEL_MM_S2 with calibrated deceleration constants (mm/s²).
  */
-static void init_braking_table(void) {
-    SPEED_STOP_DIST_MM[0] = 0;
-    for (int x = 1; x <= 14; x++) {
-        int64_t x2 = (int64_t)x * x;
-        int64_t x3 = x2 * x;
-        int64_t x4 = x3 * x;
-        int64_t x5 = x4 * x;
-        int64_t val = (int64_t)(-2836)    * x5
-                    + (int64_t)124400     * x4
-                    + (int64_t)(-1968000) * x3
-                    + (int64_t)14950000   * x2
-                    + (int64_t)(-48780000)* x
-                    + (int64_t)63600000;
-        val /= 100000;
-        SPEED_STOP_DIST_MM[x] = (val > 0) ? (int32_t)val : 0;
-    }
+static void init_decel_table(void) {
+    static const int32_t tbl[15] =
+        {    0,   9,  14,  23,  30,  50,  74, 104, 139, 171, 228, 256, 242, 213, 305 };
+    for (int i = 0; i < 15; i++)
+        SPEED_DECEL_MM_S2[i] = tbl[i];
 }
 
 void pos_init(void) {
     init_speed_table();
-    init_braking_table();
+    init_decel_table();
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         g_pos[i].train_num = -1;
     }

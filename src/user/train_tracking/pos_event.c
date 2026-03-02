@@ -270,11 +270,45 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
             pos->dist_to_target_mm = rem;
 
             int user_spd = pos->user_speed;
+            int32_t a    = (user_spd > 0 && user_spd <= 14)
+                           ? pos->brake_a_eff[user_spd] : 0;
 
-            if (user_spd > 0 && rem <= SPEED_STOP_DIST_MM[user_spd]) {
-                pos->route_state       = TRAIN_STATE_STOPPING;
-                pos->stopping_since_us = time_us;
-                track_set_speed(pos->train_num, 0);
+            if (a > 0) {
+                int32_t d_brake = (int32_t)((int64_t)pos->effective_v
+                                            * pos->effective_v / (2LL * a));
+                if (rem <= d_brake) {
+                    pos->brake_v_saved      = pos->effective_v;
+                    pos->overshoot_detected = 0;
+                    pos->route_state       = TRAIN_STATE_STOPPING;
+                    pos->stopping_since_us = time_us;
+                    track_set_speed(pos->train_num, 0);
+                }
+            }
+        }
+    }
+
+    // Overshoot correction
+    if (pos->route_state == TRAIN_STATE_STOPPING &&
+        hit == pos->target_sensor &&
+        pos->brake_v_saved > 0 &&
+        pos->user_speed > 0 && pos->user_speed <= 14) {
+
+        pos->overshoot_detected = 1;
+        int32_t a = pos->brake_a_eff[pos->user_speed];
+        if (a > 0 && pos->stopping_since_us > 0 &&
+            time_us > pos->stopping_since_us) {
+            int64_t t_us   = (int64_t)(time_us - pos->stopping_since_us);
+            int64_t v_bv   = pos->brake_v_saved;
+           
+            int64_t v_tgt  = v_bv - (int64_t)a * t_us / 1000000LL;
+            if (v_tgt < 0) v_tgt = 0;
+            
+            int64_t d_actual = (v_bv * v_bv + v_tgt * v_tgt) / (2LL * a);
+            if (d_actual > 0) {
+                int32_t a_new = (int32_t)(v_bv * v_bv / (2LL * d_actual));
+                
+                if (a_new < a / 4) a_new = a / 4;
+                pos->brake_a_eff[pos->user_speed] = (7 * a + a_new) / 8;
             }
         }
     }
@@ -312,10 +346,10 @@ void pos_on_tick(uint64_t now_us) {
         if (pos->route_state == TRAIN_STATE_RECOVERY_STOPPING) {
             uint64_t brake_us = 1000000ULL;
             if (pos->effective_v > 0 &&
-                pos->user_speed > 0 && pos->user_speed <= 14) {
-                int32_t d = SPEED_STOP_DIST_MM[pos->user_speed];
-                brake_us  = (uint64_t)d * 1000000ULL / (uint64_t)pos->effective_v;
-                brake_us  = brake_us * 3 / 2;
+                pos->user_speed > 0 && pos->user_speed <= 14 &&
+                pos->brake_a_eff[pos->user_speed] > 0) {
+                brake_us = (uint64_t)pos->effective_v * 1500000ULL
+                           / (uint64_t)pos->brake_a_eff[pos->user_speed];
             }
             if (now_us < pos->stopping_since_us + brake_us) continue;
 
@@ -331,10 +365,10 @@ void pos_on_tick(uint64_t now_us) {
         if (pos->route_state == TRAIN_STATE_STOPPING_TR) {
             uint64_t brake_us = 1000000ULL;
             if (pos->effective_v > 0 &&
-                pos->user_speed > 0 && pos->user_speed <= 14) {
-                int32_t d = SPEED_STOP_DIST_MM[pos->user_speed];
-                brake_us  = (uint64_t)d * 1000000ULL / (uint64_t)pos->effective_v;
-                brake_us  = brake_us * 3 / 2;
+                pos->user_speed > 0 && pos->user_speed <= 14 &&
+                pos->brake_a_eff[pos->user_speed] > 0) {
+                brake_us = (uint64_t)pos->effective_v * 1500000ULL
+                           / (uint64_t)pos->brake_a_eff[pos->user_speed];
             }
             if (now_us >= pos->stopping_since_us + brake_us) {
                 pos->route_state = TRAIN_STATE_STOPPED;
@@ -349,10 +383,10 @@ void pos_on_tick(uint64_t now_us) {
         if (pos->route_state == TRAIN_STATE_STOPPING_GOTO) {
             uint64_t brake_us = 1000000ULL;
             if (pos->effective_v > 0 &&
-                pos->user_speed > 0 && pos->user_speed <= 14) {
-                int32_t d = SPEED_STOP_DIST_MM[pos->user_speed];
-                brake_us  = (uint64_t)d * 1000000ULL / (uint64_t)pos->effective_v;
-                brake_us  = brake_us * 3 / 2;
+                pos->user_speed > 0 && pos->user_speed <= 14 &&
+                pos->brake_a_eff[pos->user_speed] > 0) {
+                brake_us = (uint64_t)pos->effective_v * 1500000ULL
+                           / (uint64_t)pos->brake_a_eff[pos->user_speed];
             }
             if (now_us >= pos->stopping_since_us + brake_us) {
                 if (pos->user_speed > 0 && pos->user_speed <= 14)
@@ -372,13 +406,23 @@ void pos_on_tick(uint64_t now_us) {
                 pos->stopping_since_us > 0) {
                 uint64_t brake_us = 1000000ULL;  /* 1 s default */
                 if (pos->effective_v > 0 &&
-                    pos->user_speed > 0 && pos->user_speed <= 14) {
-                    int32_t d = SPEED_STOP_DIST_MM[pos->user_speed];
-                    brake_us = (uint64_t)d * 1000000ULL /
-                               (uint64_t)pos->effective_v;
-                    brake_us = brake_us * 3 / 2;
+                    pos->user_speed > 0 && pos->user_speed <= 14 &&
+                    pos->brake_a_eff[pos->user_speed] > 0) {
+                    brake_us = (uint64_t)pos->effective_v * 1500000ULL
+                               / (uint64_t)pos->brake_a_eff[pos->user_speed];
                 }
                 if (now_us >= pos->stopping_since_us + brake_us) {
+                    // Undershoot correction
+                    if (!pos->overshoot_detected &&
+                        pos->brake_v_saved > 0 &&
+                        pos->user_speed > 0 && pos->user_speed <= 14) {
+                        int32_t *pa = &pos->brake_a_eff[pos->user_speed];
+                        *pa += (*pa) >> 6;   /* +1/64 ≈ +1.5 % */
+                        if (*pa > 1500) *pa = 1500;
+                    }
+                    pos->brake_v_saved      = 0;
+                    pos->overshoot_detected = 0;
+
                     if (pos->user_speed > 0 && pos->user_speed <= 14)
                         pos->cached_v[pos->user_speed] = pos->effective_v;
                     pos->route_state       = TRAIN_STATE_STOPPED;
@@ -422,13 +466,21 @@ void pos_on_tick(uint64_t now_us) {
                 pos->dist_to_target_mm = rem;
 
                 int user_spd = pos->user_speed;
+                int32_t a_tick = (user_spd > 0 && user_spd <= 14)
+                                 ? pos->brake_a_eff[user_spd] : 0;
 
-                if (user_spd > 0 && rem <= SPEED_STOP_DIST_MM[user_spd]) {
-                    pos->route_state       = TRAIN_STATE_STOPPING;
-                    pos->stopping_since_us = now_us;
-                    track_set_speed(pos->train_num, 0);
-                    ui_mark_position_dirty();
-                    continue;
+                if (a_tick > 0) {
+                    int32_t d_brake_tick = (int32_t)((int64_t)pos->effective_v
+                                          * pos->effective_v / (2LL * a_tick));
+                    if (rem <= d_brake_tick) {
+                        pos->brake_v_saved      = pos->effective_v;
+                        pos->overshoot_detected = 0;
+                        pos->route_state       = TRAIN_STATE_STOPPING;
+                        pos->stopping_since_us = now_us;
+                        track_set_speed(pos->train_num, 0);
+                        ui_mark_position_dirty();
+                        continue;
+                    }
                 }
                 ui_mark_position_dirty();
             }

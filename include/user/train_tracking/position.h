@@ -106,6 +106,20 @@ typedef struct {
      * Saved on each stop; restored on restart at the same speed 
     */
     int32_t     cached_v[15];
+
+    /* Velocity-based braking model: d = v² / (2·a_eff)
+     *
+     * brake_a_eff[s]  — per-speed deceleration (mm/s²), seeded from
+     *                   SPEED_DECEL_MM_S2[s] and refined online after
+     *                   each goto stop.
+     * brake_v_saved   — effective_v captured when the STOPPING state was
+     *                   entered
+     * overshoot_detected — set to 1 when the target sensor fires while
+     *                   the train is still in TRAIN_STATE_STOPPING.
+     */
+    int32_t     brake_a_eff[15];
+    int32_t     brake_v_saved;
+    int         overshoot_detected;
 } train_pos_t;
 
 /* ---------- Route plan (from plan_route BFS) ---------- */

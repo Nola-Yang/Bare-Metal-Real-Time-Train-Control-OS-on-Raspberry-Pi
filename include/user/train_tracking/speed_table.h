@@ -19,11 +19,10 @@
 extern int32_t SPEED_V_MM_S[15];
 
 /*
- * Braking distances in mm.
- * SPEED_STOP_DIST_MM[n] = estimated distance to stop from user speed n.
- * Filled at runtime by init_braking_table() using the 5th-degree polynomial:
- *   dist(x) = -0.02836x^5 + 1.244x^4 - 19.68x^3 + 149.5x^2 - 487.8x + 636  (mm, x = speed step)
+ * Model:  d_brake = effective_v² / (2 * SPEED_DECEL_MM_S2[speed])
+ *         t_stop  = effective_v  / SPEED_DECEL_MM_S2[speed]
  */
-extern int32_t SPEED_STOP_DIST_MM[15];
+extern int32_t SPEED_DECEL_MM_S2[15];
+
 
 #endif /* _speed_table_h_ */
