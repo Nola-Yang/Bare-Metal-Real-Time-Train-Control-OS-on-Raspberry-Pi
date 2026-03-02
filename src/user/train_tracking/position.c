@@ -220,10 +220,10 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
 /*
  * Fill SPEED_V_MM_S (mm/s) from:
  *   f(x) = 1.335e-08x^5 - 5.583e-07x^4 + 8.883e-06x^3 - 6.228e-05x^2 + 0.0002327x - 0.000273
- * Speed in mm/s = 1,000,000 / f(x).
+ * f(x) gives speed in mm/us; speed (mm/s) = f(x) * 1,000,000.
  *
- * Integer arithmetic: coefficients scaled by 1e12, so val = f(x)*1e12.
- * Then speed = 1e18 / val.
+ * Integer arithmetic: coefficients scaled by 1e12, so val = f(x)*1e12 (mm/us * 1e12).
+ * speed (mm/s) = f(x) * 1e6 = val / 1e6.
  */
 static void init_speed_table(void) {
     SPEED_V_MM_S[0] = 0;
@@ -232,19 +232,19 @@ static void init_speed_table(void) {
         int64_t x3 = x2 * x;
         int64_t x4 = x3 * x;
         int64_t x5 = x4 * x;
-        /* val = f(x) * 1e12 (us/mm * 1e12) */
+        /* val = f(x) * 1e12 (mm/us * 1e12) */
         int64_t val = (int64_t)13350      * x5
                     - (int64_t)558300     * x4
                     + (int64_t)8883000    * x3
                     - (int64_t)62280000   * x2
                     + (int64_t)232700000  * x
                     - (int64_t)273000000;
-        /* speed (mm/s) = 1e6 / f(x) = 1e18 / val */
+        /* speed (mm/s) = f(x) * 1e6 = val / 1e6 */
         if (val <= 0) {
             SPEED_V_MM_S[x] = 0;
         } else {
-            int64_t spd = 1000000000000000000LL / val;
-            SPEED_V_MM_S[x] = (spd > INT32_MAX) ? INT32_MAX : (int32_t)spd;
+            int64_t spd = val / 1000000LL;
+            SPEED_V_MM_S[x] = (spd > 0 && spd <= INT32_MAX) ? (int32_t)spd : 0;
         }
     }
 }

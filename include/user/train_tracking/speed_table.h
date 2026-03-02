@@ -13,8 +13,8 @@
 
 /*
  * speed table (mm/s).  Filled at runtime by init_speed_table() in position.c.
- * Polynomial gives us/mm: f(x) = 1.335e-08x^5 - 5.583e-07x^4 + 8.883e-06x^3 - 6.228e-05x^2 + 0.0002327x - 0.000273
- * Speed (mm/s) = 1,000,000 / f(x),  x = user speed step (1–14); index 0 = 0.
+ * Polynomial gives mm/us: f(x) = 1.335e-08x^5 - 5.583e-07x^4 + 8.883e-06x^3 - 6.228e-05x^2 + 0.0002327x - 0.000273
+ * Speed (mm/s) = f(x) * 1,000,000,  x = user speed step (1–14); index 0 = 0.
  */
 extern int32_t SPEED_V_MM_S[15];
 

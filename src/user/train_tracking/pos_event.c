@@ -39,8 +39,13 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
     if (*out_was_predicted && pos->pred_trigger_time > 0) {
         pos->last_time_err_us =
             (int64_t)time_us - (int64_t)pos->pred_trigger_time;
-        pos->last_dist_err_mm = (int32_t)(
-            pos->effective_v * pos->last_time_err_us / 1000000LL);
+        {
+            int64_t derr = (int64_t)pos->effective_v
+                           * pos->last_time_err_us / 1000000LL;
+            if (derr >  99999) derr =  99999;
+            if (derr < -99999) derr = -99999;
+            pos->last_dist_err_mm = (int32_t)derr;
+        }
         ui_mark_prediction_dirty();
 
         {
@@ -98,7 +103,9 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
             if (dt > 10000 && meas_dist > 0) {
                 int32_t meas_v =
                     (int32_t)((int64_t)meas_dist * 1000000LL / (int64_t)dt);
-                pos->effective_v = (7 * pos->effective_v + meas_v) / 8;
+                
+                if (meas_v > 1800) meas_v = 1800;
+                pos->effective_v = (int32_t)((7LL * pos->effective_v + meas_v) / 8);
             }
         }
     }
