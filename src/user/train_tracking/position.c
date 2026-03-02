@@ -130,7 +130,7 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
 
     KASSERT(pos->cur_sensor != NULL);
 
-    if (!is_forward_loop_sensor(physical_anchor) && !is_reverse_loop_sensor(physical_anchor)) {
+    if (physical_anchor != NULL && (!is_forward_loop_sensor(physical_anchor) && !is_reverse_loop_sensor(physical_anchor))) {
         KASSERT(physical_anchor != NULL);
         route_plan_t rp;
         track_node *rev = physical_anchor->reverse;
