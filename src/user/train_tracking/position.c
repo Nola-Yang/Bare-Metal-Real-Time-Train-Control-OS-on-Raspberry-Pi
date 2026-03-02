@@ -144,7 +144,7 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
 
         } else {
             /* Priority 2:BFS */
-            if (physical_anchor == NULL || !bfs_find_route_to_loop(physical_anchor, &rp)) {
+            if (!bfs_find_route_to_loop(physical_anchor, &rp)) {
                 KASSERT(rev != NULL && bfs_find_route_to_loop(rev, &rp));
                 track_reverse(pos->train_num);
                 pos->cur_sensor    = rev;
@@ -152,24 +152,33 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
                 just_reversed      = 1;
                 for (int j = 0; j < rp.sw_count; j++)
                     track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
-                if (rp.sw_count > 0) ui_mark_switches_dirty();
+                // if (rp.sw_count > 0) ui_mark_switches_dirty();
 
             } else {
                 pos->cur_sensor = physical_anchor;
                 for (int j = 0; j < rp.sw_count; j++)
                     track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
-                if (rp.sw_count > 0) ui_mark_switches_dirty();
+                // if (rp.sw_count > 0) ui_mark_switches_dirty();
                 physical_anchor_pending = 1;
             }
         }
     } else if (physical_anchor != NULL) {
         pos_apply_loop_switches();
     } else {
+        // ahead is exit, must reverse
         KASSERT(physical_anchor == NULL);
         track_reverse(pos->train_num);
         pos->cur_sensor    = pos->cur_sensor->reverse;
         pos->going_forward = !pos->going_forward;
         just_reversed      = 1;
+        if (!follow_reaches_loop(pos->cur_sensor, 80)) {
+            route_plan_t rp;
+            KASSERT(bfs_find_route_to_loop(pos->cur_sensor, &rp));
+            for (int j = 0; j < rp.sw_count; j++)
+                track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
+            // if (rp.sw_count > 0) ui_mark_switches_dirty();
+        }
+        
     }
 
     /* Restart the train */
