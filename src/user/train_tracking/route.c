@@ -83,6 +83,7 @@ static track_edge *get_next_edge(track_node *n) {
         if (idx >= 0) {
             state = track_get_switch_state()[idx].state;
         }
+        KASSERT(state == 'C' || state == 'S');
         int dir = (state == 'C') ? DIR_CURVED : DIR_STRAIGHT;
         return &n->edge[dir];
     }

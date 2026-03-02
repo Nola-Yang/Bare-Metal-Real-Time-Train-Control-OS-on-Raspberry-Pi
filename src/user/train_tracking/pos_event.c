@@ -185,18 +185,18 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
 
         int still_reachable = 0;
 
-        // if (pos->route_state == TRAIN_STATE_ON_ROUTE ||
-        //     pos->route_state == TRAIN_STATE_STOPPING) {
-        //     if (pos->target_sensor &&
-        //         follow_dist(hit, pos->target_sensor, 200) >= 0) {
-        //         still_reachable = 1;
-        //     }
-        // } else {
-        //     /* LOOP_FIND_DIR / LOOP_STABILIZE / ENTER_LOOP */
-        //     if (follow_reaches_loop(hit, 200)) {
-        //         still_reachable = 1;
-        //     }
-        // }
+        if (pos->route_state == TRAIN_STATE_ON_ROUTE ||
+            pos->route_state == TRAIN_STATE_STOPPING) {
+            if (pos->target_sensor &&
+                follow_dist(hit, pos->target_sensor, 200) >= 0) {
+                still_reachable = 1;
+            }
+        } else {
+            /* LOOP_FIND_DIR / LOOP_STABILIZE / ENTER_LOOP */
+            if (follow_reaches_loop(hit, 200)) {
+                still_reachable = 1;
+            }
+        }
 
         if (!still_reachable) {
             pos->offroute_valid           = 1;

@@ -128,9 +128,12 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
         }
     }
 
-    if (pos->cur_sensor != NULL && !is_forward_loop_sensor(pos->cur_sensor)) {
+    KASSERT(pos->cur_sensor != NULL);
+
+    if (!is_forward_loop_sensor(physical_anchor) && !is_reverse_loop_sensor(physical_anchor)) {
+        KASSERT(physical_anchor != NULL);
         route_plan_t rp;
-        track_node *rev = pos->cur_sensor->reverse;
+        track_node *rev = physical_anchor->reverse;
 
         /* Priority 1: reverse direction reaches loop with current switches unchanged. */
         if (rev != NULL && follow_reaches_loop(rev, 80)) {
@@ -159,8 +162,14 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
                 physical_anchor_pending = 1;
             }
         }
-    } else {
+    } else if (physical_anchor != NULL) {
         pos_apply_loop_switches();
+    } else {
+        KASSERT(physical_anchor == NULL);
+        track_reverse(pos->train_num);
+        pos->cur_sensor    = pos->cur_sensor->reverse;
+        pos->going_forward = !pos->going_forward;
+        just_reversed      = 1;
     }
 
     /* Restart the train */
