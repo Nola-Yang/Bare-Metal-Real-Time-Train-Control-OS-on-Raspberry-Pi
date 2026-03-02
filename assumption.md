@@ -3,8 +3,7 @@
 - will use level 8 speed for goto command (for stopping distance and actual velosity measuremnts)
 - the bigger loop will be used to gain stable speed (for track A: `A3 → C13 → E7 → D7 → D9 → E12 → D11 → C16 → C6 → B15 → A3 ...`)
 - no 2 consecutive sensors are broken
-- loop switch will be set at init process
-- from any sensor node, the loop is reachable in at least one direction (forward or reverse); KASSERT fires if neither works
+
 
 ---
 
@@ -35,4 +34,7 @@
 5. RECOVERY_STOPPING condition: during `goto`, the train did not follow the planned route AND it is not a sensor-skip situation.
 6. Dead track detection in `pos_on_tick`: if no real sensor fires for `2*(T1+T2)` (twice the expected travel time to the next two sensors, computed from current speed at the last sensor hit), the train is assumed stopped on an unpowered section. State -> `DEAD_TRACK`; orig_user_target preserved. When any sensor fires (train pushed to powered track), transitions to `ENTER_LOOP` to resume the goto via normal recovery flow.
 7. STOPPING → STOPPED transition timing is approximate.
+8. the online update for decreasing acceleration and velocity is only work on the stab and on-route state. Since other state the speed is unsteady
+9. decrease a = a = Σv_i⁴ / (2 · Σ(d_i · v_i²))
+
 
