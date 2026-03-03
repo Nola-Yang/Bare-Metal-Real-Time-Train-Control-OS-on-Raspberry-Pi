@@ -19,7 +19,7 @@
 #include <stddef.h>
 
 /* Stop command lead time for overshoot compensation (microseconds). */
-#define STOP_EARLY_US 950000ULL
+#define STOP_EARLY_US 8000000ULL
 
 /* ===== Sensor-hit statistics helper ===== */
 

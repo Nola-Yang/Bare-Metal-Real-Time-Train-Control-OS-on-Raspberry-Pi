@@ -248,9 +248,9 @@ static void init_speed_table(void) {
     for (int x = 1; x <= 14; x++) {
         if (x == 8) {
 #ifdef TRACK_A
-            SPEED_V_MM_S[x] = 230;
+            SPEED_V_MM_S[x] = 280;
 #else
-            SPEED_V_MM_S[x] = 230;
+            SPEED_V_MM_S[x] = 280;
 #endif
             continue;
         }
@@ -279,8 +279,12 @@ static void init_speed_table(void) {
  * Fill SPEED_DECEL_MM_S2 with calibrated deceleration constants (mm/s²).
  */
 static void init_decel_table(void) {
-    static const int32_t tbl[15] =
-        {    0,   9,  14,  23,  30,  50,  74, 104, 139, 171, 228, 256, 242, 213, 305 };
+    #ifdef TRACK_A
+        static const int32_t tbl[15] = {    0,   9,  14,  23,  30,  50,  74, 104, 101, 171, 228, 256, 242, 213, 305 };
+    #else
+        static const int32_t tbl[15] = {    0,   9,  14,  23,  30,  50,  74, 104, 101, 171, 228, 256, 242, 213, 305 };
+    #endif
+
     for (int i = 0; i < 15; i++)
         SPEED_DECEL_MM_S2[i] = tbl[i];
 }
