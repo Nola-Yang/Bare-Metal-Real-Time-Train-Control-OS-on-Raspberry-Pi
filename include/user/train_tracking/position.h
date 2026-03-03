@@ -12,7 +12,7 @@
 #define LOOP_SENSOR_COUNT 10
 
 /* Speed-stabilisation parameters for the goto loop phase */
-#define STABLE_TIME_ERR_US  30000LL  
+#define STABLE_TIME_ERR_US  10000000LL  
 #define STABLE_SENSOR_MIN   3         
 
 /* ---------- Train route state ---------- */
@@ -36,6 +36,7 @@ typedef enum {
 
 typedef struct {
     int train_num;              /* -1 = empty slot */
+    int train_ind;
 
     /* Current position */
     track_node *cur_sensor;     // most-recently triggered sensor node 
