@@ -14,8 +14,25 @@
 
 train_pos_t g_pos[MAX_POS_TRAINS];
 
-int32_t SPEED_V_MM_S[15];
-int32_t SPEED_DECEL_MM_S2[15];
+int32_t SPEED_V_MM_S[MAX_PHYSICAL_TRAINS][15];
+
+#ifdef TRACK_A
+    int32_t SPEED_DECEL_MM_S2[MAX_PHYSICAL_TRAINS][15] = {
+        {0,  0, 0, 0, 0, 0, 0, 0, 136, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 149, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 149, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 144, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 165, 0, 0, 0, 0, 0, 0}
+    };
+#else
+    int32_t SPEED_DECEL_MM_S2[MAX_PHYSICAL_TRAINS][15] = {
+        {0,  0, 0, 0, 0, 0, 0, 0, 149, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 158, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 165, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 165, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 160, 0, 0, 0, 0, 0, 0}
+    };
+#endif
 
 /* ===== Fixed loop switch settings ===== */
 
@@ -41,13 +58,27 @@ static train_pos_t *find_pos(int train_num) {
     return NULL;
 }
 
+static int32_t train_num_to_ind(int train_num) {
+    if (13 <= train_num && train_num <= 15) {
+        return train_num - 13;
+    } else if (17 <= train_num && train_num <= 18) {
+        return train_num - 14;
+    }
+
+    // default index
+    return 0;
+}
+
 static train_pos_t *find_or_create_pos(int train_num) {
     train_pos_t *p = find_pos(train_num);
     if (p) return p;
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         if (g_pos[i].train_num < 0) {
+            int32_t train_ind = train_num_to_ind(train_num);
+
             train_pos_t *slot = &g_pos[i];
             slot->train_num             = train_num;
+            slot->train_ind             = train_ind;
             slot->cur_sensor            = NULL;
             slot->cur_sensor_time       = 0;
             slot->effective_v           = 0;
@@ -81,7 +112,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->dead_track_deadline_us  = 0;
             slot->goto_speed            = 8;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
-            for (int s = 0; s < 15; s++) slot->brake_a_eff[s] = SPEED_DECEL_MM_S2[s];
+            for (int s = 0; s < 15; s++) slot->brake_a_eff[s] = SPEED_DECEL_MM_S2[train_ind][s];
             slot->brake_v_saved      = 0;
             slot->overshoot_detected = 0;
             return slot;
@@ -115,7 +146,7 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     if (pos->cur_sensor != NULL) {
         int32_t saved_ev = pos->effective_v;
         if (saved_ev == 0) {
-            int32_t tv = SPEED_V_MM_S[pos->goto_speed];
+            int32_t tv = SPEED_V_MM_S[pos->train_ind][pos->goto_speed];
             pos->effective_v = (tv > 0) ? tv : 100;
         }
         uint64_t dummy_dt = 0;
@@ -186,7 +217,7 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     int can_spd = 1 + (pos->user_speed - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
     int32_t cv_loop  = pos->cached_v[pos->user_speed];
-    pos->effective_v = (cv_loop > 0) ? cv_loop : SPEED_V_MM_S[pos->user_speed];
+    pos->effective_v = (cv_loop > 0) ? cv_loop : SPEED_V_MM_S[pos->train_ind][pos->user_speed];
     pos->cur_sensor_time = now_us;
 
     /* Prediction */
@@ -235,6 +266,13 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
 
 /* ===== Public API ===== */
 
+
+#ifdef TRACK_A
+    static int32_t SPEED_OVERRIDES[MAX_PHYSICAL_TRAINS] = {227, 232, 242, 229, 230};
+#else
+    static int32_t SPEED_OVERRIDES[MAX_PHYSICAL_TRAINS] = {280, 280, 280, 280, 280};
+#endif
+
 /*
  * Fill SPEED_V_MM_S (mm/s) from:
  *   f(x) = 1.335e-08x^5 - 5.583e-07x^4 + 8.883e-06x^3 - 6.228e-05x^2 + 0.0002327x - 0.000273
@@ -244,54 +282,39 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
  * speed (mm/s) = f(x) * 1e6 = val / 1e6.
  */
 static void init_speed_table(void) {
-    SPEED_V_MM_S[0] = 0;
-    for (int x = 1; x <= 14; x++) {
-        if (x == 8) {
-#ifdef TRACK_A
-            SPEED_V_MM_S[x] = 280;
-#else
-            SPEED_V_MM_S[x] = 280;
-#endif
-            continue;
-        }
-        int64_t x2 = (int64_t)x * x;
-        int64_t x3 = x2 * x;
-        int64_t x4 = x3 * x;
-        int64_t x5 = x4 * x;
-        /* val = f(x) * 1e12 (mm/us * 1e12) */
-        int64_t val = (int64_t)13350      * x5
-                    - (int64_t)558300     * x4
-                    + (int64_t)8883000    * x3
-                    - (int64_t)62280000   * x2
-                    + (int64_t)232700000  * x
-                    - (int64_t)273000000;
-        /* speed (mm/s) = f(x) * 1e6 = val / 1e6 */
-        if (val <= 0) {
-            SPEED_V_MM_S[x] = 0;
-        } else {
-            int64_t spd = val / 1000000LL;
-            SPEED_V_MM_S[x] = (spd > 0 && spd <= INT32_MAX) ? (int32_t)spd : 0;
+    for (int trainInd = 0; trainInd < MAX_PHYSICAL_TRAINS; trainInd++) {
+        SPEED_V_MM_S[trainInd][0] = 0;
+
+        for (int x = 1; x <= 14; x++) {
+            if (x == 8) {
+                SPEED_V_MM_S[trainInd][x] = SPEED_OVERRIDES[trainInd];
+                continue;
+            }
+
+            int64_t x2 = (int64_t)x * x;
+            int64_t x3 = x2 * x;
+            int64_t x4 = x3 * x;
+            int64_t x5 = x4 * x;
+            /* val = f(x) * 1e12 (mm/us * 1e12) */
+            int64_t val = (int64_t)13350      * x5
+                        - (int64_t)558300     * x4
+                        + (int64_t)8883000    * x3
+                        - (int64_t)62280000   * x2
+                        + (int64_t)232700000  * x
+                        - (int64_t)273000000;
+            /* speed (mm/s) = f(x) * 1e6 = val / 1e6 */
+            if (val <= 0) {
+                SPEED_V_MM_S[trainInd][x] = 0;
+            } else {
+                int64_t spd = val / 1000000LL;
+                SPEED_V_MM_S[trainInd][x] = (spd > 0 && spd <= INT32_MAX) ? (int32_t)spd : 0;
+            }
         }
     }
 }
 
-/*
- * Fill SPEED_DECEL_MM_S2 with calibrated deceleration constants (mm/s²).
- */
-static void init_decel_table(void) {
-    #ifdef TRACK_A
-        static const int32_t tbl[15] = {    0,   9,  14,  23,  30,  50,  74, 104, 101, 171, 228, 256, 242, 213, 305 };
-    #else
-        static const int32_t tbl[15] = {    0,   9,  14,  23,  30,  50,  74, 104, 101, 171, 228, 256, 242, 213, 305 };
-    #endif
-
-    for (int i = 0; i < 15; i++)
-        SPEED_DECEL_MM_S2[i] = tbl[i];
-}
-
 void pos_init(void) {
     init_speed_table();
-    init_decel_table();
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         g_pos[i].train_num = -1;
     }
@@ -327,7 +350,7 @@ void pos_on_speed_change(int train_num, int user_speed) {
 
     if (user_speed > 0 && user_speed <= 14) {
         int32_t cv = pos->cached_v[user_speed];
-        pos->effective_v = (cv > 0) ? cv : SPEED_V_MM_S[user_speed];
+        pos->effective_v = (cv > 0) ? cv : SPEED_V_MM_S[pos->train_ind][user_speed];
         /* Transition to KNOWN when the train resumes from a known-position state. */
         if (pos->cur_sensor != NULL &&
             (pos->route_state == TRAIN_STATE_STOPPED  ||
@@ -401,7 +424,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_spee
         int can_spd = 1 + (pos->user_speed - 1) * 77;
         track_set_speed(train_num, can_spd);
 
-        pos->effective_v     = SPEED_V_MM_S[pos->user_speed];
+        pos->effective_v     = SPEED_V_MM_S[pos->train_ind][pos->user_speed];
         pos->cur_sensor_time = read_timer();
         pos->going_forward   = 1;
         pos->stable_sensor_count = 0;

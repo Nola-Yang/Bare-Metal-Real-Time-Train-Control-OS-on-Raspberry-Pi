@@ -36,6 +36,7 @@ typedef enum {
 
 typedef struct {
     int train_num;              /* -1 = empty slot */
+    int train_ind;
 
     /* Current position */
     track_node *cur_sensor;     // most-recently triggered sensor node 
