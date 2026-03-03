@@ -438,12 +438,42 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_spee
         }
 
     } else if (pos->route_state == TRAIN_STATE_KNOWN) {
-        /* pos Known, running via tr.
-         * Issue stop command now; pos_on_tick will call
-         * transition_to_enter_loop() once physically stopped. */
-        track_set_speed(train_num, 0);
-        pos->stopping_since_us = read_timer();
-        pos->route_state = TRAIN_STATE_STOPPING_GOTO;
+        int pred_on_loop = (pos->pred_next_sensor != NULL &&
+                            (is_forward_loop_sensor(pos->pred_next_sensor) ||
+                             is_reverse_loop_sensor(pos->pred_next_sensor)));
+        if (pred_on_loop) {
+            /* Train already running on the loop — skip stop/re-enter and
+             * go straight to LOOP_STABILIZE. */
+            pos_apply_loop_switches();
+            pos->going_forward       = is_forward_loop_sensor(pos->pred_next_sensor) ? 1 : 0;
+            pos->stable_sensor_count = 0;
+            pos->route_state         = TRAIN_STATE_LOOP_STABILIZE;
+            /* Adjust speed to goto_speed */
+            pos->user_speed  = pos->goto_speed;
+            int can_spd = 1 + (pos->user_speed - 1) * 77;
+            track_set_speed(pos->train_num, can_spd);
+            int32_t cv = pos->cached_v[pos->user_speed];
+            pos->effective_v = (cv > 0) ? cv : SPEED_V_MM_S[pos->train_ind][pos->user_speed];
+            /* Refresh prediction with new speed */
+            uint64_t dt = 0;
+            pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
+            uint64_t now_goto      = read_timer();
+            pos->pred_trigger_time = now_goto + dt;
+            if (pos->pred_next_sensor != NULL && dt > 0) {
+                uint64_t T2 = 0;
+                predict_next_sensor(pos, pos->pred_next_sensor, &T2);
+                pos->dead_track_deadline_us = now_goto + 2 * (dt + T2);
+            } else {
+                pos->dead_track_deadline_us = 0;
+            }
+        } else {
+            /* pos Known, running via tr.
+             * Issue stop command now; pos_on_tick will call
+             * transition_to_enter_loop() once physically stopped. */
+            track_set_speed(train_num, 0);
+            pos->stopping_since_us = read_timer();
+            pos->route_state = TRAIN_STATE_STOPPING_GOTO;
+        }
 
     } else if (pos->route_state == TRAIN_STATE_STOPPING_TR) {
         /* Train is already decelerating from a tr 0 command.
