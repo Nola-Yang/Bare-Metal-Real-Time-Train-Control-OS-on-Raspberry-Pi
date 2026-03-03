@@ -40,6 +40,10 @@ void observe_path_and_correct_switches(track_node *from, track_node *to);
  * ratio = actual_dt * 256 / pred_dt).  Clamps factor to [128, 512]. */
 void update_edge_factors(track_node *from, track_node *to, int32_t ratio_q8);
 
+/* Re-send switch commands for SW153 and SW155 that appear in the plan.
+ * These switches need a duplicate command to reliably engage. */
+void resend_sw153_sw155(const int *sw_nums, const char *sw_dirs, int sw_count);
+
 /* ===== BFS route planning ===== */
 
 /* BFS from start to target; fills plan.  Returns 1 on success, 0 if no path. */
