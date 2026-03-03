@@ -93,23 +93,40 @@ static track_edge *get_next_edge(track_node *n) {
 }
 
 /*
- * Returns 1 if `target` is reachable from `start` within max_hops.
- * Intermediate sensor nodes are treated as ordinary waypoints 
+ * Returns the minimum mm-distance from `start` to `target`, trying both
+ * directions at every branch encountered.  Returns -1 if unreachable within
+ * max_hops.
+ *
+ * Used by observe_path_and_correct_switches to disambiguate which branch
+ * direction was actually taken: the train physically travelled the shorter
+ * path, so if one direction reaches `target` much sooner than the other, we
+ * can safely infer the train went that way even when both are theoretically
+ * reachable.
  */
-static int reaches_target(track_node *start, track_node *target, int max_hops) {
-    if (!start) return 0;
-    if (start == target) return 1;
-    if (max_hops <= 0) return 0;
-    if (start->type == NODE_EXIT) return 0;
+static int32_t min_dist_to(track_node *start, track_node *target, int max_hops) {
+    if (!start || max_hops <= 0) return -1;
+    if (start == target) return 0;
+    if (start->type == NODE_EXIT) return -1;
 
     if (start->type == NODE_BRANCH) {
-        return (reaches_target(start->edge[DIR_STRAIGHT].dest,
-                               target, max_hops - 1) ||
-                reaches_target(start->edge[DIR_CURVED].dest,
-                               target, max_hops - 1));
+        int32_t ds = -1, dc = -1;
+        if (start->edge[DIR_STRAIGHT].dest) {
+            int32_t r = min_dist_to(start->edge[DIR_STRAIGHT].dest, target, max_hops - 1);
+            if (r >= 0) ds = (int32_t)start->edge[DIR_STRAIGHT].dist + r;
+        }
+        if (start->edge[DIR_CURVED].dest) {
+            int32_t r = min_dist_to(start->edge[DIR_CURVED].dest, target, max_hops - 1);
+            if (r >= 0) dc = (int32_t)start->edge[DIR_CURVED].dist + r;
+        }
+        if (ds < 0) return dc;
+        if (dc < 0) return ds;
+        return (ds <= dc) ? ds : dc;
     }
-    if (!start->edge[DIR_AHEAD].dest) return 0;
-    return reaches_target(start->edge[DIR_AHEAD].dest, target, max_hops - 1);
+
+    if (!start->edge[DIR_AHEAD].dest) return -1;
+    int32_t r = min_dist_to(start->edge[DIR_AHEAD].dest, target, max_hops - 1);
+    if (r < 0) return -1;
+    return (int32_t)start->edge[DIR_AHEAD].dist + r;
 }
 
 static void bfs_enqueue(int *tail, track_node *node, int parent_idx,
@@ -242,16 +259,27 @@ void observe_path_and_correct_switches(track_node *from, track_node *to) {
         if (n->type == NODE_BRANCH) {
             track_node *branch = n;
 
-            int s = branch->edge[DIR_STRAIGHT].dest &&
-                    reaches_target(branch->edge[DIR_STRAIGHT].dest, to, 40);
-            int c = branch->edge[DIR_CURVED].dest &&
-                    reaches_target(branch->edge[DIR_CURVED].dest, to, 40);
+            int32_t ds = branch->edge[DIR_STRAIGHT].dest
+                         ? min_dist_to(branch->edge[DIR_STRAIGHT].dest, to, 40) : -1;
+            int32_t dc = branch->edge[DIR_CURVED].dest
+                         ? min_dist_to(branch->edge[DIR_CURVED].dest,   to, 40) : -1;
 
-            if (s == c) break;
+            /* Both unreachable: give up. */
+            if (ds < 0 && dc < 0) break;
 
-            char actual_dir = s ? 'S' : 'C';
-            track_node *next = s ? branch->edge[DIR_STRAIGHT].dest
-                                 : branch->edge[DIR_CURVED].dest;
+            /* Both reachable with identical distance: genuinely ambiguous. */
+            if (ds >= 0 && dc >= 0 && ds == dc) break;
+
+            /* Pick the shorter (or only reachable) direction. */
+            char actual_dir;
+            track_node *next;
+            if (dc < 0 || (ds >= 0 && ds < dc)) {
+                actual_dir = 'S';
+                next       = branch->edge[DIR_STRAIGHT].dest;
+            } else {
+                actual_dir = 'C';
+                next       = branch->edge[DIR_CURVED].dest;
+            }
 
             int sw_idx = track_switch_to_index(branch->num);
             if (sw_idx >= 0) {
