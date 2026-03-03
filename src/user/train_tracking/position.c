@@ -81,9 +81,6 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->dead_track_deadline_us  = 0;
             slot->goto_speed            = 8;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
-            for (int s = 0; s < 15; s++) slot->brake_a_eff[s] = SPEED_DECEL_MM_S2[s];
-            slot->brake_v_saved      = 0;
-            slot->overshoot_detected = 0;
             return slot;
         }
     }
