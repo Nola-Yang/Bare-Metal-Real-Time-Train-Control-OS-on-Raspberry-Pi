@@ -104,9 +104,14 @@ typedef struct {
     /* Per-speed EMA cache.
      * cached_v[s] holds the last calibrated effective_v for user speed s.
      * 0 = unset; fall back to SPEED_V_MM_S[s] from the polynomial table.
-     * Saved on each stop; restored on restart at the same speed 
+     * Saved on each stop; restored on restart at the same speed
     */
     int32_t     cached_v[15];
+
+    /* Distance remaining (mm) in the post-speed-change warm-up window.
+     * EMA and edge-factor calibration are suppressed while this is > 0.
+     * Decremented by the measured edge distance on each sensor trigger. */
+    int32_t     speed_warmup_mm;
 
 } train_pos_t;
 

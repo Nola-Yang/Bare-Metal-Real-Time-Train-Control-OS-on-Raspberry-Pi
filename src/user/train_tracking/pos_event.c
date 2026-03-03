@@ -38,6 +38,17 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
         }
     }
 
+    /* Speed-change warm-up: suppress EMA/edge-factor calibration for the
+     * first 400 mm after any speed adjustment. */
+    if (pos->speed_warmup_mm > 0 && pos->cur_sensor != NULL) {
+        int32_t seg = follow_dist(pos->cur_sensor, hit, 100);
+        if (seg > 0) {
+            pos->speed_warmup_mm -= seg;
+            if (pos->speed_warmup_mm < 0) pos->speed_warmup_mm = 0;
+        }
+    }
+    int in_warmup = (pos->speed_warmup_mm > 0);
+
     /* Prediction error accounting + per-edge factor update */
     if (*out_was_predicted && pos->pred_trigger_time > 0) {
         pos->last_time_err_us =
@@ -53,7 +64,8 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
 
         {
             train_route_state_t _st = pos->route_state;
-            int factor_valid = (_st == TRAIN_STATE_LOOP_STABILIZE ||
+            int factor_valid = !in_warmup &&
+                               (_st == TRAIN_STATE_LOOP_STABILIZE ||
                                 _st == TRAIN_STATE_ON_ROUTE);
             if (factor_valid && pos->cur_sensor != NULL &&
                 pos->cur_sensor_time > 0) {
@@ -98,7 +110,8 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
      */
     {
         train_route_state_t st = pos->route_state;
-        int ema_valid = (st == TRAIN_STATE_LOOP_STABILIZE ||
+        int ema_valid = !in_warmup &&
+                        (st == TRAIN_STATE_LOOP_STABILIZE ||
                          st == TRAIN_STATE_ON_ROUTE);
         if (ema_valid && *out_was_predicted && pos->cur_sensor && pos->effective_v > 0) {
             int32_t meas_dist = follow_dist(pos->cur_sensor, hit, 100);

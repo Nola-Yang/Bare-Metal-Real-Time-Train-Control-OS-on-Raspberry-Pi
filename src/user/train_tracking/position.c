@@ -112,6 +112,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->dead_track_deadline_us  = 0;
             slot->goto_speed            = 8;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
+            slot->speed_warmup_mm = 0;
             return slot;
         }
     }
@@ -215,6 +216,7 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     track_set_speed(pos->train_num, can_spd);
     int32_t cv_loop  = pos->cached_v[pos->user_speed];
     pos->effective_v = (cv_loop > 0) ? cv_loop : SPEED_V_MM_S[pos->train_ind][pos->user_speed];
+    pos->speed_warmup_mm = 400;
     pos->cur_sensor_time = now_us;
 
     /* Prediction */
@@ -348,6 +350,7 @@ void pos_on_speed_change(int train_num, int user_speed) {
     if (user_speed > 0 && user_speed <= 14) {
         int32_t cv = pos->cached_v[user_speed];
         pos->effective_v = (cv > 0) ? cv : SPEED_V_MM_S[pos->train_ind][user_speed];
+        pos->speed_warmup_mm = 400;
         /* Transition to KNOWN when the train resumes from a known-position state. */
         if (pos->cur_sensor != NULL &&
             (pos->route_state == TRAIN_STATE_STOPPED  ||
@@ -454,6 +457,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_spee
             track_set_speed(pos->train_num, can_spd);
             int32_t cv = pos->cached_v[pos->user_speed];
             pos->effective_v = (cv > 0) ? cv : SPEED_V_MM_S[pos->train_ind][pos->user_speed];
+            pos->speed_warmup_mm = 400;
             /* Refresh prediction with new speed */
             uint64_t dt = 0;
             pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
