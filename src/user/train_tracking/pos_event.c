@@ -281,7 +281,7 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
 
             int user_spd = pos->user_speed;
             int32_t a    = (user_spd > 0 && user_spd <= 14)
-                           ? SPEED_DECEL_MM_S2[user_spd] : 0;
+                           ? SPEED_DECEL_MM_S2[pos->train_ind][user_spd] : 0;
 
             if (a > 0) {
                 int32_t d_brake = (int32_t)((int64_t)pos->effective_v
@@ -332,9 +332,9 @@ void pos_on_tick(uint64_t now_us) {
             uint64_t brake_us = 1000000ULL;
             if (pos->effective_v > 0 &&
                 pos->user_speed > 0 && pos->user_speed <= 14 &&
-                SPEED_DECEL_MM_S2[pos->user_speed] > 0) {
+                SPEED_DECEL_MM_S2[pos->train_ind][pos->user_speed] > 0) {
                 brake_us = (uint64_t)pos->effective_v * 1500000ULL
-                           / (uint64_t)SPEED_DECEL_MM_S2[pos->user_speed];
+                           / (uint64_t)SPEED_DECEL_MM_S2[pos->train_ind][pos->user_speed];
             }
             if (now_us < pos->stopping_since_us + brake_us) continue;
 
@@ -351,9 +351,9 @@ void pos_on_tick(uint64_t now_us) {
             uint64_t brake_us = 1000000ULL;
             if (pos->effective_v > 0 &&
                 pos->user_speed > 0 && pos->user_speed <= 14 &&
-                SPEED_DECEL_MM_S2[pos->user_speed] > 0) {
+                SPEED_DECEL_MM_S2[pos->train_ind][pos->user_speed] > 0) {
                 brake_us = (uint64_t)pos->effective_v * 1500000ULL
-                           / (uint64_t)SPEED_DECEL_MM_S2[pos->user_speed];
+                           / (uint64_t)SPEED_DECEL_MM_S2[pos->train_ind][pos->user_speed];
             }
             if (now_us >= pos->stopping_since_us + brake_us) {
                 pos->route_state = TRAIN_STATE_STOPPED;
@@ -369,9 +369,9 @@ void pos_on_tick(uint64_t now_us) {
             uint64_t brake_us = 1000000ULL;
             if (pos->effective_v > 0 &&
                 pos->user_speed > 0 && pos->user_speed <= 14 &&
-                SPEED_DECEL_MM_S2[pos->user_speed] > 0) {
+                SPEED_DECEL_MM_S2[pos->train_ind][pos->user_speed] > 0) {
                 brake_us = (uint64_t)pos->effective_v * 1500000ULL
-                           / (uint64_t)SPEED_DECEL_MM_S2[pos->user_speed];
+                           / (uint64_t)SPEED_DECEL_MM_S2[pos->train_ind][pos->user_speed];
             }
             if (now_us >= pos->stopping_since_us + brake_us) {
                 if (pos->user_speed > 0 && pos->user_speed <= 14)
@@ -392,9 +392,9 @@ void pos_on_tick(uint64_t now_us) {
                 uint64_t brake_us = 1000000ULL;  /* 1 s default */
                 if (pos->effective_v > 0 &&
                     pos->user_speed > 0 && pos->user_speed <= 14 &&
-                    SPEED_DECEL_MM_S2[pos->user_speed] > 0) {
+                    SPEED_DECEL_MM_S2[pos->train_ind][pos->user_speed] > 0) {
                     brake_us = (uint64_t)pos->effective_v * 1500000ULL
-                               / (uint64_t)SPEED_DECEL_MM_S2[pos->user_speed];
+                               / (uint64_t)SPEED_DECEL_MM_S2[pos->train_ind][pos->user_speed];
                 }
                 if (now_us >= pos->stopping_since_us + brake_us) {
                     if (pos->user_speed > 0 && pos->user_speed <= 14)
@@ -441,7 +441,7 @@ void pos_on_tick(uint64_t now_us) {
 
                 int user_spd = pos->user_speed;
                 int32_t a_tick = (user_spd > 0 && user_spd <= 14)
-                                 ? SPEED_DECEL_MM_S2[user_spd] : 0;
+                                 ? SPEED_DECEL_MM_S2[pos->train_ind][user_spd] : 0;
 
                 if (a_tick > 0) {
                     int32_t d_brake_tick = (int32_t)((int64_t)pos->effective_v
