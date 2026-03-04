@@ -52,8 +52,9 @@ void ui_switches(void) {
         char state = switches[i].state;
         p = buf_append_int(p, sw_num);
         p = buf_append_char(p, ':');
+        p = buf_append(p, state == 'S' ? "\033[32m" : "\033[33m");
         p = buf_append_char(p, state);
-        p = buf_append_char(p, ' ');
+        p = buf_append(p, "\033[0m ");
     }
     p = buf_append(p, "\033[K");
 
@@ -64,8 +65,9 @@ void ui_switches(void) {
         char state = switches[i].state;
         p = buf_append_int(p, sw_num);
         p = buf_append_char(p, ':');
+        p = buf_append(p, state == 'S' ? "\033[32m" : "\033[33m");
         p = buf_append_char(p, state);
-        p = buf_append_char(p, ' ');
+        p = buf_append(p, "\033[0m ");
     }
     p = buf_append(p, "\033[K");
 
@@ -76,8 +78,9 @@ void ui_switches(void) {
         char state = switches[i].state;
         p = buf_append_int(p, sw_num);
         p = buf_append_char(p, ':');
+        p = buf_append(p, state == 'S' ? "\033[32m" : "\033[33m");
         p = buf_append_char(p, state);
-        p = buf_append_char(p, ' ');
+        p = buf_append(p, "\033[0m ");
     }
     p = buf_append(p, "\033[K");
 

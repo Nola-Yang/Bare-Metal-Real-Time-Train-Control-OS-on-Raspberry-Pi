@@ -142,7 +142,8 @@ void train_control_task(void) {
         track_set_switch(sw, 'S');
     }
     for (int sw = 153; sw <= 156; sw++) {
-        track_set_switch(sw, 'S');
+        char state = (sw == 153 || sw == 155) ? 'C' : 'S';
+        track_set_switch(sw, state);
     }
     pos_apply_loop_switches();
     ui_mark_switches_dirty();
