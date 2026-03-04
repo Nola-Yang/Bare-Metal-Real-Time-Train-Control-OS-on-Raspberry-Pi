@@ -19,7 +19,11 @@
 #include <stddef.h>
 
 /* Stop command lead time for overshoot compensation (microseconds). */
-uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1200000ULL, 1200000ULL, 1200000ULL, 1200000ULL, 900000ULL};
+#ifdef TRACK_A
+    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1200000ULL, 1200000ULL, 1200000ULL, 1200000ULL, 900000ULL};
+#else
+    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {950000ULL, 950000ULL, 950000ULL, 950000ULL, 950000ULL};
+#endif
 
 /* ===== Sensor-hit statistics helper ===== */
 
