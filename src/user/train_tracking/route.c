@@ -189,22 +189,6 @@ int32_t follow_dist(track_node *cur, track_node *to, int max_hops) {
     return -1;
 }
 
-int32_t follow_dist_weighted(track_node *cur, track_node *to, int max_hops) {
-    if (!cur || !to) return -1;
-    if (cur == to) return 0;
-    int32_t dist = 0;
-    for (int h = 0; h < max_hops; h++) {
-        track_edge *e = get_next_edge(cur);
-        if (!e || !e->dest) return -1;
-        int16_t f = e->time_factor_q8 ? e->time_factor_q8 : 256;
-        dist += (int32_t)((int64_t)e->dist * 256 / f);
-        cur = e->dest;
-        if (cur == to) return dist;
-        if (cur->type == NODE_EXIT) return -1;
-    }
-    return -1;
-}
-
 
 int follow_reaches_loop(track_node *start, int max_hops) {
     if (!start) return 0;

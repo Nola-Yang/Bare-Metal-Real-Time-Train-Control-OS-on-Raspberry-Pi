@@ -22,10 +22,6 @@ int  is_reverse_loop_sensor(track_node *n);
  * Returns accumulated distance (mm), or -1 if not reached within max_hops. */
 int32_t follow_dist(track_node *cur, track_node *to, int max_hops);
 
-/* Like follow_dist but scales each edge by 256/time_factor_q8.
- * Use for braking distance */
-int32_t follow_dist_weighted(track_node *cur, track_node *to, int max_hops);
-
 /* Returns 1 if a fixed-loop sensor is reachable from start by following
  * current switch states within max_hops, 0 otherwise. */
 int follow_reaches_loop(track_node *start, int max_hops);

@@ -70,38 +70,9 @@ int track_is_valid_switch(int sw_num) {
     return (sw_num >= 1 && sw_num <= 18) || (sw_num >= 153 && sw_num <= 156);
 }
 
-/* Set time_factor_q8 on every edge from g_track[from_idx] to g_track[to_idx].*/
-static int set_path_time_factor_r(int cur, int to, int16_t factor,
-                                   uint8_t *visited, int hops) {
-    if (cur == to) return 1;
-    if (hops <= 0) return 0;
-    if (visited[cur]) return 0;
-    visited[cur] = 1;
-    track_node *n = &g_track[cur];
-    if (n->type == NODE_EXIT) return 0;
-    for (int d = 0; d < 2; d++) {
-        if (!n->edge[d].dest) continue;
-        int dest = (int)(n->edge[d].dest - g_track);
-        if (set_path_time_factor_r(dest, to, factor, visited, hops - 1)) {
-            n->edge[d].time_factor_q8 = factor;
-            return 1;
-        }
-    }
-    visited[cur] = 0;
-    return 0;
-}
-
-static void set_path_time_factor(int from_idx, int to_idx, int16_t factor) {
-    uint8_t visited[TRACK_MAX] = {0};
-    set_path_time_factor_r(from_idx, to_idx, factor, visited, TRACK_MAX);
-}
-
 void track_init_graph(void) {
 #ifdef TRACK_A
     init_tracka(g_track);
-    /* C8(idx 39)->A12(idx 11) and C14(idx 45)->A15(idx 14) */
-    set_path_time_factor(39, 11, 300);
-    set_path_time_factor(45, 14, 300);
 #else
     init_trackb(g_track);
 #endif

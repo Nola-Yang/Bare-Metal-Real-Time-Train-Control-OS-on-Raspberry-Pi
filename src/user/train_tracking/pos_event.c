@@ -18,24 +18,11 @@
 #include <stdint.h>
 #include <stddef.h>
 
-/* Stop command lead time for overshoot compensation (microseconds).
- * Indexed [train_ind][going_forward]: [*][0] = reverse, [*][1] = forward. */
+/* Stop command lead time for overshoot compensation (microseconds). */
 #ifdef TRACK_A
-    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS][2] = {
-        {9500000ULL, 1050000ULL},
-        {9500000ULL, 1050000ULL},
-        {9500000ULL, 1050000ULL},
-        {9500000ULL, 1050000ULL},
-        {9500000ULL, 1050000ULL},
-    };
+    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1100000ULL, 1100000ULL, 1100000ULL, 1100000ULL, 1100000ULL};
 #else
-    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS][2] = {
-        {1105000ULL, 1105000ULL},
-        {1100000ULL, 1100000ULL},
-        {1100000ULL, 1100000ULL},
-        {1100000ULL, 1100000ULL},
-        {1100000ULL, 1100000ULL},
-    };
+    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1105000ULL, 1100000ULL, 1100000ULL, 1100000ULL, 1100000ULL};
 #endif
 
 /* ===== Sensor-hit statistics helper ===== */
@@ -255,7 +242,7 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     if (pos->pred_next_sensor != NULL && dt_pred > 0) {
         uint64_t T2 = 0;
         predict_next_sensor(pos, pos->pred_next_sensor, &T2);
-        pos->dead_track_deadline_us = time_us + 3 * (dt_pred + T2);
+        pos->dead_track_deadline_us = time_us + 2 * (dt_pred + T2);
     } else {
         pos->dead_track_deadline_us = 0;
     }
@@ -303,7 +290,7 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     if (pos->target_sensor &&
         pos->route_state == TRAIN_STATE_ON_ROUTE) {
 
-        int32_t rem = follow_dist_weighted(hit, pos->target_sensor, 150);
+        int32_t rem = follow_dist(hit, pos->target_sensor, 150);
         if (rem >= 0) {
             rem += pos->target_offset_mm;
             if (rem < 0) rem = 0;
@@ -318,7 +305,7 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
                                             * pos->effective_v / (2LL * a));
                 /* Issue stop early to compensate overshoot. */
                 int32_t d_early = d_brake + (int32_t)(
-                    (int64_t)pos->effective_v * (int64_t)STOP_EARLY_US[pos->train_ind][pos->going_forward] / 1000000LL);
+                    (int64_t)pos->effective_v * (int64_t)STOP_EARLY_US[pos->train_ind] / 1000000LL);
                 if (rem <= d_early) {
                     pos->route_state       = TRAIN_STATE_STOPPING;
                     pos->stopping_since_us = time_us;
@@ -447,8 +434,8 @@ void pos_on_tick(uint64_t now_us) {
             pos->cur_sensor    != NULL &&
             pos->effective_v   >  0) {
 
-            int32_t dist_from_cur = follow_dist_weighted(pos->cur_sensor,
-                                                        pos->target_sensor, 150);
+            int32_t dist_from_cur = follow_dist(pos->cur_sensor,
+                                                pos->target_sensor, 150);
             if (dist_from_cur >= 0) {
                 uint64_t elapsed  = now_us - pos->cur_sensor_time;
                 int32_t  traveled = (int32_t)((int64_t)pos->effective_v *
@@ -469,7 +456,7 @@ void pos_on_tick(uint64_t now_us) {
                                           * pos->effective_v / (2LL * a_tick));
                     /* Issue stop early to compensate overshoot. */
                     int32_t d_early_tick = d_brake_tick + (int32_t)(
-                        (int64_t)pos->effective_v * (int64_t)STOP_EARLY_US[pos->train_ind][pos->going_forward] / 1000000LL);
+                        (int64_t)pos->effective_v * (int64_t)STOP_EARLY_US[pos->train_ind] / 1000000LL);
                     if (rem <= d_early_tick) {
                         pos->route_state       = TRAIN_STATE_STOPPING;
                         pos->stopping_since_us = now_us;
