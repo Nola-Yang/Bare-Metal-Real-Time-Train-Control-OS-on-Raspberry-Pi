@@ -19,7 +19,7 @@
 #include <stddef.h>
 
 /* Stop command lead time for overshoot compensation (microseconds). */
-uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1200000ULL, 1200000ULL, 1200000ULL, 1200000ULL, 1000000ULL};
+uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1200000ULL, 1200000ULL, 1200000ULL, 1200000ULL, 900000ULL};
 
 /* ===== Sensor-hit statistics helper ===== */
 
