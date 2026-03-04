@@ -132,7 +132,7 @@ void pos_init(void);
  * Tries to attribute the event to the correct tracked train. */
 void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us);
 
-/* Called on every 100 ms tick to handle predicted-sensor timeouts. */
+/* Called on every 10 ms tick to handle predicted-sensor timeouts. */
 void pos_on_tick(uint64_t now_us);
 
 /* Register or update the speed of a tracked train (call after tr command). */

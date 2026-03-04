@@ -3,7 +3,7 @@
  *
  * Handles two event sources that drive the train position FSM:
  *   pos_on_sensor_trigger()  — a sensor fired (CAN RX interrupt path)
- *   pos_on_tick()            — 100 ms periodic tick (dead-reckoning + timeouts)
+ *   pos_on_tick()            — 10 ms periodic tick (dead-reckoning + timeouts)
  *
  */
 
