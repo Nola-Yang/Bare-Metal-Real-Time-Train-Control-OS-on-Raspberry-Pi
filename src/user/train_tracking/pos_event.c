@@ -437,16 +437,7 @@ void pos_on_tick(uint64_t now_us) {
                 int32_t  traveled = (int32_t)((int64_t)pos->effective_v *
                                               (int64_t)elapsed / 1000000LL);
 
-                /* Cap dead-reckoning at the track distance to the predicted
-                 * next sensor.
-                 */
-                if (pos->pred_next_sensor != NULL) {
-                    int32_t dist_to_pred = follow_dist(pos->cur_sensor,
-                                                       pos->pred_next_sensor,
-                                                       80);
-                    if (dist_to_pred > 0 && traveled > dist_to_pred)
-                        traveled = dist_to_pred;
-                }
+            
 
                 int32_t rem = dist_from_cur + pos->target_offset_mm - traveled;
                 if (rem < 0) rem = 0;
