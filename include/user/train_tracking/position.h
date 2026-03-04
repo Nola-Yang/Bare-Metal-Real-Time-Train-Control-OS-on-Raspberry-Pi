@@ -93,7 +93,7 @@ typedef struct {
      * Used by pos_on_tick() to fire the STOPPING → STOPPED transition. */
     uint64_t    stopping_since_us;
 
-    /* cur_sensor_time + 2*(T1+T2), where T1/T2 are the
+    /* cur_sensor_time + 3*(T1+T2), where T1/T2 are the
      * expected travel times to the next two sensors.  
      */
     uint64_t    dead_track_deadline_us;
