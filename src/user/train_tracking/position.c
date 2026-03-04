@@ -239,12 +239,13 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
             pos->pred_trigger_time = now_us + dt;
         }
 
-        /* Set dead-track deadline = now + 2*(T1+T2) */
+        /* Set dead-track deadline = now + 3*(T1+T2) */
         if (pos->pred_next_sensor != NULL && pos->pred_trigger_time > now_us) {
             uint64_t T1 = pos->pred_trigger_time - now_us;
             uint64_t T2 = 0;
             predict_next_sensor(pos, pos->pred_next_sensor, &T2);
-            pos->dead_track_deadline_us = now_us + 2 * (T1 + T2);
+            pos->dead_track_deadline_us =
+                now_us + DEAD_TRACK_DEADLINE_MULTIPLIER * (T1 + T2);
         } else {
             pos->dead_track_deadline_us = 0;
         }
@@ -435,7 +436,8 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_spee
         if (pos->pred_next_sensor != NULL && dt > 0) {
             uint64_t T2 = 0;
             predict_next_sensor(pos, pos->pred_next_sensor, &T2);
-            pos->dead_track_deadline_us = pos->cur_sensor_time + 2 * (dt + T2);
+            pos->dead_track_deadline_us =
+                pos->cur_sensor_time + DEAD_TRACK_DEADLINE_MULTIPLIER * (dt + T2);
         } else {
             pos->dead_track_deadline_us = 0;
         }
@@ -466,7 +468,8 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_spee
             if (pos->pred_next_sensor != NULL && dt > 0) {
                 uint64_t T2 = 0;
                 predict_next_sensor(pos, pos->pred_next_sensor, &T2);
-                pos->dead_track_deadline_us = now_goto + 2 * (dt + T2);
+                pos->dead_track_deadline_us =
+                    now_goto + DEAD_TRACK_DEADLINE_MULTIPLIER * (dt + T2);
             } else {
                 pos->dead_track_deadline_us = 0;
             }

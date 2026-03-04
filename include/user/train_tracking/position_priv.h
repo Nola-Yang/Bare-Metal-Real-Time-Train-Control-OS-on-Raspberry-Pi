@@ -15,6 +15,9 @@ extern train_pos_t g_pos[MAX_POS_TRAINS];
  * from the predicted next sensor (off-route / skip detection). */
 #define OFF_ROUTE_PATH_MAX_HOPS 120
 
+/* Dead-track timeout multiplier relative to predicted sensor intervals. */
+#define DEAD_TRACK_DEADLINE_MULTIPLIER 3
+
 
 
 /* Drive a stationary train back onto the fixed loop and set route_state to

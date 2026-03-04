@@ -242,7 +242,8 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     if (pos->pred_next_sensor != NULL && dt_pred > 0) {
         uint64_t T2 = 0;
         predict_next_sensor(pos, pos->pred_next_sensor, &T2);
-        pos->dead_track_deadline_us = time_us + 2 * (dt_pred + T2);
+        pos->dead_track_deadline_us =
+            time_us + DEAD_TRACK_DEADLINE_MULTIPLIER * (dt_pred + T2);
     } else {
         pos->dead_track_deadline_us = 0;
     }
