@@ -20,9 +20,9 @@
 
 /* Stop command lead time for overshoot compensation (microseconds). */
 #ifdef TRACK_A
-    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1200000ULL, 1200000ULL, 1200000ULL, 1200000ULL, 900000ULL};
+    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1100000ULL, 1100000ULL, 1100000ULL, 1100000ULL, 1100000ULL};
 #else
-    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {950000ULL, 950000ULL, 950000ULL, 950000ULL, 950000ULL};
+    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1105000ULL, 1100000ULL, 1100000ULL, 1100000ULL, 1100000ULL};
 #endif
 
 /* ===== Sensor-hit statistics helper ===== */
@@ -465,7 +465,7 @@ void pos_on_tick(uint64_t now_us) {
                         continue;
                     }
                 }
-                ui_mark_position_dirty();
+                    ui_mark_position_dirty();
             }
         }
 
