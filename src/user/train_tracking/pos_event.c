@@ -19,7 +19,7 @@
 #include <stddef.h>
 
 /* Stop command lead time for overshoot compensation (microseconds). */
-#define STOP_EARLY_US 1200000ULL
+uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1200000ULL, 1200000ULL, 1200000ULL, 1200000ULL, 1000000ULL};
 
 /* ===== Sensor-hit statistics helper ===== */
 
@@ -301,7 +301,7 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
                                             * pos->effective_v / (2LL * a));
                 /* Issue stop early to compensate overshoot. */
                 int32_t d_early = d_brake + (int32_t)(
-                    (int64_t)pos->effective_v * (int64_t)STOP_EARLY_US / 1000000LL);
+                    (int64_t)pos->effective_v * (int64_t)STOP_EARLY_US[pos->train_ind] / 1000000LL);
                 if (rem <= d_early) {
                     pos->route_state       = TRAIN_STATE_STOPPING;
                     pos->stopping_since_us = time_us;
@@ -461,7 +461,7 @@ void pos_on_tick(uint64_t now_us) {
                                           * pos->effective_v / (2LL * a_tick));
                     /* Issue stop early to compensate overshoot. */
                     int32_t d_early_tick = d_brake_tick + (int32_t)(
-                        (int64_t)pos->effective_v * (int64_t)STOP_EARLY_US / 1000000LL);
+                        (int64_t)pos->effective_v * (int64_t)STOP_EARLY_US[pos->train_ind] / 1000000LL);
                     if (rem <= d_early_tick) {
                         pos->route_state       = TRAIN_STATE_STOPPING;
                         pos->stopping_since_us = now_us;

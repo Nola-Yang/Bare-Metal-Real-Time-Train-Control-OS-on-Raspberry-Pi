@@ -267,7 +267,7 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
 
 
 #ifdef TRACK_A
-    static int32_t SPEED_OVERRIDES[MAX_PHYSICAL_TRAINS] = {227, 232, 242, 229, 230};
+    static int32_t SPEED_OVERRIDES[MAX_PHYSICAL_TRAINS] = {227, 232, 242, 229, 313};
 #else
     static int32_t SPEED_OVERRIDES[MAX_PHYSICAL_TRAINS] = {227, 227, 242, 229, 230};
 #endif
