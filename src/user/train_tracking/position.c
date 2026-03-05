@@ -475,10 +475,10 @@ train_pos_t *pos_get_by_index(int i) {
     return &g_pos[i];
 }
 
-track_node *pos_find_sensor(const char *name) {
+track_node *pos_find_node(const char *name) {
     if (!name) return NULL;
     for (int i = 0; i < TRACK_MAX; i++) {
-        if (g_track[i].type == NODE_SENSOR && g_track[i].name != NULL) {
+        if (g_track[i].type != NODE_NONE && g_track[i].name != NULL) {
             const char *a = g_track[i].name;
             const char *b = name;
             while (*a && *b && *a == *b) { a++; b++; }

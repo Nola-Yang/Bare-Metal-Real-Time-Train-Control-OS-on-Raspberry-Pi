@@ -158,8 +158,8 @@ train_pos_t *pos_get(int train_num);
  * Returns NULL if i is out of range. */
 train_pos_t *pos_get_by_index(int i);
 
-/* Find a sensor node by name.
+/* Find a track node by name.
  * Returns NULL if not found. */
-track_node *pos_find_sensor(const char *name);
+track_node *pos_find_node(const char *name);
 
 #endif /* _position_h_ */

@@ -5,10 +5,10 @@
 #include "ui.h"
 #include "kassert.h"
 
-/* Parse sensor name token - > track_node*. Returns NULL on failure. */
-static track_node *parse_sensor(const char *tok) {
+/* Parse node name token -> track_node*. Returns NULL on failure. */
+static track_node *parse_node(const char *tok) {
     if (!tok || !tok[0]) return NULL;
-    return pos_find_sensor(tok);
+    return pos_find_node(tok);
 }
 
 // Returns number of tokens
@@ -131,11 +131,11 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
     }
 
 
-    // goto <train> <sensor> [offset_mm]
+    // goto <train> <node> [offset_mm]
     if (argv[0][0] == 'g' && argv[0][1] == 'o' && argv[0][2] == 't' &&
         argv[0][3] == 'o' && argv[0][4] == '\0') {
         if (argc < 3 || argc > 4) {
-            ui_puts("Usage: goto <train> <sensor> [offset_mm]\r\n");
+            ui_puts("Usage: goto <train> <node> [offset_mm]\r\n");
             return 2;
         }
         int train = str2int(argv[1]);
@@ -147,9 +147,9 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
             ui_puts("goto: cannot execute while rv is in progress\r\n");
             return 2;
         }
-        track_node *target = parse_sensor(argv[2]);
+        track_node *target = parse_node(argv[2]);
         if (!target) {
-            ui_puts("Unknown sensor name\r\n");
+            ui_puts("Unknown node name\r\n");
             return 2;
         }
         int32_t offset = 0;
