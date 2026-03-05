@@ -19,12 +19,12 @@ train_pos_t g_pos[MAX_POS_TRAINS];
     static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
         {227, 232, 242, 229, 230};
     static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {147, 158, 157, 153, 168};
+        {135, 145, 144, 141, 154};
 #else
     static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
         {226, 224, 226, 222, 236};
     static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {174, 170, 183, 180, 167};
+        {158, 156, 167, 166, 153};
 #endif
 
 int32_t speed_table_get_v(int32_t train_ind, int user_speed) {
