@@ -46,9 +46,9 @@ endif
 
 # TRACK (A, B): Which track layout to compile for
 ifeq ($(TRACK),A)
-	CFLAGS += -DTRACK_A
+	CFLAGS += -DTRACK_D
 else ifeq ($(TRACK),B)
-	CFLAGS += -DTRACK_B
+	CFLAGS += -DTRACK_C
 else
 $(error TRACK must be A or B)
 endif

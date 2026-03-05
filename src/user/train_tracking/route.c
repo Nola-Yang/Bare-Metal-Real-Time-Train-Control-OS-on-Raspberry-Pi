@@ -47,7 +47,7 @@ static const int LOOP_SENSOR_FORWARD_ORDER_B[LOOP_SENSOR_COUNT_INTERNAL] =
     { 2, 44, 70, 54, 56, 75, 58, 47, 37, 30 };
 
 static inline const int *loop_sensor_idx(void) {
-#ifdef TRACK_A
+#ifdef TRACK_D
     return LOOP_SENSOR_IDX_A;
 #else
     return LOOP_SENSOR_IDX_B;
@@ -55,7 +55,7 @@ static inline const int *loop_sensor_idx(void) {
 }
 
 static inline const int *loop_sensor_forward_order(void) {
-#ifdef TRACK_A
+#ifdef TRACK_D
     return LOOP_SENSOR_FORWARD_ORDER_A;
 #else
     return LOOP_SENSOR_FORWARD_ORDER_B;

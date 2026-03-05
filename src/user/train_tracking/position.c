@@ -16,21 +16,21 @@ train_pos_t g_pos[MAX_POS_TRAINS];
 
 int32_t SPEED_V_MM_S[MAX_PHYSICAL_TRAINS][15];
 
-#ifdef TRACK_A
+#ifdef TRACK_D
     int32_t SPEED_DECEL_MM_S2[MAX_PHYSICAL_TRAINS][15] = {
-        {0,  0, 0, 0, 0, 0, 0, 0, 136, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 149, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 149, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 144, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 165, 0, 0, 0, 0, 0, 0}
+        {0,  0, 0, 0, 0, 0, 0, 0, 135, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 173, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 171, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 140, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 154, 0, 0, 0, 0, 0, 0}
     };
 #else
     int32_t SPEED_DECEL_MM_S2[MAX_PHYSICAL_TRAINS][15] = {
-        {0,  0, 0, 0, 0, 0, 0, 0, 149, 0, 0, 0, 0, 0, 0},
         {0,  0, 0, 0, 0, 0, 0, 0, 158, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 165, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 165, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 160, 0, 0, 0, 0, 0, 0}
+        {0,  0, 0, 0, 0, 0, 0, 0, 187, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 167, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 166, 0, 0, 0, 0, 0, 0},
+        {0,  0, 0, 0, 0, 0, 0, 0, 153, 0, 0, 0, 0, 0, 0}
     };
 #endif
 
@@ -267,7 +267,7 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
 /* ===== Public API ===== */
 
 
-#ifdef TRACK_A
+#ifdef TRACK_D
     static int32_t SPEED_OVERRIDES[MAX_PHYSICAL_TRAINS] = {227, 232, 242, 229, 230};
 #else
     static int32_t SPEED_OVERRIDES[MAX_PHYSICAL_TRAINS] = {226, 224, 226, 222, 236};
@@ -374,7 +374,7 @@ void pos_on_speed_change(int train_num, int user_speed) {
 
 
 void pos_apply_loop_switches(void) {
-#ifdef TRACK_A
+#ifdef TRACK_D
     const int  *sw_nums = LOOP_SW_NUMS_A;
     const char *sw_dirs = LOOP_SW_DIRS_A;
 #else
