@@ -55,10 +55,6 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
             return 2;
         }
         int train = str2int(argv[1]);
-        if (pos_is_train_goto_active(train)) {
-            ui_puts("Error: goto in progress for this train\r\n");
-            return 2;
-        }
         int speed = str2int(argv[2]);
         if (speed < 0 || speed > 14) {
             ui_puts("Speed must be 0-14\r\n");
@@ -89,26 +85,6 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
         if (dir == 's') dir = 'S';
         if (dir == 'c') dir = 'C';
         track_set_switch(sw, dir);
-        // track_update_switch(sw, dir);
-
-        // 153/154 and 155/156 cannot both be C
-        // if (dir == 'C') {
-        //     int partner = -1;
-        //     if (sw == 153) partner = 154;
-        //     else if (sw == 154) partner = 153;
-        //     else if (sw == 155) partner = 156;
-        //     else if (sw == 156) partner = 155;
-
-        //     if (partner >= 0) {
-        //         int idx = track_switch_to_index(partner);
-        //         if (idx >= 0 && track_get_switch_state()[idx].state == 'C') {
-        //             track_set_switch(partner, 'S');
-        //             track_update_switch(partner, 'S');
-        //         }
-        //     }
-        // }
-
-        // ui_mark_switches_dirty();
         return 1;
     }
 
@@ -155,11 +131,11 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
     }
 
 
-    // goto <train> <sensor> [offset_mm] [speed 8-12]
+    // goto <train> <sensor> [offset_mm]
     if (argv[0][0] == 'g' && argv[0][1] == 'o' && argv[0][2] == 't' &&
         argv[0][3] == 'o' && argv[0][4] == '\0') {
-        if (argc < 3) {
-            ui_puts("Usage: goto <train> <sensor> [offset_mm] [speed 8-12]\r\n");
+        if (argc < 3 || argc > 4) {
+            ui_puts("Usage: goto <train> <sensor> [offset_mm]\r\n");
             return 2;
         }
         int train = str2int(argv[1]);
@@ -180,15 +156,7 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
         if (argc >= 4) {
             offset = (int32_t)str2int(argv[3]);
         }
-        int goto_speed = 8;
-        if (argc >= 5) {
-            goto_speed = str2int(argv[4]);
-            if (goto_speed < 8 || goto_speed > 12) {
-                ui_puts("goto: speed must be 8-12\r\n");
-                return 2;
-            }
-        }
-        int gr = pos_goto(train, target, offset, goto_speed);
+        int gr = pos_goto(train, target, offset);
         if (!gr) {
             ui_puts("goto: no slot available\r\n");
             return 2;

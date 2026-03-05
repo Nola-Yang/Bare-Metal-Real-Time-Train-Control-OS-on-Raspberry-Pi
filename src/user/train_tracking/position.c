@@ -5,7 +5,6 @@
 #include "train_tracking/track_data.h"
 #include "train_tracking/speed_table.h"
 #include "timer.h"
-#include "util.h"
 #include "kassert.h"
 #include "ui.h"
 #include <stddef.h>
@@ -14,25 +13,31 @@
 
 train_pos_t g_pos[MAX_POS_TRAINS];
 
-int32_t SPEED_V_MM_S[MAX_PHYSICAL_TRAINS][15];
+#define GOTO_USER_SPEED 8
 
 #ifdef TRACK_D
-    int32_t SPEED_DECEL_MM_S2[MAX_PHYSICAL_TRAINS][15] = {
-        {0,  0, 0, 0, 0, 0, 0, 0, 147, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 158, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 157, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 153, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 168, 0, 0, 0, 0, 0, 0}
-    };
+    static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
+        {227, 232, 242, 229, 230};
+    static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
+        {147, 158, 157, 153, 168};
 #else
-    int32_t SPEED_DECEL_MM_S2[MAX_PHYSICAL_TRAINS][15] = {
-        {0,  0, 0, 0, 0, 0, 0, 0, 174, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 170, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 183, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 180, 0, 0, 0, 0, 0, 0},
-        {0,  0, 0, 0, 0, 0, 0, 0, 167, 0, 0, 0, 0, 0, 0}
-    };
+    static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
+        {226, 224, 226, 222, 236};
+    static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
+        {174, 170, 183, 180, 167};
 #endif
+
+int32_t speed_table_get_v(int32_t train_ind, int user_speed) {
+    if (user_speed != GOTO_USER_SPEED) return 0;
+    if (train_ind < 0 || train_ind >= MAX_PHYSICAL_TRAINS) return 0;
+    return GOTO_SPEED_MM_S[train_ind];
+}
+
+int32_t speed_table_get_decel(int32_t train_ind, int user_speed) {
+    if (user_speed != GOTO_USER_SPEED) return 0;
+    if (train_ind < 0 || train_ind >= MAX_PHYSICAL_TRAINS) return 0;
+    return GOTO_DECEL_MM_S2[train_ind];
+}
 
 /* ===== Fixed loop switch settings ===== */
 
@@ -110,7 +115,6 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->offroute_actual_sensor   = NULL;
             slot->stopping_since_us       = 0;
             slot->dead_track_deadline_us  = 0;
-            slot->goto_speed            = 8;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
             slot->speed_warmup_mm = 0;
             return slot;
@@ -130,7 +134,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
  *   2. If the last known sensor is off-loop, BFS to the nearest loop entry
  *      and set the required intermediate switches.  If no forward path
  *      exists, reverse the train and retry from the reverse node.
- *   3. Restart the train at goto_speed.
+ *   3. Restart the train at speed 8.
  *   4. Refresh effective_v and next-sensor prediction.
  *   5. Set route_state = ENTER_LOOP.
  */
@@ -144,7 +148,7 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     if (pos->cur_sensor != NULL) {
         int32_t saved_ev = pos->effective_v;
         if (saved_ev == 0) {
-            int32_t tv = SPEED_V_MM_S[pos->train_ind][pos->goto_speed];
+            int32_t tv = speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
             pos->effective_v = (tv > 0) ? tv : 100;
         }
         uint64_t dummy_dt = 0;
@@ -211,11 +215,12 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     }
 
     /* Restart the train */
-    pos->user_speed = pos->goto_speed;
+    pos->user_speed = GOTO_USER_SPEED;
     int can_spd = 1 + (pos->user_speed - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
     int32_t cv_loop  = pos->cached_v[pos->user_speed];
-    pos->effective_v = (cv_loop > 0) ? cv_loop : SPEED_V_MM_S[pos->train_ind][pos->user_speed];
+    pos->effective_v = (cv_loop > 0) ? cv_loop
+                                     : speed_table_get_v(pos->train_ind, pos->user_speed);
     pos->speed_warmup_mm = 400;
     pos->cur_sensor_time = now_us;
 
@@ -266,55 +271,7 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
 
 /* ===== Public API ===== */
 
-
-#ifdef TRACK_D
-    static int32_t SPEED_OVERRIDES[MAX_PHYSICAL_TRAINS] = {227, 232, 242, 229, 230};
-#else
-    static int32_t SPEED_OVERRIDES[MAX_PHYSICAL_TRAINS] = {226, 224, 226, 222, 236};
-#endif
-
-/*
- * Fill SPEED_V_MM_S (mm/s) from:
- *   f(x) = 1.335e-08x^5 - 5.583e-07x^4 + 8.883e-06x^3 - 6.228e-05x^2 + 0.0002327x - 0.000273
- * f(x) gives speed in mm/us; speed (mm/s) = f(x) * 1,000,000.
- *
- * Integer arithmetic: coefficients scaled by 1e12, so val = f(x)*1e12 (mm/us * 1e12).
- * speed (mm/s) = f(x) * 1e6 = val / 1e6.
- */
-static void init_speed_table(void) {
-    for (int trainInd = 0; trainInd < MAX_PHYSICAL_TRAINS; trainInd++) {
-        SPEED_V_MM_S[trainInd][0] = 0;
-
-        for (int x = 1; x <= 14; x++) {
-            if (x == 8) {
-                SPEED_V_MM_S[trainInd][x] = SPEED_OVERRIDES[trainInd];
-                continue;
-            }
-
-            int64_t x2 = (int64_t)x * x;
-            int64_t x3 = x2 * x;
-            int64_t x4 = x3 * x;
-            int64_t x5 = x4 * x;
-            /* val = f(x) * 1e12 (mm/us * 1e12) */
-            int64_t val = (int64_t)13350      * x5
-                        - (int64_t)558300     * x4
-                        + (int64_t)8883000    * x3
-                        - (int64_t)62280000   * x2
-                        + (int64_t)232700000  * x
-                        - (int64_t)273000000;
-            /* speed (mm/s) = f(x) * 1e6 = val / 1e6 */
-            if (val <= 0) {
-                SPEED_V_MM_S[trainInd][x] = 0;
-            } else {
-                int64_t spd = val / 1000000LL;
-                SPEED_V_MM_S[trainInd][x] = (spd > 0 && spd <= INT32_MAX) ? (int32_t)spd : 0;
-            }
-        }
-    }
-}
-
 void pos_init(void) {
-    init_speed_table();
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         g_pos[i].train_num = -1;
     }
@@ -350,7 +307,7 @@ void pos_on_speed_change(int train_num, int user_speed) {
 
     if (user_speed > 0 && user_speed <= 14) {
         int32_t cv = pos->cached_v[user_speed];
-        pos->effective_v = (cv > 0) ? cv : SPEED_V_MM_S[pos->train_ind][user_speed];
+        pos->effective_v = (cv > 0) ? cv : speed_table_get_v(pos->train_ind, user_speed);
         pos->speed_warmup_mm = 400;
         /* Transition to KNOWN when the train resumes from a known-position state. */
         if (pos->cur_sensor != NULL &&
@@ -387,7 +344,7 @@ void pos_apply_loop_switches(void) {
     ui_mark_switches_dirty();
 }
 
-int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_speed) {
+int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     KASSERT(target != NULL);
     if (!target) return 0;
 
@@ -395,7 +352,6 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_spee
     KASSERT(pos != NULL);
     if (!pos) return 0;
 
-    pos->goto_speed         = goto_speed;
     pos->pending_target     = target;
     pos->pending_offset_mm  = offset_mm;
     pos->orig_user_target   = target;
@@ -418,14 +374,14 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_spee
         /* assume train is on loop.
          * If the user type tr but the sys didn't recieve the
          * pos and dir, assumption still hold. just overwrite the speed.
-         * auto-start at goto_speed to acquire position and direction */
+         * auto-start at fixed speed 8 to acquire position and direction */
 
         pos_apply_loop_switches();
-        pos->user_speed = pos->goto_speed;
+        pos->user_speed = GOTO_USER_SPEED;
         int can_spd = 1 + (pos->user_speed - 1) * 77;
         track_set_speed(train_num, can_spd);
 
-        pos->effective_v     = SPEED_V_MM_S[pos->train_ind][pos->user_speed];
+        pos->effective_v     = speed_table_get_v(pos->train_ind, pos->user_speed);
         pos->cur_sensor_time = read_timer();
         pos->going_forward   = 1;
         pos->stable_sensor_count = 0;
@@ -453,12 +409,13 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_spee
             pos->going_forward       = is_forward_loop_sensor(pos->pred_next_sensor) ? 1 : 0;
             pos->stable_sensor_count = 0;
             pos->route_state         = TRAIN_STATE_LOOP_STABILIZE;
-            /* Adjust speed to goto_speed */
-            pos->user_speed  = pos->goto_speed;
+            /* Adjust speed to fixed goto speed. */
+            pos->user_speed  = GOTO_USER_SPEED;
             int can_spd = 1 + (pos->user_speed - 1) * 77;
             track_set_speed(pos->train_num, can_spd);
             int32_t cv = pos->cached_v[pos->user_speed];
-            pos->effective_v = (cv > 0) ? cv : SPEED_V_MM_S[pos->train_ind][pos->user_speed];
+            pos->effective_v = (cv > 0) ? cv
+                                        : speed_table_get_v(pos->train_ind, pos->user_speed);
             pos->speed_warmup_mm = 400;
             /* Refresh prediction with new speed */
             uint64_t dt = 0;
@@ -485,7 +442,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_spee
     } else if (pos->route_state == TRAIN_STATE_STOPPING_TR) {
         /* Train is already decelerating from a tr 0 command.
          * Redirect the post-stop action from STOPPED to ENTER_LOOP. */
-        if (pos->user_speed == 0) pos->user_speed = pos->goto_speed;
+        if (pos->user_speed == 0) pos->user_speed = GOTO_USER_SPEED;
         pos->route_state = TRAIN_STATE_STOPPING_GOTO;
 
     } else if (pos->route_state == TRAIN_STATE_STOPPED) {

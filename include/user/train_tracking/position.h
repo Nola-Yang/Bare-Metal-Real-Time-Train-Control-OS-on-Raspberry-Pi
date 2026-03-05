@@ -98,12 +98,9 @@ typedef struct {
      */
     uint64_t    dead_track_deadline_us;
 
-    /* Speed used for the loop phase */
-    int         goto_speed;
-
     /* Per-speed EMA cache.
      * cached_v[s] holds the last calibrated effective_v for user speed s.
-     * 0 = unset; fall back to SPEED_V_MM_S[s] from the polynomial table.
+     * 0 = unset; fall back to speed_table_get_v(train, s).
      * Saved on each stop; restored on restart at the same speed
     */
     int32_t     cached_v[15];
@@ -148,7 +145,7 @@ void pos_apply_loop_switches(void);
 
 
 /* Execute a goto */
-int pos_goto(int train_num, track_node *target, int32_t offset_mm, int goto_speed);
+int pos_goto(int train_num, track_node *target, int32_t offset_mm);
 
 
 /* Returns 1 if the given train has an active goto in progress; 0 otherwise. */
