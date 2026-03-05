@@ -29,10 +29,7 @@ struct track_edge {
     struct track_edge *reverse;
     struct track_node *src;
     struct track_node *dest;
-    int dist;             
-    int16_t time_factor_q8; /* 256=1.0x; 0=uninit.
-                             * Learned per-edge: actual_dt/pred_dt ratio, EMA alpha=1/8.
-                             * Compensates dead zones, curve friction, bad switches. */
+    int dist;
 };
 
 struct track_node {

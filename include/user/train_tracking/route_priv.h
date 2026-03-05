@@ -35,11 +35,6 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
 /* Trace path from to; observe actual switch directions; correct stored state. */
 void observe_path_and_correct_switches(track_node *from, track_node *to);
 
-/* Walk the path from `from` to `to` and
- * update each edge's time_factor_q8 via EMA using ratio_q8 (Q8 fixed-point
- * ratio = actual_dt * 256 / pred_dt).  Clamps factor to [128, 512]. */
-void update_edge_factors(track_node *from, track_node *to, int32_t ratio_q8);
-
 /* Re-send switch commands for SW153 and SW155 that appear in the plan.
  * These switches need a duplicate command to reliably engage. */
 void resend_sw153_sw155(const int *sw_nums, const char *sw_dirs, int sw_count);

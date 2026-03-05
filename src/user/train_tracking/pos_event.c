@@ -42,7 +42,7 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
         }
     }
 
-    /* Speed-change warm-up: suppress EMA/edge-factor calibration for the
+    /* Speed-change warm-up: suppress EMA calibration for the
      * first 400 mm after any speed adjustment. */
     if (pos->speed_warmup_mm > 0 && pos->cur_sensor != NULL) {
         int32_t seg = follow_dist(pos->cur_sensor, hit, 100);
@@ -53,7 +53,7 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
     }
     int in_warmup = (pos->speed_warmup_mm > 0);
 
-    /* Prediction error accounting + per-edge factor update */
+    /* Prediction error accounting */
     if (*out_was_predicted && pos->pred_trigger_time > 0) {
         pos->last_time_err_us =
             (int64_t)time_us - (int64_t)pos->pred_trigger_time;
@@ -65,36 +65,6 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
             pos->last_dist_err_mm = (int32_t)derr;
         }
         ui_mark_prediction_dirty();
-
-        {
-            train_route_state_t _st = pos->route_state;
-            int factor_valid = !in_warmup &&
-                               (_st == TRAIN_STATE_LOOP_STABILIZE ||
-                                _st == TRAIN_STATE_ON_ROUTE);
-            if (factor_valid && pos->cur_sensor != NULL &&
-                pos->cur_sensor_time > 0) {
-                uint64_t actual_dt = time_us - pos->cur_sensor_time;
-                uint64_t pred_dt   = pos->pred_trigger_time - pos->cur_sensor_time;
-                if (actual_dt > 10000 && pred_dt > 0) {
-                    /* Base ratio on raw dist/v (no factor in denominator) so that
-                     * edge factors capture per-edge deviation independently of
-                     * effective_v convergence.  This prevents the two calibration
-                     * mechanisms from chasing each other's corrections. */
-                    int32_t meas_dist_f = follow_dist(pos->cur_sensor, hit, 100);
-                    if (meas_dist_f > 0 && pos->effective_v > 0) {
-                        uint64_t base_pred_dt = (uint64_t)meas_dist_f * 1000000ULL
-                                                / (uint64_t)pos->effective_v;
-                        if (base_pred_dt > 0) {
-                            int32_t ratio_q8 = (int32_t)((int64_t)actual_dt * 256
-                                                          / (int64_t)base_pred_dt);
-                            if (ratio_q8 < 128) ratio_q8 = 128;
-                            if (ratio_q8 > 512) ratio_q8 = 512;
-                            update_edge_factors(pos->cur_sensor, hit, ratio_q8);
-                        }
-                    }
-                }
-            }
-        }
     }
 
     /* EMA speed update

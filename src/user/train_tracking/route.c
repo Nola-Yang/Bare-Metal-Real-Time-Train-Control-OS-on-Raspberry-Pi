@@ -219,9 +219,7 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
         if (!e || !e->dest) break;
 
         int32_t v = pos->effective_v;
-        int16_t factor = e->time_factor_q8 ? e->time_factor_q8 : 256;
-        int64_t base_us = (int64_t)e->dist * 1000000LL / v;
-        total_us += (uint64_t)(base_us * factor / 256);
+        total_us += (uint64_t)((int64_t)e->dist * 1000000LL / v);
 
         n = e->dest;
         if (n->type == NODE_SENSOR) {
@@ -233,26 +231,6 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
 
     if (out_dt_us) *out_dt_us = 0;
     return NULL;
-}
-
-
-void update_edge_factors(track_node *from, track_node *to, int32_t ratio_q8) {
-    if (!from || !to || from == to) return;
-    track_node *n = from;
-    for (int h = 0; h < 80; h++) {
-        track_edge *e = get_next_edge(n);
-        if (!e || !e->dest) break;
-
-        int16_t old_f = e->time_factor_q8 ? e->time_factor_q8 : 256;
-        int32_t new_f = (7 * (int32_t)old_f + ratio_q8) / 8;
-        if (new_f < 128) new_f = 128;
-        if (new_f > 512) new_f = 512;
-        e->time_factor_q8 = (int16_t)new_f;
-
-        n = e->dest;
-        if (n == to) break;
-        if (n->type == NODE_EXIT) break;
-    }
 }
 
 /* ===== Switch path analysis ===== */

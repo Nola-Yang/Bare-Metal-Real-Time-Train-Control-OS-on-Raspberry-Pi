@@ -109,7 +109,7 @@ typedef struct {
     int32_t     cached_v[15];
 
     /* Distance remaining (mm) in the post-speed-change warm-up window.
-     * EMA and edge-factor calibration are suppressed while this is > 0.
+     * EMA calibration is suppressed while this is > 0.
      * Decremented by the measured edge distance on each sensor trigger. */
     int32_t     speed_warmup_mm;
 
