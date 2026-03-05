@@ -255,6 +255,12 @@ void uart_panic_printf(size_t line, const char *fmt, ... ) {
 	va_end(va);
 }
 
+void uart_panic_flush(size_t line) {
+	while (!(UART_REG(line, UART_FR) & UART_FR_TXFE) ||
+	       (UART_REG(line, UART_FR) & UART_FR_BUSY)) {
+	}
+}
+
 
 // Interrupt control functions
 

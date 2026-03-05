@@ -17,13 +17,22 @@ void ui_draw_sensors(uint64_t start_us);
 void ui_update_clock(uint64_t start_us, uint64_t now);
 void ui_update_idle(int percent);
 
+// Position / prediction display (rows 22, 23)
+void ui_draw_position(void);
+void ui_draw_prediction_error(void);
+void ui_draw_offroute(void);
+
 // Dirty flag management
 int ui_is_switches_dirty(void);
 int ui_is_sensors_dirty(void);
+int ui_is_position_dirty(void);
 void ui_mark_switches_clean(void);
 void ui_mark_sensors_clean(void);
+void ui_mark_position_clean(void);
 void ui_mark_switches_dirty(void);
 void ui_mark_sensors_dirty(void);
+void ui_mark_position_dirty(void);
+void ui_mark_prediction_dirty(void);
 
 // Output helper
 void ui_puts(const char *str);

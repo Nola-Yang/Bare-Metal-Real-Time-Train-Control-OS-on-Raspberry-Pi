@@ -1,21 +1,23 @@
 #include "ui.h"
 #include "util.h"
 #include "track.h"
-#include "terminal_server.h"
+#include "train_tracking/position.h"
+#include "server/terminal_server.h"
 
 static int term_tid = -1;
-static int ui_switches_dirty = 1;
-static int ui_sensors_dirty = 1;
+static int ui_switches_dirty  = 1;
+static int ui_sensors_dirty   = 1;
+static int ui_position_dirty  = 1;
 
 static char last_clock_buf[8] = "00:00.0";
 static int last_idle_percent = -1;
 
 // UI layout constants
 enum {
-    UI_CMD_SCROLL_TOP = 24,
+    UI_CMD_SCROLL_TOP    = 27,   
     UI_CMD_SCROLL_BOTTOM = 47,
-    UI_CMD_ROW = 24,
-    UI_CMD_COL = 1
+    UI_CMD_ROW           = 27,
+    UI_CMD_COL           = 1
 };
 
 // Helper: send string via terminal server
@@ -38,47 +40,209 @@ void ui_puts(const char *str) {
     }
 }
 
+static char *ui_append_switch_cell(char *p, int sw_num, char state) {
+    if (sw_num < 10) {
+        p = buf_append(p, "  ");
+    } else if (sw_num < 100) {
+        p = buf_append(p, " ");
+    }
+    p = buf_append_int(p, sw_num);
+    p = buf_append_char(p, ':');
+
+    if (state == 'S') {
+        p = buf_append(p, "\033[32m");
+    } else if (state == 'C') {
+        p = buf_append(p, "\033[33m");
+    } else {
+        p = buf_append(p, "\033[31m");
+    }
+    p = buf_append_char(p, state);
+    p = buf_append(p, "\033[0m ");
+    return p;
+}
+
 void ui_switches(void) {
     char *temp_buf = buf_get_temp();
     char *p = temp_buf;
     const switch_entry_t *switches = track_get_switch_state();
 
-    // Row 7: Switches 1-9
+    // Row 7: Switches 1-8
     p = buf_append(p, "\033[7;1HSW: ");
-    for (int i = 0; i < 9; i++) {
+    for (int i = 0; i < 8; i++) {
         int sw_num = track_index_to_switch(i);
         char state = switches[i].state;
-        p = buf_append_int(p, sw_num);
-        p = buf_append_char(p, ':');
-        p = buf_append_char(p, state);
-        p = buf_append_char(p, ' ');
+        p = ui_append_switch_cell(p, sw_num, state);
     }
     p = buf_append(p, "\033[K");
 
-    // Row 8: Switches 10-18
+    // Row 8: Switches 9-16
     p = buf_append(p, "\033[8;1H    ");
-    for (int i = 9; i < 18; i++) {
+    for (int i = 8; i < 16; i++) {
         int sw_num = track_index_to_switch(i);
         char state = switches[i].state;
-        p = buf_append_int(p, sw_num);
-        p = buf_append_char(p, ':');
-        p = buf_append_char(p, state);
-        p = buf_append_char(p, ' ');
+        p = ui_append_switch_cell(p, sw_num, state);
     }
     p = buf_append(p, "\033[K");
 
-    // Row 9: Switches 153-156
+    // Row 9: Switches 17-18 and 153-156
     p = buf_append(p, "\033[9;1H    ");
-    for (int i = 18; i < 22; i++) {
+    for (int i = 16; i < 22; i++) {
         int sw_num = track_index_to_switch(i);
         char state = switches[i].state;
-        p = buf_append_int(p, sw_num);
-        p = buf_append_char(p, ':');
-        p = buf_append_char(p, state);
-        p = buf_append_char(p, ' ');
+        p = ui_append_switch_cell(p, sw_num, state);
     }
     p = buf_append(p, "\033[K");
 
+    *p = '\0';
+    ui_puts(temp_buf);
+}
+
+/* ---- Position / route info (Row 22) ---- */
+void ui_draw_position(void) {
+    char *temp_buf = buf_get_temp();
+    char *p = temp_buf;
+
+    p = buf_append(p, "\033[22;1H");
+
+    /* Find first active train */
+    int found = 0;
+    for (int t = 0; t < MAX_POS_TRAINS; t++) {
+        train_pos_t *pos = pos_get_by_index(t);
+        if (!pos || pos->train_num < 0) continue;
+
+        p = buf_append(p, "Pos: tr=");
+        p = buf_append_int(p, pos->train_num);
+        p = buf_append(p, " @ ");
+        if (pos->cur_sensor && pos->cur_sensor->name) {
+            p = buf_append(p, pos->cur_sensor->name);
+        } else {
+            p = buf_append(p, "?");
+        }
+        p = buf_append(p, " spd=");
+        p = buf_append_int(p, pos->user_speed);
+        p = buf_append(p, " st=");
+        switch (pos->route_state) {
+        case TRAIN_STATE_UNKNOWN:           p = buf_append(p, "UNK");   break;
+        case TRAIN_STATE_KNOWN:             p = buf_append(p, "KNOW");  break;
+        case TRAIN_STATE_STOPPING_TR:       p = buf_append(p, "STR");   break;
+        case TRAIN_STATE_LOOP_FIND_DIR:     p = buf_append(p, "DIR?");  break;
+        case TRAIN_STATE_LOOP_STABILIZE:    p = buf_append(p, "STAB");  break;
+        case TRAIN_STATE_ON_ROUTE:          p = buf_append(p, "ROUTE"); break;
+        case TRAIN_STATE_STOPPING:          p = buf_append(p, "STOP");  break;
+        case TRAIN_STATE_STOPPED:           p = buf_append(p, "STPD");  break;
+        case TRAIN_STATE_RECOVERY_STOPPING: p = buf_append(p, "REC");   break;
+        case TRAIN_STATE_ENTER_LOOP:        p = buf_append(p, "ENT");   break;
+        case TRAIN_STATE_STOPPING_GOTO:     p = buf_append(p, "SGT");   break;
+        default:                            p = buf_append(p, "???");   break;
+        }
+        if (pos->target_sensor && pos->target_sensor->name) {
+            p = buf_append(p, " tgt=");
+            p = buf_append(p, pos->target_sensor->name);
+        }
+        if (pos->route_state == TRAIN_STATE_ON_ROUTE &&
+            pos->target_sensor && pos->target_sensor->name) {
+            p = buf_append(p, " rem=");
+            p = buf_append_int(p, (int)pos->dist_to_target_mm);
+            p = buf_append(p, "mm");
+        }
+        if (pos->last_plan_valid &&
+            pos->last_plan_loop_start && pos->last_plan_loop_start->name &&
+            pos->last_plan_target && pos->last_plan_target->name) {
+            p = buf_append(p, " plan=");
+            p = buf_append(p, pos->last_plan_loop_start->name);
+            p = buf_append(p, "->");
+            p = buf_append(p, pos->last_plan_target->name);
+            p = buf_append(p, " sw=");
+            if (pos->last_plan_sw_count <= 0) {
+                p = buf_append(p, "none");
+            } else {
+                for (int i = pos->last_plan_sw_count - 1; i >= 0; i--) {
+                    p = buf_append_int(p, pos->last_plan_sw_nums[i]);
+                    p = buf_append_char(p, pos->last_plan_sw_dirs[i]);
+                    if (i > 0) p = buf_append_char(p, ',');
+                }
+            }
+        }
+        found = 1;
+        break;
+    }
+    if (!found) {
+        p = buf_append(p, "Pos: no train tracked");
+    }
+    p = buf_append(p, "\033[K");
+    *p = '\0';
+    ui_puts(temp_buf);
+}
+
+/* ---- Prediction error (Row 23) ---- */
+void ui_draw_prediction_error(void) {
+    char *temp_buf = buf_get_temp();
+    char *p = temp_buf;
+
+    p = buf_append(p, "\033[23;1H");
+
+    for (int t = 0; t < MAX_POS_TRAINS; t++) {
+        train_pos_t *pos = pos_get_by_index(t);
+        if (!pos || pos->train_num < 0) continue;
+
+        p = buf_append(p, "Pred: next=");
+        if (pos->pred_next_sensor && pos->pred_next_sensor->name) {
+            p = buf_append(p, pos->pred_next_sensor->name);
+        } else {
+            p = buf_append(p, "?");
+        }
+        p = buf_append(p, " err_t=");
+        int err_ms = (int)(pos->last_time_err_us / 1000);
+        if (err_ms >= 0) p = buf_append_char(p, '+');
+        p = buf_append_int(p, err_ms);
+        p = buf_append(p, "ms err_d=");
+        if (pos->last_dist_err_mm >= 0) p = buf_append_char(p, '+');
+        p = buf_append_int(p, (int)pos->last_dist_err_mm);
+        p = buf_append(p, "mm");
+        break;
+    }
+    p = buf_append(p, "\033[K");
+    *p = '\0';
+    ui_puts(temp_buf);
+}
+
+/* ---- Off-route mismatch snapshot (Row 24) ---- */
+void ui_draw_offroute(void) {
+    char *temp_buf = buf_get_temp();
+    char *p = temp_buf;
+
+    p = buf_append(p, "\033[24;1H");
+
+    for (int t = 0; t < MAX_POS_TRAINS; t++) {
+        train_pos_t *pos = pos_get_by_index(t);
+        if (!pos || pos->train_num < 0) continue;
+
+        p = buf_append(p, "OffRoute: ");
+        if (pos->route_state == TRAIN_STATE_DEAD_TRACK) {
+            p = buf_append(p, "DEAD TRACK");
+            if (pos->offroute_expected_sensor && pos->offroute_expected_sensor->name) {
+                p = buf_append(p, " (missed ");
+                p = buf_append(p, pos->offroute_expected_sensor->name);
+                p = buf_append(p, ") push train to recover");
+            } else {
+                p = buf_append(p, " push train to recover");
+            }
+        } else if (pos->offroute_valid &&
+                   pos->offroute_expected_sensor &&
+                   pos->offroute_actual_sensor &&
+                   pos->offroute_expected_sensor->name &&
+                   pos->offroute_actual_sensor->name) {
+            p = buf_append(p, "exp=");
+            p = buf_append(p, pos->offroute_expected_sensor->name);
+            p = buf_append(p, " act=");
+            p = buf_append(p, pos->offroute_actual_sensor->name);
+        } else {
+            p = buf_append(p, "-");
+        }
+        break;
+    }
+
+    p = buf_append(p, "\033[K");
     *p = '\0';
     ui_puts(temp_buf);
 }
@@ -143,7 +307,7 @@ void ui_init(int terminal_tid) {
     // Draw fixed header area (rows 1-5)
     ui_puts("=== Train Control System CS652 K4 ===\r\n");
     ui_puts("Version: " __DATE__ " / " __TIME__ "\r\n");
-    ui_puts("Commands: tr <t> <spd> | sw <s> <S|C> | rv <t> | li <t> <0|1> | init | q\r\n");
+    ui_puts("Cmds: tr|sw|rv|li|goto <t> <node> [+mm]|q\r\n");
     ui_puts("\r\n");
     ui_puts("Time: 00:00.0\r\n");
     ui_puts("Idle: 0%\r\n");
@@ -155,10 +319,14 @@ void ui_init(int terminal_tid) {
 
     // Sensors area (rows 11-21)
     ui_draw_sensors(0);
-    ui_puts("\r\n");
-    ui_puts("======================================================================\r\n");
 
-    // Command area
+    // Position / prediction / off-route rows (22, 23, 24)
+    ui_draw_position();
+    ui_draw_prediction_error();
+    ui_draw_offroute();
+    ui_puts("\033[25;1H======================================================================\r\n");
+
+    // Command area (starts at row 27)
     ui_prepare_cmd();
 
     last_idle_percent = 0;
@@ -199,7 +367,7 @@ void ui_cmd_newprompt(void) {
     if (term_tid < 0) {
         return;
     }
-    ui_puts("\033[2Kcmd> ");
+    ui_puts("\r\033[2Kcmd> ");
 }
 
 void ui_cmd_backspace(void) {
@@ -242,7 +410,6 @@ void ui_update_clock(uint64_t start_us, uint64_t now) {
     }
 }
 
-// Todo: maybe deleted later
 void ui_update_idle(int percent) {
     if (percent < 0) {
         return;
@@ -288,4 +455,20 @@ void ui_mark_switches_dirty(void) {
 
 void ui_mark_sensors_dirty(void) {
     ui_sensors_dirty = 1;
+}
+
+int ui_is_position_dirty(void) {
+    return ui_position_dirty;
+}
+
+void ui_mark_position_clean(void) {
+    ui_position_dirty = 0;
+}
+
+void ui_mark_position_dirty(void) {
+    ui_position_dirty = 1;
+}
+
+void ui_mark_prediction_dirty(void) {
+    ui_position_dirty = 1;  /* prediction uses same dirty flag as position */
 }

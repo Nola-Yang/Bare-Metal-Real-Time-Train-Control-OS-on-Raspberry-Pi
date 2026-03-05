@@ -1,6 +1,6 @@
-#include "can_server.h"
+#include "server/can_server.h"
 #include "syscall.h"
-#include "nameserver.h"
+#include "server/nameserver.h"
 #include "gic.h"
 #include "uart.h"
 #include "task_scheduler.h"
@@ -16,10 +16,82 @@
 
 // server-side, receives frames from MCP2515
 #define RX_QUEUE_SIZE 16
+#define TX_QUEUE_SIZE 64
 
 RING_BUFFER_DECLARE(CANRxQueue_t, can_frame_t, RX_QUEUE_SIZE);
+RING_BUFFER_DECLARE(CANTxQueue_t, can_frame_t, TX_QUEUE_SIZE);
+
+typedef struct {
+    int active;
+    uint8_t command;
+    uint8_t key_len;
+    uint8_t key[4];
+} PendingReply_t;
 
 static int can_rx_notifier_tid = -1;
+
+static void set_pending_reply(PendingReply_t *pending, const can_frame_t *tx) {
+    pending->active = 1;
+    pending->command = (uint8_t)((tx->id >> 17) & 0xFF);
+    pending->key_len = (tx->dlc >= 4) ? 4 : tx->dlc;
+    for (uint8_t i = 0; i < pending->key_len; i++) {
+        pending->key[i] = tx->data[i];
+    }
+}
+
+static int is_pending_reply_match(const PendingReply_t *pending,
+                                  const can_frame_t *rx) {
+    if (!pending->active) return 0;
+    if (!rx->ext) return 0;
+
+    uint8_t rx_command = (uint8_t)((rx->id >> 17) & 0xFF);
+    if (rx_command != pending->command) return 0;
+    if (rx->dlc < pending->key_len) return 0;
+
+    for (uint8_t i = 0; i < pending->key_len; i++) {
+        if (rx->data[i] != pending->key[i]) return 0;
+    }
+
+    return 1;
+}
+
+static void reply_waiter_with_frame(int waiters[], int *waiter_count,
+                                    const can_frame_t *frame) {
+    if (*waiter_count <= 0) return;
+
+    CANReply_t recv_reply;
+    recv_reply.status = 0;
+    recv_reply.frame = *frame;
+    Reply(waiters[0], (const char *)&recv_reply, sizeof(recv_reply));
+
+    for (int i = 1; i < *waiter_count; i++) {
+        waiters[i - 1] = waiters[i];
+    }
+    (*waiter_count)--;
+}
+
+static void dispatch_rx_frame(CANRxQueue_t *rx_queue,
+                              int waiters[], int *waiter_count,
+                              const can_frame_t *frame) {
+    if (*waiter_count > 0) {
+        reply_waiter_with_frame(waiters, waiter_count, frame);
+    } else {
+        KASSERT(ring_buffer_put(rx_queue, *frame) == 0);
+    }
+}
+
+static void try_send_next_queued(CANTxQueue_t *tx_queue, int *waiting_reply,
+                                 PendingReply_t *pending_reply) {
+    if (*waiting_reply) return;
+
+    can_frame_t frame;
+    if (ring_buffer_peek(tx_queue, &frame) < 0) return;
+    if (!can_send(&frame)) return;
+
+    ring_buffer_get(tx_queue, &frame);
+    *waiting_reply = 1;
+    set_pending_reply(pending_reply, &frame);
+}
 
 // CAN RX Notifier
 static void can_rx_notifier_task(void) {
@@ -43,10 +115,14 @@ void can_server_task(void) {
     CANReply_t reply;
 
     CANRxQueue_t rx_queue;
+    CANTxQueue_t tx_queue;
     ring_buffer_init(&rx_queue);
+    ring_buffer_init(&tx_queue);
 
     int recv_waiters[MAX_RECV_WAITERS];
     int recv_waiter_count = 0;
+    int tx_waiting_reply = 0;
+    PendingReply_t pending_reply = {0};
 
     RegisterAs(CAN_SERVER_NAME);
 
@@ -62,28 +138,23 @@ void can_server_task(void) {
                 if (flags & (MCP2515_CANINTF_RX0IF | MCP2515_CANINTF_RX1IF)) {
                     can_frame_t frame;
                     while (can_try_recv(&frame)) {
-                        if (recv_waiter_count > 0) {
-                            CANReply_t recv_reply;
-                            recv_reply.status = 0;
-                            recv_reply.frame = frame;
-                            Reply(recv_waiters[0], (const char *)&recv_reply, sizeof(recv_reply));
-
-                            // in fact, only one waiter, maybe optimized later
-                            for (int i = 1; i < recv_waiter_count; i++) {
-                                recv_waiters[i-1] = recv_waiters[i];
-                            }
-                            recv_waiter_count--;
-                        } else {
-                            // Buffer the frame
-                            KASSERT(ring_buffer_put(&rx_queue, frame) == 0);
+                        if (tx_waiting_reply &&
+                            is_pending_reply_match(&pending_reply, &frame)) {
+                            tx_waiting_reply = 0;
+                            pending_reply.active = 0;
+                            try_send_next_queued(&tx_queue, &tx_waiting_reply,
+                                                 &pending_reply);
+                            continue;
                         }
+                        dispatch_rx_frame(&rx_queue, recv_waiters,
+                                          &recv_waiter_count, &frame);
                     }
                 }
 
-                // TX done interrupt: clear flag and send next queued frame.
                 if (flags & MCP2515_CANINTF_TX0IF) {
                     mcp2515_clear_interrupt_flags(MCP2515_CANINTF_TX0IF);
-                    can_queue_send();
+                    try_send_next_queued(&tx_queue, &tx_waiting_reply,
+                                         &pending_reply);
                 }
 
                 // Keep RX interrupts enabled whenever there are waiters or RX queue has space.
@@ -101,11 +172,13 @@ void can_server_task(void) {
             }
 
             case CAN_MSG_SEND: {
-                int queued = can_queue_frame(&req.frame);
-
-                can_queue_send();
-                mcp2515_enable_tx_interrupts();
-                gpio_enable_can_interrupt();
+                int queued = (ring_buffer_put(&tx_queue, req.frame) == 0);
+                if (queued) {
+                    try_send_next_queued(&tx_queue, &tx_waiting_reply,
+                                         &pending_reply);
+                    mcp2515_enable_tx_interrupts();
+                    gpio_enable_can_interrupt();
+                }
 
                 reply.status = queued ? 0 : -1;
                 Reply(tid, (const char *)&reply, sizeof(reply));

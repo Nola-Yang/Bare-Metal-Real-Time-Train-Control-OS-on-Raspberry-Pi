@@ -1,4 +1,4 @@
-#include "nameserver.h"
+#include "server/nameserver.h"
 #include "syscall.h"
 #include "uart.h"
 #include "text_util.h"

@@ -1,6 +1,6 @@
-#include "terminal_server.h"
+#include "server/terminal_server.h"
 #include "syscall.h"
-#include "nameserver.h"
+#include "server/nameserver.h"
 #include "gic.h"
 #include "uart.h"
 #include "ring_buffer.h"

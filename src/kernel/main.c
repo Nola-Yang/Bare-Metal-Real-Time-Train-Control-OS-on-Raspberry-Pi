@@ -4,10 +4,10 @@
 #include "task_scheduler.h"
 #include "syscall.h"
 #include "uart.h"
-#include "nameserver.h"
+#include "server/nameserver.h"
 #include "timer.h"
 #include "gic.h"
-#include "clock_server.h"
+#include "server/clock_server.h"
 #include "idle_task.h"
 #include <stdint.h>
 #include <stddef.h>

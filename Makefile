@@ -2,7 +2,7 @@ FILENAME=kernel
 SRC_DIR:=src
 INCLUDE_DIR:=include
 BUILD_DIR:=build
-XDIR:=/Applications/ArmGNUToolchain/15.2.rel1/aarch64-none-elf
+XDIR:=/u/cs452/public/xdev
 TRIPLE=aarch64-none-elf
 XBINDIR:=$(XDIR)/bin
 CC:=$(XBINDIR)/$(TRIPLE)-gcc -ffreestanding
@@ -21,9 +21,11 @@ LDFLAGS:=-Wl,-nmagic -Wl,-Tlinker.ld -Wl,--no-warn-rwx-segments -nostdlib -lgcc
 OPT?=1
 CACHE?=b
 VERBOSE?=0
+TRACK?=A
+IDLE_WINDOW_TICKS?=50
 
 MAKESPEC:=.make_spec
-MAKESPEC_FORMAT:=$(VERBOSE) $(OPT) $(CACHE)
+MAKESPEC_FORMAT:=$(VERBOSE) $(OPT) $(CACHE) $(TRACK) $(IDLE_WINDOW_TICKS)
 
 # clean up the built files, if the passed arguments have changed
 ifneq ($(shell cat $(MAKESPEC) 2>/dev/null), $(MAKESPEC_FORMAT))
@@ -41,6 +43,18 @@ endif
 ifeq ($(OPT),1)
 	CFLAGS += -O3 -DOPT
 endif
+
+# TRACK (D, C): Which track layout to compile for
+ifeq ($(TRACK),D)
+	CFLAGS += -DTRACK_D
+else ifeq ($(TRACK),C)
+	CFLAGS += -DTRACK_C
+else
+$(error TRACK must be C or D)
+endif
+
+# IDLE_WINDOW_TICKS (default 50): rolling window size for idle% display (50 ticks = 5s)
+CFLAGS += -DIDLE_WINDOW_TICKS=$(IDLE_WINDOW_TICKS)
 
 # CACHE (n, i, d, b): Whether to enable the data caches or instruction caches
 ifeq ($(CACHE),b)
@@ -60,7 +74,12 @@ ASM_SRCS := $(shell find $(SRC_DIR) -name '*.S')
 SOURCES := $(SRCS) $(ASM_SRCS)
 OBJECTS := $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SRCS))
 OBJECTS += $(patsubst $(SRC_DIR)/%.S,$(BUILD_DIR)/%.o,$(ASM_SRCS))
+
+
 DEPENDS := $(OBJECTS:.o=.d)
+
+# Compile user-space sources with USER_SPACE enabled so KASSERT traps via SVC.
+$(BUILD_DIR)/user/%.o: CFLAGS += -DUSER_SPACE
 
 .PHONY: all clean sim sim-debug sim-gui
 
@@ -83,6 +102,7 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.S Makefile
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c Makefile
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@
+
 
 
 # =========================================

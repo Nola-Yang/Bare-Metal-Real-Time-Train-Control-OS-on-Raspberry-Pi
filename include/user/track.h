@@ -2,14 +2,16 @@
 #define _track_h_ 1
 
 #include <stdint.h>
+#include "train_tracking/track_node.h"
+#include "train_tracking/track_data.h"
 
 #define MAX_SWITCHES 22
 #define SENSOR_LOG_SIZE 16
-#define MAX_ACTIVE_TRAINS 8
+#define MAX_ACTIVE_TRAINS 5
 
 typedef struct {
     char state;           // 'S', 'C', or '?'
-    uint64_t last_update_us;
+    uint64_t last_update_us;  //Todo: unused, maybe deleted later
 } switch_entry_t;
 
 typedef struct {
@@ -26,8 +28,14 @@ typedef struct {
     int rv_prev_speed;
 } train_state_t;
 
+/* Global track graph */
+extern track_node g_track[TRACK_MAX];
+
 // Initialize track module with server TIDs
 void track_init(int can_server_tid, int term_server_tid);
+
+// Initialize the track graph 
+void track_init_graph(void);
 
 // State management functions
 void track_log_sensor(uint16_t sensor_id, uint64_t time_us, uint8_t state);
@@ -42,6 +50,7 @@ const train_state_t* track_get_trains(void);
 int track_switch_to_index(int sw_num);
 int track_index_to_switch(int index);
 int track_is_valid_switch(int sw_num);
+int track_is_valid_train(int train_num);
 
 // Control functions (send commands via CAN server)
 void track_set_speed(int train, int speed);

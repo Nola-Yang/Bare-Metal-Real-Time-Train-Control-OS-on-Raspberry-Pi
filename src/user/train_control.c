@@ -1,10 +1,11 @@
 #include "train_control.h"
 #include "syscall.h"
-#include "nameserver.h"
-#include "clock_server.h"
-#include "terminal_server.h"
-#include "can_server.h"
+#include "server/nameserver.h"
+#include "server/clock_server.h"
+#include "server/terminal_server.h"
+#include "server/can_server.h"
 #include "track.h"
+#include "train_tracking/position.h"
 #include "ui.h"
 #include "idle_task.h"
 #include "command.h"
@@ -70,7 +71,7 @@ void ui_tick_task(void) {
     TrainControlReply_t reply;
     msg.type = TRAIN_MSG_TICK;
 
-    const int tick_interval = 10;  // 10 ticks * 10ms = 100ms
+    const int tick_interval = 1;  // 1 tick * 10ms = 10ms
 
     for (;;) {
         Delay(clock_tid, tick_interval);
@@ -81,7 +82,8 @@ void ui_tick_task(void) {
 
 // Parse CAN frame for sensor data
 static void process_can_frame(const can_frame_t *frame, uint64_t now) {
-    uint8_t command = (frame->id >> 17) & 0xFF;
+    uint8_t command     = (uint8_t)((frame->id >> 17) & 0xFF);
+    int     is_response = (int)((frame->id >> 16) & 1);
 
     if (command == 0x11 && frame->dlc >= 5) {
         // Sensor event
@@ -94,6 +96,22 @@ static void process_can_frame(const can_frame_t *frame, uint64_t now) {
         if (sensor_id > 0) {
             track_log_sensor(sensor_id, now, state);
             ui_mark_sensors_dirty();
+            if (state == 1) {
+                pos_on_sensor_trigger(sensor_id, now);
+            }
+        }
+    } else if (command == 0x0B && is_response && frame->dlc >= 5) {
+        // physical switch has been commanded.
+        // Update software state here so predict_next_sensor reflects reality.
+        uint32_t sw_id_raw = ((uint32_t)frame->data[0] << 24) |
+                             ((uint32_t)frame->data[1] << 16) |
+                             ((uint32_t)frame->data[2] << 8)  |
+                              (uint32_t)frame->data[3];
+        int  sw_num = (int)(sw_id_raw - 0x3000 + 1);
+        char dir    = (frame->data[4] == 0x01) ? 'S' : 'C';
+        if (track_is_valid_switch(sw_num)) {
+            track_update_switch(sw_num, dir);
+            ui_mark_switches_dirty();
         }
     }
 }
@@ -113,17 +131,30 @@ void train_control_task(void) {
     KASSERT(clock_tid >= 0);
 
     track_init(can_tid, term_tid);
+    pos_init();
     ui_init(term_tid);
     ring_buffer_init(&rv_queue);
+
+    CANEnableInterrupts(can_tid);
+
+    // set all switches to straight, then override loop switches
+    for (int sw = 1; sw <= 18; sw++) {
+        track_set_switch(sw, 'S');
+    }
+    for (int sw = 153; sw <= 156; sw++) {
+        char state = (sw == 153 || sw == 155) ? 'C' : 'S';
+        track_set_switch(sw, state);
+    }
+    pos_apply_loop_switches();
+    ui_mark_switches_dirty();
 
     Create(TRAIN_COURIER_PRIORITY, can_rx_courier_task);
     Create(TRAIN_COURIER_PRIORITY, keyboard_courier_task);
     Create(TRAIN_COURIER_PRIORITY, ui_tick_task);
 
-    CANEnableInterrupts(can_tid);
-
     char cmdline[80];
     int cmdlen = 0;
+    int rv_pending_count = 0;  /* # rv still in progress */
 
     uint64_t start_us = read_timer();
     int running = 1;
@@ -147,13 +178,14 @@ void train_control_task(void) {
 
                     if (cmdlen > 0) {
                         int rv_train = -1;
-                        int result = execute_it(cmdline, &rv_train);
+                        int result = execute_it(cmdline, &rv_train, rv_pending_count > 0);
                         if (result == 0) {
                             running = 0;  // for 'q' command
                         }
                         if (rv_train >= 0) {
                             // design limit, only allow 8 pending reversals. use kassert to check is not good, but for simplicity
                             KASSERT(ring_buffer_put(&rv_queue, rv_train) == 0);
+                            rv_pending_count++;
                             Create(TRAIN_COURIER_PRIORITY, rv_delay_task);
                         }
                     }
@@ -193,6 +225,8 @@ void train_control_task(void) {
                 int idle_percent = get_idle_percentage();
                 ui_update_idle(idle_percent);
 
+                pos_on_tick(tick_now);
+
                 if (ui_is_switches_dirty()) {
                     ui_puts("\033[s");
                     ui_switches();
@@ -204,6 +238,14 @@ void train_control_task(void) {
                     ui_draw_sensors(start_us);
                     ui_puts("\033[u");
                     ui_mark_sensors_clean();
+                }
+                if (ui_is_position_dirty()) {
+                    ui_puts("\033[s");
+                    ui_draw_position();
+                    ui_draw_prediction_error();
+                    ui_draw_offroute();
+                    ui_puts("\033[u");
+                    ui_mark_position_clean();
                 }
                 break;
             }
@@ -221,6 +263,8 @@ void train_control_task(void) {
 
             case TRAIN_MSG_RV_COMPLETE: {
                 track_complete_reverse(msg.train);
+                pos_on_reverse(msg.train);
+                if (rv_pending_count > 0) rv_pending_count--;
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
             }

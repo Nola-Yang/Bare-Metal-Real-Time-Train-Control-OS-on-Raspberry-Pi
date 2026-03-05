@@ -1,10 +1,14 @@
 #include "track.h"
+#include "train_tracking/track_data.h"
 #include "mcp2515.h"
-#include "can_server.h"
+#include "server/can_server.h"
 #include "timer.h"
 #include "util.h"
 #include "kassert.h"
 #include <stddef.h>
+
+/* Global track graph */
+track_node g_track[TRACK_MAX];
 
 // Server TIDs for communication
 static int can_tid = -1;
@@ -15,6 +19,16 @@ static switch_entry_t switch_state[MAX_SWITCHES];
 static sensor_entry_t sensor_log[SENSOR_LOG_SIZE];
 static train_state_t trains[MAX_ACTIVE_TRAINS];
 static int sensor_log_head = 0;
+
+static int train_num_to_active_index(int train_num) {
+    if (13 <= train_num && train_num <= 15) return train_num - 13;
+    if (17 <= train_num && train_num <= 18) return train_num - 14;
+    return -1;
+}
+
+int track_is_valid_train(int train_num) {
+    return train_num_to_active_index(train_num) >= 0;
+}
 
 
 // Find train by number, returns NULL if not found
@@ -27,6 +41,8 @@ static train_state_t* find_train(int train_num) {
 
 // Find or create train slot, returns NULL if full
 static train_state_t* find_or_create_train(int train_num) {
+    if (!track_is_valid_train(train_num)) return NULL;
+
     train_state_t* t = find_train(train_num);
     if (t) return t;
     for (int i = 0; i < MAX_ACTIVE_TRAINS; i++) {
@@ -66,12 +82,22 @@ int track_is_valid_switch(int sw_num) {
     return (sw_num >= 1 && sw_num <= 18) || (sw_num >= 153 && sw_num <= 156);
 }
 
+void track_init_graph(void) {
+#ifdef TRACK_D
+    init_trackb(g_track);
+#else
+    init_tracka(g_track);
+#endif
+}
+
 void track_init(int can_server_tid, int term_server_tid) {
     KASSERT(can_server_tid >= 0);
     KASSERT(term_server_tid >= 0);
 
     can_tid = can_server_tid;
     term_tid = term_server_tid;
+
+    track_init_graph();
 
     for (int i = 0; i < MAX_SWITCHES; i++) {
         switch_state[i].state = '?';
@@ -111,14 +137,17 @@ void track_update_switch(int sw_num, char state) {
 }
 
 void track_update_speed(int train_num, int speed) {
+    if (!track_is_valid_train(train_num)) return;
     train_state_t* t = find_or_create_train(train_num);
     if (t) t->speed = speed;
 }
 
 void track_update_direction(int train_num, int direction) {
+    if (!track_is_valid_train(train_num)) return;
     train_state_t* t = find_or_create_train(train_num);
     if (t) t->direction = direction;
 }
+
 
 const sensor_entry_t* track_get_sensor_log(int *head) {
     if (head) *head = sensor_log_head;
@@ -135,6 +164,7 @@ const train_state_t* track_get_trains(void) {
 
 void track_set_speed(int train, int speed) {
     KASSERT(can_tid >= 0);
+    if (!track_is_valid_train(train)) return;
 
     can_frame_t frame;
 
@@ -172,12 +202,13 @@ void track_set_speed(int train, int speed) {
             t->speed = speed;
         }
     } else {
-        panic("CANsend fail in track_set_speed!\r\n");
+        KASSERT(0 && "CANsend fail in track_set_speed");
     }
 }
 
 void track_reverse(int train) {
     KASSERT(can_tid >= 0);
+    if (!track_is_valid_train(train)) return;
 
     can_frame_t frame;
 
@@ -205,7 +236,7 @@ void track_reverse(int train) {
         train_state_t* t = find_or_create_train(train);
         if (t) t->direction = 1 - t->direction;
     } else {
-        panic("CANsend fail in track_reverse!\r\n");
+        KASSERT(0 && "CANsend fail in track_reverse");
     }
 }
 
@@ -213,6 +244,19 @@ void track_set_switch(int sw_num, char dir) {
     KASSERT(can_tid >= 0);
     KASSERT(track_is_valid_switch(sw_num));
     KASSERT(dir == 'S' || dir == 'C');
+
+    /* 153/154 and 155/156 cannot both be C. */
+    if (dir == 'C') {
+        int partner = (sw_num == 153) ? 154 :
+                      (sw_num == 155) ? 156 : -1;
+        if (partner > 0) {
+            int pidx = track_switch_to_index(partner);
+            if (pidx >= 0 && switch_state[pidx].state == 'C') {
+                track_set_switch(partner, 'S');
+                track_update_switch(partner, 'S');
+            }
+        }
+    }
 
     can_frame_t frame;
 
@@ -251,6 +295,7 @@ void track_set_switch(int sw_num, char dir) {
 void track_set_light(int train, int on) {
     KASSERT(can_tid >= 0);
     KASSERT(on == 0 || on == 1);
+    if (!track_is_valid_train(train)) return;
 
     can_frame_t frame;
 
@@ -280,7 +325,7 @@ void track_set_light(int train, int on) {
     frame.data[5] = on ? 0x01 : 0x00;
 
     if (CANSend(can_tid, &frame) != 0) {
-        panic("CANsend fail in track_set_light!\r\n");
+        KASSERT(0 && "CANsend fail in track_set_light");
     }
 }
 
@@ -296,9 +341,11 @@ void track_complete_reverse(int train_num) {
 }
 
 int track_start_reverse(int train_num) {
+    if (!track_is_valid_train(train_num)) return 0;
+
     train_state_t* t = find_or_create_train(train_num);
     if (!t) {
-        panic("No free train slots\r\n");
+        KASSERT(0 && "No free train slots");
         return 0;
     }
 
