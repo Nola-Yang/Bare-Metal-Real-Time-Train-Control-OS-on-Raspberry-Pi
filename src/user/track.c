@@ -72,9 +72,9 @@ int track_is_valid_switch(int sw_num) {
 
 void track_init_graph(void) {
 #ifdef TRACK_D
-    init_tracka(g_track);
-#else
     init_trackb(g_track);
+#else
+    init_tracka(g_track);
 #endif
 }
 
