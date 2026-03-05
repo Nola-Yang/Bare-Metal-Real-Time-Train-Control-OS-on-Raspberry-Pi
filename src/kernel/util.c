@@ -104,6 +104,8 @@ int str2int(const char *str) {
     if (*str == '-') {
         sign = -1;
         str++;
+    } else if (*str == '+') {
+        str++;
     }
 
     while (*str >= '0' && *str <= '9') {
