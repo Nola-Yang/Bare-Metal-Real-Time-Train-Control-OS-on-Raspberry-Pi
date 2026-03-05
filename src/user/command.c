@@ -11,6 +11,22 @@ static track_node *parse_node(const char *tok) {
     return pos_find_node(tok);
 }
 
+static int parse_int_token(const char *tok, int *out) {
+    if (!tok || !tok[0] || !out) return 0;
+
+    const char *p = tok;
+    if (*p == '+' || *p == '-') p++;
+    if (!*p) return 0;
+
+    while (*p) {
+        if (*p < '0' || *p > '9') return 0;
+        p++;
+    }
+
+    *out = str2int(tok);
+    return 1;
+}
+
 // Returns number of tokens
 static int tokenize(char *cmd, char *argv[], int max_args) {
     KASSERT(cmd != NULL);
@@ -54,8 +70,16 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
             ui_puts("Usage: tr <train> <speed 0-14>\r\n");
             return 2;
         }
-        int train = str2int(argv[1]);
-        int speed = str2int(argv[2]);
+        int train = 0;
+        int speed = 0;
+        if (!parse_int_token(argv[1], &train)) {
+            ui_puts("Train must be a number\r\n");
+            return 2;
+        }
+        if (!parse_int_token(argv[2], &speed)) {
+            ui_puts("Speed must be a number\r\n");
+            return 2;
+        }
         if (speed < 0 || speed > 14) {
             ui_puts("Speed must be 0-14\r\n");
             return 2;
@@ -72,7 +96,11 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
             ui_puts("Usage: sw <switch> <S|C>\r\n");
             return 2;
         }
-        int sw = str2int(argv[1]);
+        int sw = 0;
+        if (!parse_int_token(argv[1], &sw)) {
+            ui_puts("Switch must be a number\r\n");
+            return 2;
+        }
         if (!track_is_valid_switch(sw)) {
             ui_puts("Invalid switch. Valid: 1-18, 153-156\r\n");
             return 2;
@@ -95,7 +123,11 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
             return 2;
         }
 
-        int train = str2int(argv[1]);
+        int train = 0;
+        if (!parse_int_token(argv[1], &train)) {
+            ui_puts("Train must be a number\r\n");
+            return 2;
+        }
         if (pos_is_train_goto_active(train)) {
             ui_puts("Error: goto in progress for this train\r\n");
             return 2;
@@ -120,8 +152,16 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
             ui_puts("Usage: li <train> <0|1>\r\n");
             return 2;
         }
-        int train = str2int(argv[1]);
-        int on = str2int(argv[2]);
+        int train = 0;
+        int on = 0;
+        if (!parse_int_token(argv[1], &train)) {
+            ui_puts("Train must be a number\r\n");
+            return 2;
+        }
+        if (!parse_int_token(argv[2], &on)) {
+            ui_puts("Light must be a number\r\n");
+            return 2;
+        }
         if (on != 0 && on != 1) {
             ui_puts("Light must be 0 or 1\r\n");
             return 2;
@@ -138,7 +178,11 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
             ui_puts("Usage: goto <train> <node> [offset_mm]\r\n");
             return 2;
         }
-        int train = str2int(argv[1]);
+        int train = 0;
+        if (!parse_int_token(argv[1], &train)) {
+            ui_puts("Train must be a number\r\n");
+            return 2;
+        }
         if (pos_is_train_goto_active(train)) {
             ui_puts("Error: goto in progress for this train\r\n");
             return 2;
@@ -154,7 +198,12 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
         }
         int32_t offset = 0;
         if (argc >= 4) {
-            offset = (int32_t)str2int(argv[3]);
+            int offset_i = 0;
+            if (!parse_int_token(argv[3], &offset_i)) {
+                ui_puts("Offset must be a number\r\n");
+                return 2;
+            }
+            offset = (int32_t)offset_i;
         }
         int gr = pos_goto(train, target, offset);
         if (!gr) {
