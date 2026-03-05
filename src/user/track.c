@@ -20,6 +20,16 @@ static sensor_entry_t sensor_log[SENSOR_LOG_SIZE];
 static train_state_t trains[MAX_ACTIVE_TRAINS];
 static int sensor_log_head = 0;
 
+static int train_num_to_active_index(int train_num) {
+    if (13 <= train_num && train_num <= 15) return train_num - 13;
+    if (17 <= train_num && train_num <= 18) return train_num - 14;
+    return -1;
+}
+
+int track_is_valid_train(int train_num) {
+    return train_num_to_active_index(train_num) >= 0;
+}
+
 
 // Find train by number, returns NULL if not found
 static train_state_t* find_train(int train_num) {
@@ -31,6 +41,8 @@ static train_state_t* find_train(int train_num) {
 
 // Find or create train slot, returns NULL if full
 static train_state_t* find_or_create_train(int train_num) {
+    if (!track_is_valid_train(train_num)) return NULL;
+
     train_state_t* t = find_train(train_num);
     if (t) return t;
     for (int i = 0; i < MAX_ACTIVE_TRAINS; i++) {
@@ -125,11 +137,13 @@ void track_update_switch(int sw_num, char state) {
 }
 
 void track_update_speed(int train_num, int speed) {
+    if (!track_is_valid_train(train_num)) return;
     train_state_t* t = find_or_create_train(train_num);
     if (t) t->speed = speed;
 }
 
 void track_update_direction(int train_num, int direction) {
+    if (!track_is_valid_train(train_num)) return;
     train_state_t* t = find_or_create_train(train_num);
     if (t) t->direction = direction;
 }
@@ -150,6 +164,7 @@ const train_state_t* track_get_trains(void) {
 
 void track_set_speed(int train, int speed) {
     KASSERT(can_tid >= 0);
+    if (!track_is_valid_train(train)) return;
 
     can_frame_t frame;
 
@@ -193,6 +208,7 @@ void track_set_speed(int train, int speed) {
 
 void track_reverse(int train) {
     KASSERT(can_tid >= 0);
+    if (!track_is_valid_train(train)) return;
 
     can_frame_t frame;
 
@@ -279,6 +295,7 @@ void track_set_switch(int sw_num, char dir) {
 void track_set_light(int train, int on) {
     KASSERT(can_tid >= 0);
     KASSERT(on == 0 || on == 1);
+    if (!track_is_valid_train(train)) return;
 
     can_frame_t frame;
 
@@ -324,6 +341,8 @@ void track_complete_reverse(int train_num) {
 }
 
 int track_start_reverse(int train_num) {
+    if (!track_is_valid_train(train_num)) return 0;
+
     train_state_t* t = find_or_create_train(train_num);
     if (!t) {
         KASSERT(0 && "No free train slots");

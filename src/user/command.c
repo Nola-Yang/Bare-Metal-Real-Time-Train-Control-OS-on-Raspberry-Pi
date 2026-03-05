@@ -27,6 +27,18 @@ static int parse_int_token(const char *tok, int *out) {
     return 1;
 }
 
+static int parse_train_token(const char *tok, int *out) {
+    if (!parse_int_token(tok, out)) {
+        ui_puts("Train must be a number\r\n");
+        return 0;
+    }
+    if (!track_is_valid_train(*out)) {
+        ui_puts("Train must be one of: 13, 14, 15, 17, 18\r\n");
+        return 0;
+    }
+    return 1;
+}
+
 // Returns number of tokens
 static int tokenize(char *cmd, char *argv[], int max_args) {
     KASSERT(cmd != NULL);
@@ -72,10 +84,7 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
         }
         int train = 0;
         int speed = 0;
-        if (!parse_int_token(argv[1], &train)) {
-            ui_puts("Train must be a number\r\n");
-            return 2;
-        }
+        if (!parse_train_token(argv[1], &train)) return 2;
         if (!parse_int_token(argv[2], &speed)) {
             ui_puts("Speed must be a number\r\n");
             return 2;
@@ -124,10 +133,7 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
         }
 
         int train = 0;
-        if (!parse_int_token(argv[1], &train)) {
-            ui_puts("Train must be a number\r\n");
-            return 2;
-        }
+        if (!parse_train_token(argv[1], &train)) return 2;
         if (pos_is_train_goto_active(train)) {
             ui_puts("Error: goto in progress for this train\r\n");
             return 2;
@@ -154,10 +160,7 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
         }
         int train = 0;
         int on = 0;
-        if (!parse_int_token(argv[1], &train)) {
-            ui_puts("Train must be a number\r\n");
-            return 2;
-        }
+        if (!parse_train_token(argv[1], &train)) return 2;
         if (!parse_int_token(argv[2], &on)) {
             ui_puts("Light must be a number\r\n");
             return 2;
@@ -179,10 +182,7 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
             return 2;
         }
         int train = 0;
-        if (!parse_int_token(argv[1], &train)) {
-            ui_puts("Train must be a number\r\n");
-            return 2;
-        }
+        if (!parse_train_token(argv[1], &train)) return 2;
         if (pos_is_train_goto_active(train)) {
             ui_puts("Error: goto in progress for this train\r\n");
             return 2;

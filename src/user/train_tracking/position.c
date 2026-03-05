@@ -70,8 +70,7 @@ static int32_t train_num_to_ind(int train_num) {
         return train_num - 14;
     }
 
-    // default index
-    return 0;
+    return -1;
 }
 
 static train_pos_t *find_or_create_pos(int train_num) {
@@ -80,6 +79,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         if (g_pos[i].train_num < 0) {
             int32_t train_ind = train_num_to_ind(train_num);
+            if (train_ind < 0 || train_ind >= MAX_PHYSICAL_TRAINS) return NULL;
 
             train_pos_t *slot = &g_pos[i];
             slot->train_num             = train_num;

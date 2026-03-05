@@ -7,7 +7,7 @@
 
 #define MAX_SWITCHES 22
 #define SENSOR_LOG_SIZE 16
-#define MAX_ACTIVE_TRAINS 8
+#define MAX_ACTIVE_TRAINS 5
 
 typedef struct {
     char state;           // 'S', 'C', or '?'
@@ -50,6 +50,7 @@ const train_state_t* track_get_trains(void);
 int track_switch_to_index(int sw_num);
 int track_index_to_switch(int index);
 int track_is_valid_switch(int sw_num);
+int track_is_valid_train(int train_num);
 
 // Control functions (send commands via CAN server)
 void track_set_speed(int train, int speed);
