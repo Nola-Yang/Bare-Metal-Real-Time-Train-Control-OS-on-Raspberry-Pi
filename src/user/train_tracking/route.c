@@ -380,6 +380,8 @@ void execute_pending_route(train_pos_t *pos) {
     for (int i = 0; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
         if (order[i] == ps_idx) { start_pos = i; break; }
     }
+    
+    int search_start = (start_pos + 1) % LOOP_SENSOR_COUNT_INTERNAL;
 
     route_plan_t rp;
     track_node  *target = NULL;
@@ -387,7 +389,7 @@ void execute_pending_route(train_pos_t *pos) {
 
     /* Try user_target first, then its reverse node.
      * For each candidate target, iterate through all loop sensors in the
-     * direction of travel starting from plan_start. */
+     * direction of travel starting from the sensor after plan_start. */
     track_node *try_targets[2] = { user_target, user_target->reverse };
 
     for (int t = 0; t < 2 && !target; t++) {
@@ -397,10 +399,10 @@ void execute_pending_route(train_pos_t *pos) {
         for (int i = 0; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
             track_node *cand;
             if (pos->going_forward) {
-                int ci = order[(start_pos + i) % LOOP_SENSOR_COUNT_INTERNAL];
+                int ci = order[(search_start + i) % LOOP_SENSOR_COUNT_INTERNAL];
                 cand = &g_track[ci];
             } else {
-                int ci = order[(start_pos + LOOP_SENSOR_COUNT_INTERNAL - i)
+                int ci = order[(search_start + LOOP_SENSOR_COUNT_INTERNAL - i)
                                % LOOP_SENSOR_COUNT_INTERNAL];
                 cand = g_track[ci].reverse;
             }
