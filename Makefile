@@ -44,10 +44,10 @@ ifeq ($(OPT),1)
 	CFLAGS += -O3 -DOPT
 endif
 
-# TRACK (A, B): Which track layout to compile for
-ifeq ($(TRACK),A)
+# TRACK (D, C): Which track layout to compile for
+ifeq ($(TRACK),D)
 	CFLAGS += -DTRACK_D
-else ifeq ($(TRACK),B)
+else ifeq ($(TRACK),C)
 	CFLAGS += -DTRACK_C
 else
 $(error TRACK must be A or B)
