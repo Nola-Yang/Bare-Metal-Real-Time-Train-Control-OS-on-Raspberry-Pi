@@ -50,7 +50,7 @@ ifeq ($(TRACK),D)
 else ifeq ($(TRACK),C)
 	CFLAGS += -DTRACK_C
 else
-$(error TRACK must be A or B)
+$(error TRACK must be C or D)
 endif
 
 # IDLE_WINDOW_TICKS (default 50): rolling window size for idle% display (50 ticks = 5s)
