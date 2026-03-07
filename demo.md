@@ -58,7 +58,7 @@ During:
 After:
 - Presenter points at UI rows 22/23/24 and explains what to watch.
 
-## Step 1: Basic Control + Observability (2 min)
+## Step 1: Basic Control + Observability 
 
 Before:
 - Presenter: "First we show low-level control and visible state."
@@ -83,14 +83,43 @@ What audience should watch:
 After:
 - Presenter: "This confirms command path, CAN feedback, and UI synchronization are alive."
 
-## Step 2: First `goto` from non-route state (3-4 min)
-
+## Step 2: First `goto` from non-route state
 Before:
 - Presenter: "Now we issue `goto`; software handles loop entry/stabilization automatically before final routing."
+  
+**track D**
+**tr 18**
 
 During:
 ```bash
-goto 13 NODE_LOOP
+li 18
+tr 18 10
+goto 18 C5 
+goto 18 C3
+goto 18 BR2
+goto 18 A3 +100
+goto 18 C13  -100
+goto 18 E1 (sw8)
+goto 18 E1
+```
+
+- sensor branch enter
+- positive/negtive offset
+- on/off loop
+- diff speed
+
+  
+**track C**
+**tr 14**
+During:
+```bash
+li 14
+tr 14 10
+goto 14 C5 
+goto 14 B6
+goto 14 BR7
+goto 14 C13 +100
+goto 14  C13  -100
 ```
 
 while route is active (to show command gating):
