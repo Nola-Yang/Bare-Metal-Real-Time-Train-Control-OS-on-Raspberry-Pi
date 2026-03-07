@@ -248,7 +248,9 @@ void track_set_switch(int sw_num, char dir) {
     /* 153/154 and 155/156 cannot both be C. */
     if (dir == 'C') {
         int partner = (sw_num == 153) ? 154 :
-                      (sw_num == 155) ? 156 : -1;
+                      (sw_num == 154) ? 153 :
+                      (sw_num == 155) ? 156 :
+                      (sw_num == 156) ? 155 : -1;
         if (partner > 0) {
             int pidx = track_switch_to_index(partner);
             if (pidx >= 0 && switch_state[pidx].state == 'C') {
