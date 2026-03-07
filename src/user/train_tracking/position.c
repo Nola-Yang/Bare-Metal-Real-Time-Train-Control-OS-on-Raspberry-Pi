@@ -137,6 +137,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->dead_track_deadline_us  = 0;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
             slot->speed_warmup_mm = 0;
+            slot->skip_offroute_count = 0;
             return slot;
         }
     }
@@ -233,6 +234,9 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
         }
         
     }
+
+    if (just_reversed)
+        pos->skip_offroute_count = 1;
 
     /* Restart the train */
     pos->user_speed = GOTO_USER_SPEED;

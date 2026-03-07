@@ -110,6 +110,11 @@ typedef struct {
      * Decremented by the measured edge distance on each sensor trigger. */
     int32_t     speed_warmup_mm;
 
+    /* When > 0, skip off-route check for that many sensor triggers.
+     * Set to 1 on reverse during an active goto to absorb the first
+     * post-reverse sensor hit which is inherently unpredicted. */
+    int         skip_offroute_count;
+
 } train_pos_t;
 
 /* ---------- Route plan (from plan_route BFS) ---------- */

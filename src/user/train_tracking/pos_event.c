@@ -161,7 +161,9 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
 
 
     // off-route check
-    if ((pos->route_state == TRAIN_STATE_ON_ROUTE          ||
+    if (pos->skip_offroute_count > 0) {
+        pos->skip_offroute_count--;
+    } else if ((pos->route_state == TRAIN_STATE_ON_ROUTE          ||
          pos->route_state == TRAIN_STATE_STOPPING          ||
          pos->route_state == TRAIN_STATE_LOOP_FIND_DIR     ||
          pos->route_state == TRAIN_STATE_LOOP_STABILIZE    ||
@@ -472,12 +474,27 @@ void pos_on_tick(uint64_t now_us) {
             pos->pred_next_sensor  = predict_next_sensor(pos, skipped, &dt);
             pos->pred_trigger_time = now_us + dt;
 
-            if (pos->target_sensor) {
+            if (pos->target_sensor &&
+                pos->route_state == TRAIN_STATE_ON_ROUTE) {
                 int32_t skip_dist = follow_dist(skipped,
                     (pos->pred_next_sensor ? pos->pred_next_sensor
                                            : pos->target_sensor), 50);
-                if (skip_dist > 0)
+                if (skip_dist > 0) {
+                    if (skip_dist >= pos->dist_to_target_mm) {
+                        /* Skipped past the target — off-route */
+                        pos->offroute_valid           = 1;
+                        pos->offroute_expected_sensor = skipped;
+                        pos->offroute_actual_sensor   = NULL;
+                        pos->pred_next_sensor         = NULL;
+                        pos->pred_trigger_time        = 0;
+                        track_set_speed(pos->train_num, 0);
+                        pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
+                        pos->stopping_since_us = now_us;
+                        ui_mark_position_dirty();
+                        continue;
+                    }
                     pos->dist_to_target_mm -= skip_dist;
+                }
             }
         }
     }
