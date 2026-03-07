@@ -1,0 +1,194 @@
+# TC1 Demo Runbook (20 Minutes)
+
+## 1) Scope and Roles
+
+- Duration: 20 minutes total.
+- Part 1 (scripted): 10-12 minutes.
+- Part 2 (unscripted Q/A): 6-8 minutes.
+- Part 3 (offline discussion/code review): optional.
+
+Team roles:
+- Presenter: explains intent, expected behavior, and design tradeoffs.
+- Operator: types commands and controls train setup.
+
+
+## 2) Ground Truth from Current Code
+
+What is implemented and demo-safe:
+- Commands: `tr`, `sw`, `rv`, `li`, `goto`, `q`.
+- Valid trains: `13, 14, 15, 17, 18`.
+- `goto` runs at fixed user speed 8.
+- UI evidence is on rows:
+  - Row 22: `Pos` + state (`UNK/KNOW/STR/DIR?/STAB/ROUTE/STOP/STPD/REC/ENT/SGT`).
+  - Row 23: prediction error (`err_t`, `err_d`).
+  - Row 24: off-route / dead-track status.
+- Off-route recovery exists:
+  - Unexpected sensor and target no longer reachable -> auto stop -> `RECOVERY_STOPPING` -> `ENTER_LOOP` -> resume.
+- Dead-track timeout exists:
+  - No sensor within timeout window in active motion states -> `DEAD TRACK`, waits for manual push-triggered sensor to recover.
+- Switch reliability helper resends commands for `SW1`, `SW153`, `SW156` during route execution.
+
+Important limitations to state clearly:
+- Position tracking path assumes single active tracked train for sensor attribution.
+- No CLI command to inject fake sensor events.
+
+## 3) Pre-Demo Checklist 
+
+- Keep one known-good `kernel.img` backup.
+- Confirm compile target matches hardware day plan (`TRACK=C` or `TRACK=D`).
+- Place one train on powered track section near loop path.
+- Use one demo train only (recommend `13`) for reliable tracking narrative.
+- Pre-run and choose two stable destinations:
+  - `NODE_LOOP`: one loop sensor ( `{A3, C13, E7, D7, D9, E12, D11, C16, C6, B15}`).
+  - `NODE_ROUTE`: one off-loop node that worked in dry run.
+- Decide one switch-mismatch point for robustness test:
+  - Choose first switch shown in `Row 22 plan=... sw=...` for `NODE_ROUTE` route.
+
+## 4) Scripted Demo (Part 1)
+
+## Step 0: Intro + Safety 
+
+Before:
+- Presenter: "We will show command control, tracking+stopping accuracy, and automatic recovery paths."
+- Presenter: "If something drifts, we will explicitly halt and recover."
+
+During:
+- Operator confirms train is clear and track is safe.
+
+After:
+- Presenter points at UI rows 22/23/24 and explains what to watch.
+
+## Step 1: Basic Control + Observability (2 min)
+
+Before:
+- Presenter: "First we show low-level control and visible state."
+
+During (operator commands):
+```bash
+li 13 1
+tr 13 8
+```
+Wait for at least 2 sensor hits.
+
+Then:
+```bash
+tr 13 0
+```
+
+What audience should watch:
+- Headlight on (direction/debug visibility).
+- Recent sensors list updates.
+- Row 22 state transitions from unknown toward known, then stop path (`STR` then `STPD`).
+
+After:
+- Presenter: "This confirms command path, CAN feedback, and UI synchronization are alive."
+
+## Step 2: First `goto` from non-route state (3-4 min)
+
+Before:
+- Presenter: "Now we issue `goto`; software handles loop entry/stabilization automatically before final routing."
+
+During:
+```bash
+goto 13 NODE_LOOP
+```
+
+while route is active (to show command gating):
+```bash
+goto 13 A3
+```
+Expected: rejected because a `goto` is already active.
+
+What audience should watch:
+- Row 22 state flow through `DIR?` / `STAB` / `ROUTE` / `STOP` / `STPD` (exact path depends on starting state).
+- Row 23 prediction error converging.
+- Row 24 remains clean when no mismatch.
+
+After:
+- Presenter: "This shows automated state-machine control, not manual switch babysitting."
+
+Switch presenter/operator roles now.
+
+## Step 3: Route Planning + Stop Accuracy (3-4 min)
+
+Before:
+- Presenter: "Now we target an off-loop destination to show planned switches and controlled stopping."
+
+During:
+```bash
+goto 13 NODE_ROUTE
+```
+(Replace `NODE_ROUTE` with your dry-run validated off-loop node.)
+
+What audience should watch:
+- Row 22 includes `plan=<loop_start>-><target> sw=...`.
+- Switch rows update to planned settings.
+- `rem=...mm` decreases during `ON_ROUTE`.
+- Train brakes and reaches `STOP` -> `STPD` near intended target.
+
+After:
+- Presenter: "Stop timing is model-based (`v^2/(2a)` + early-stop margin), continuously refined by sensor updates."
+
+## Step 4: Robustness Injection (2-3 min)
+
+Primary plan (off-route auto-recovery):
+- Start another route requiring at least one switch.
+- Right before expected branch, intentionally set one key switch opposite to plan.
+
+During:
+```bash
+goto 13 NODE_ROUTE
+# then sabotage one planned switch, example only:
+sw <planned_switch> <opposite_dir>
+```
+
+What audience should watch:
+- Row 24 shows mismatch (`exp=... act=...`).
+- State goes to `REC`, then re-enters loop (`ENT`/`STAB`) and resumes.
+
+Backup plan (if timing miss, no mismatch triggered):
+- Show controlled halt/recover path instead:
+```bash
+tr 13 0
+```
+- Explain dead-track timeout and manual-push recovery mechanism using Row 24 `DEAD TRACK` message if reproduced.
+
+After:
+- Presenter: "Failure is detected with timeouts/prediction checks, then system falls back to safe recoverable states."
+
+## 5) Unscripted Q/A Playbook (Part 2)
+
+If asked: "Can you do this with another train?"
+- Answer: command/control supports trains `13,14,15,17,18`.
+- Clarify: current tracking attribution is intentionally single-train focused for robustness in this milestone.
+- Offer: quick control-only action on another train (`li`, `tr`) without claiming multi-train `goto` tracking.
+
+If asked: "Can you do this on the other track?"
+- Answer: yes via compile-time `TRACK=C|D`; loop/stabilization and FSM logic are shared.
+
+If asked: "Can we fake sensor triggers?"
+- Answer: no CLI sensor injection command.
+- Offer equivalent stress test: switch sabotage (off-route) or dead-track timeout path.
+
+If asked: "Can the train go to this location?"
+- Action: run `goto <train> <exact_node_name>` if no active `goto`.
+- Explain parser requires exact node string.
+
+## 6) Recovery and Control Rules (If Anything Goes Wrong)
+
+Immediate safe stop:
+```bash
+tr 13 0
+```
+
+If software state is confusing but process alive:
+- Keep train stopped.
+- Re-run one known-good `goto` target from dry run.
+
+If hard reset needed:
+```bash
+q
+```
+(Then reboot/reload known-good image and restart script from Step 1.)
+
+
