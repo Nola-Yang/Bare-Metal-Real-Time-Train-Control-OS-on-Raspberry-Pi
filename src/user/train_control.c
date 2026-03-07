@@ -146,6 +146,8 @@ void train_control_task(void) {
         track_set_switch(sw, state);
     }
     pos_apply_loop_switches();
+    track_set_switch(153, 'C');
+    track_set_switch(155, 'C');
     ui_mark_switches_dirty();
 
     Create(TRAIN_COURIER_PRIORITY, can_rx_courier_task);
