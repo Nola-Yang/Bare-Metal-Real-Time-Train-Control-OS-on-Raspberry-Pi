@@ -16,7 +16,7 @@ extern train_pos_t g_pos[MAX_POS_TRAINS];
 #define OFF_ROUTE_PATH_MAX_HOPS 120
 
 /* Dead-track timeout multiplier relative to predicted sensor intervals. */
-#define DEAD_TRACK_DEADLINE_MULTIPLIER 3
+#define DEAD_TRACK_DEADLINE_MULTIPLIER 2
 
 
 
