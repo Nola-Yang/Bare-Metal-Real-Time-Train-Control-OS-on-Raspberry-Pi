@@ -14,11 +14,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* ===== SW153/SW155 reliability helper ===== */
+/* ===== Unreliable switch reliability helper ===== */
 
-void resend_sw153_sw155(const int *sw_nums, const char *sw_dirs, int sw_count) {
+void resend_unreliable_switches(const int *sw_nums, const char *sw_dirs, int sw_count) {
     for (int i = 0; i < sw_count; i++) {
-        if (sw_nums[i] == 153 || sw_nums[i] == 155) {
+        if (sw_nums[i] == 1 || sw_nums[i] == 153 || sw_nums[i] == 156) {
             track_set_switch(sw_nums[i], sw_dirs[i]);
         }
     }
@@ -421,7 +421,7 @@ void execute_pending_route(train_pos_t *pos) {
     for (int i = rp.sw_count - 1; i >= 0; i--) {
         track_set_switch(rp.sw_nums[i], rp.sw_dirs[i]);
     }
-    resend_sw153_sw155(rp.sw_nums, rp.sw_dirs, rp.sw_count);
+    resend_unreliable_switches(rp.sw_nums, rp.sw_dirs, rp.sw_count);
 
     if (rp.sw_count > 0) {
         ui_mark_switches_dirty();

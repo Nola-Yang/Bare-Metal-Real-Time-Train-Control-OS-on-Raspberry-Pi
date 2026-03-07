@@ -185,13 +185,13 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
                 just_reversed      = 1;
                 for (int j = 0; j < rp.sw_count; j++)
                     track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
-                resend_sw153_sw155(rp.sw_nums, rp.sw_dirs, rp.sw_count);
+                resend_unreliable_switches(rp.sw_nums, rp.sw_dirs, rp.sw_count);
 
             } else {
                 pos->cur_sensor = physical_anchor;
                 for (int j = 0; j < rp.sw_count; j++)
                     track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
-                resend_sw153_sw155(rp.sw_nums, rp.sw_dirs, rp.sw_count);
+                resend_unreliable_switches(rp.sw_nums, rp.sw_dirs, rp.sw_count);
                 physical_anchor_pending = 1;
             }
         }
@@ -209,7 +209,7 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
             KASSERT(bfs_find_route_to_loop(pos->cur_sensor, &rp));
             for (int j = 0; j < rp.sw_count; j++)
                 track_set_switch(rp.sw_nums[j], rp.sw_dirs[j]);
-            resend_sw153_sw155(rp.sw_nums, rp.sw_dirs, rp.sw_count);
+            resend_unreliable_switches(rp.sw_nums, rp.sw_dirs, rp.sw_count);
         }
         
     }
