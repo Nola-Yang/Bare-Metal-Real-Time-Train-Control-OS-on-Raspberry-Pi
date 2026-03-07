@@ -10,6 +10,7 @@
 Team roles:
 - Presenter: explains intent, expected behavior, and design tradeoffs.
 - Operator: types commands and controls train setup.
+- switch at off-route check
 
 
 ## 2) Ground Truth from Current Code
@@ -32,19 +33,7 @@ Important limitations to state clearly:
 - Position tracking path assumes single active tracked train for sensor attribution.
 - No CLI command to inject fake sensor events.
 
-## 3) Pre-Demo Checklist 
-
-- Keep one known-good `kernel.img` backup.
-- Confirm compile target matches hardware day plan (`TRACK=C` or `TRACK=D`).
-- Place one train on powered track section near loop path.
-- Use one demo train only (recommend `13`) for reliable tracking narrative.
-- Pre-run and choose two stable destinations:
-  - `NODE_LOOP`: one loop sensor ( `{A3, C13, E7, D7, D9, E12, D11, C16, C6, B15}`).
-  - `NODE_ROUTE`: one off-loop node that worked in dry run.
-- Decide one switch-mismatch point for robustness test:
-  - Choose first switch shown in `Row 22 plan=... sw=...` for `NODE_ROUTE` route.
-
-## 4) Scripted Demo (Part 1)
+## 3) Scripted Demo (Part 1)
 
 ## Step 0: Intro + Safety 
 
@@ -83,9 +72,12 @@ What audience should watch:
 After:
 - Presenter: "This confirms command path, CAN feedback, and UI synchronization are alive."
 
-## Step 2: First `goto` from non-route state
-Before:
-- Presenter: "Now we issue `goto`; software handles loop entry/stabilization automatically before final routing."
+## Step 2: `goto` 
+
+- sensor branch enter
+- positive/negtive offset
+- on/off loop
+- diff speed
   
 **track D**
 **tr 18**
@@ -103,10 +95,7 @@ goto 18 E1 (sw8)
 goto 18 E1
 ```
 
-- sensor branch enter
-- positive/negtive offset
-- on/off loop
-- diff speed
+
 
   
 **track C**
@@ -138,27 +127,8 @@ After:
 
 Switch presenter/operator roles now.
 
-## Step 3: Route Planning + Stop Accuracy (3-4 min)
 
-Before:
-- Presenter: "Now we target an off-loop destination to show planned switches and controlled stopping."
-
-During:
-```bash
-goto 13 NODE_ROUTE
-```
-(Replace `NODE_ROUTE` with your dry-run validated off-loop node.)
-
-What audience should watch:
-- Row 22 includes `plan=<loop_start>-><target> sw=...`.
-- Switch rows update to planned settings.
-- `rem=...mm` decreases during `ON_ROUTE`.
-- Train brakes and reaches `STOP` -> `STPD` near intended target.
-
-After:
-- Presenter: "Stop timing is model-based (`v^2/(2a)` + early-stop margin), continuously refined by sensor updates."
-
-## Step 4: Robustness Injection (2-3 min)
+## Step 3: Robustness Injection 
 
 Primary plan (off-route auto-recovery):
 - Start another route requiring at least one switch.
@@ -182,10 +152,9 @@ tr 13 0
 ```
 - Explain dead-track timeout and manual-push recovery mechanism using Row 24 `DEAD TRACK` message if reproduced.
 
-After:
-- Presenter: "Failure is detected with timeouts/prediction checks, then system falls back to safe recoverable states."
 
-## 5) Unscripted Q/A Playbook (Part 2)
+
+## 4) Unscripted Q/A Playbook (Part 2)
 
 If asked: "Can you do this with another train?"
 - Answer: command/control supports trains `13,14,15,17,18`.
@@ -196,28 +165,11 @@ If asked: "Can you do this on the other track?"
 - Answer: yes via compile-time `TRACK=C|D`; loop/stabilization and FSM logic are shared.
 
 If asked: "Can we fake sensor triggers?"
-- Answer: no CLI sensor injection command.
-- Offer equivalent stress test: switch sabotage (off-route) or dead-track timeout path.
+- Answer: will trigger off route check
 
 If asked: "Can the train go to this location?"
-- Action: run `goto <train> <exact_node_name>` if no active `goto`.
-- Explain parser requires exact node string.
 
-## 6) Recovery and Control Rules (If Anything Goes Wrong)
 
-Immediate safe stop:
-```bash
-tr 13 0
-```
 
-If software state is confusing but process alive:
-- Keep train stopped.
-- Re-run one known-good `goto` target from dry run.
-
-If hard reset needed:
-```bash
-q
-```
-(Then reboot/reload known-good image and restart script from Step 1.)
 
 
