@@ -14,17 +14,32 @@
 train_pos_t g_pos[MAX_POS_TRAINS];
 
 #define GOTO_USER_SPEED 8
+#define MAX_SENSORS 80
 
 #ifdef TRACK_D
     static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
         {227, 232, 242, 229, 230};
     static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {154, 154, 154, 154, 154};
+        {153, 153, 153, 153, 153};
+
+    static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] = 
+    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 120, -1, -1, -1, -1, 101,
+     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+     130, -1, -1, -1, -1, -1, 120, -1, -1, -1, -1, -1, -1, 200, -1, -1,
+     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 270, -1,
+     -1, -1, -1, -1, -1, -1, 270, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 #else
     static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
         {226, 224, 226, 222, 236};
     static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
         {167, 167, 167, 167, 167};
+
+    static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] = 
+    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+     -1, -1, 200, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 #endif
 
 int32_t speed_table_get_v(int32_t train_ind, int user_speed) {
@@ -33,9 +48,14 @@ int32_t speed_table_get_v(int32_t train_ind, int user_speed) {
     return GOTO_SPEED_MM_S[train_ind];
 }
 
-int32_t speed_table_get_decel(int32_t train_ind, int user_speed) {
+int32_t speed_table_get_decel(int32_t train_ind, int user_speed, track_node *target) {
     if (user_speed != GOTO_USER_SPEED) return 0;
     if (train_ind < 0 || train_ind >= MAX_PHYSICAL_TRAINS) return 0;
+
+    if (target->type == NODE_SENSOR) {
+        int32_t override = GOTO_DECEL_OVERRIDE[target->num];
+        return (override > -1) ? override : GOTO_DECEL_MM_S2[train_ind];
+    }
     return GOTO_DECEL_MM_S2[train_ind];
 }
 
