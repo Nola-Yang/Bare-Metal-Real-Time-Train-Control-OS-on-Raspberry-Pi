@@ -146,6 +146,8 @@ void train_control_task(void) {
         track_set_switch(sw, state);
     }
     pos_apply_loop_switches();
+    track_set_switch(153, 'C');
+    track_set_switch(155, 'C');
     ui_mark_switches_dirty();
 
     Create(TRAIN_COURIER_PRIORITY, can_rx_courier_task);
@@ -256,7 +258,13 @@ void train_control_task(void) {
                     train = -1;
                 }
                 reply.train = train;
-                reply.delay_ticks = 100;  // 100 ticks * 10ms = 1s
+                int speed_level = 0;
+                if (train >= 0) {
+                    train_pos_t *pos = pos_get(train);
+                    if (pos) speed_level = pos->user_speed;
+                }
+                // delay_us = 6000 * speed_level (0-14); convert to 10ms ticks
+                reply.delay_ticks = (6000 * speed_level) / 10000;
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
             }

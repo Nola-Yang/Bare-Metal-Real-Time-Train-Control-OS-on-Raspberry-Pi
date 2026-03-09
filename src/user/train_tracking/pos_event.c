@@ -20,7 +20,7 @@
 
 /* Stop command lead time for overshoot compensation (microseconds). */
 #ifdef TRACK_D
-    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {850000ULL, 850000ULL, 850000ULL, 850000ULL, 850000ULL};
+    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {930000ULL, 930000ULL, 930000ULL, 930000ULL, 930000ULL};
 #else
     uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1000000ULL, 1000000ULL, 1000000ULL, 1000000ULL, 1000000ULL};
 #endif
@@ -161,7 +161,9 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
 
 
     // off-route check
-    if ((pos->route_state == TRAIN_STATE_ON_ROUTE          ||
+    if (pos->skip_offroute_count > 0) {
+        pos->skip_offroute_count--;
+    } else if ((pos->route_state == TRAIN_STATE_ON_ROUTE          ||
          pos->route_state == TRAIN_STATE_STOPPING          ||
          pos->route_state == TRAIN_STATE_LOOP_FIND_DIR     ||
          pos->route_state == TRAIN_STATE_LOOP_STABILIZE    ||
@@ -175,15 +177,8 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
 
         int still_reachable = 0;
 
-        if (pos->route_state == TRAIN_STATE_ON_ROUTE ||
-            pos->route_state == TRAIN_STATE_STOPPING) {
-            if (pos->target_sensor &&
-                follow_dist(hit, pos->target_sensor, 200) >= 0) {
-                still_reachable = 1;
-            }
-        } else {
-            /* LOOP_FIND_DIR / LOOP_STABILIZE / ENTER_LOOP */
-            if (follow_reaches_loop(hit, 200)) {
+        if (pos->route_state == TRAIN_STATE_ENTER_LOOP ) {
+            if (follow_reaches_loop(hit, 50)) {
                 still_reachable = 1;
             }
         }
@@ -268,7 +263,7 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
             pos->dist_to_target_mm = rem;
 
             int user_spd = pos->user_speed;
-            int32_t a    = speed_table_get_decel(pos->train_ind, user_spd);
+            int32_t a    = speed_table_get_decel(pos->train_ind, user_spd, pos->target_sensor);
 
             if (a > 0) {
                 int32_t d_brake = (int32_t)((int64_t)pos->effective_v
@@ -317,7 +312,7 @@ void pos_on_tick(uint64_t now_us) {
         /* Once braking is complete, state transition to ENTER_LOOP */
         if (pos->route_state == TRAIN_STATE_RECOVERY_STOPPING) {
             uint64_t brake_us = 1000000ULL;
-            int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed);
+            int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
             if (pos->effective_v > 0 && decel > 0) {
                 brake_us = (uint64_t)pos->effective_v * 1500000ULL
                            / (uint64_t)decel;
@@ -335,7 +330,7 @@ void pos_on_tick(uint64_t now_us) {
          * Keep effective_v intact until confirmed stopped for accurate estimate. */
         if (pos->route_state == TRAIN_STATE_STOPPING_TR) {
             uint64_t brake_us = 1000000ULL;
-            int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed);
+            int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
             if (pos->effective_v > 0 && decel > 0) {
                 brake_us = (uint64_t)pos->effective_v * 1500000ULL
                            / (uint64_t)decel;
@@ -352,7 +347,7 @@ void pos_on_tick(uint64_t now_us) {
          * command has been sent.  Once physically stopped, drive to loop. */
         if (pos->route_state == TRAIN_STATE_STOPPING_GOTO) {
             uint64_t brake_us = 1000000ULL;
-            int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed);
+            int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
             if (pos->effective_v > 0 && decel > 0) {
                 brake_us = (uint64_t)pos->effective_v * 1500000ULL
                            / (uint64_t)decel;
@@ -374,7 +369,7 @@ void pos_on_tick(uint64_t now_us) {
             if (pos->route_state == TRAIN_STATE_STOPPING &&
                 pos->stopping_since_us > 0) {
                 uint64_t brake_us = 1000000ULL;  /* 1 s default */
-                int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed);
+                int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
                 if (pos->effective_v > 0 && decel > 0) {
                     brake_us = (uint64_t)pos->effective_v * 1500000ULL
                                / (uint64_t)decel;
@@ -414,7 +409,7 @@ void pos_on_tick(uint64_t now_us) {
                 pos->dist_to_target_mm = rem;
 
                 int user_spd = pos->user_speed;
-                int32_t a_tick = speed_table_get_decel(pos->train_ind, user_spd);
+                int32_t a_tick = speed_table_get_decel(pos->train_ind, user_spd, pos->target_sensor);
 
                 if (a_tick > 0) {
                     int32_t d_brake_tick = (int32_t)((int64_t)pos->effective_v
@@ -472,12 +467,27 @@ void pos_on_tick(uint64_t now_us) {
             pos->pred_next_sensor  = predict_next_sensor(pos, skipped, &dt);
             pos->pred_trigger_time = now_us + dt;
 
-            if (pos->target_sensor) {
+            if (pos->target_sensor &&
+                pos->route_state == TRAIN_STATE_ON_ROUTE) {
                 int32_t skip_dist = follow_dist(skipped,
                     (pos->pred_next_sensor ? pos->pred_next_sensor
                                            : pos->target_sensor), 50);
-                if (skip_dist > 0)
+                if (skip_dist > 0) {
+                    if (skip_dist >= pos->dist_to_target_mm) {
+                        /* Skipped past the target — off-route */
+                        pos->offroute_valid           = 1;
+                        pos->offroute_expected_sensor = skipped;
+                        pos->offroute_actual_sensor   = NULL;
+                        pos->pred_next_sensor         = NULL;
+                        pos->pred_trigger_time        = 0;
+                        track_set_speed(pos->train_num, 0);
+                        pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
+                        pos->stopping_since_us = now_us;
+                        ui_mark_position_dirty();
+                        continue;
+                    }
                     pos->dist_to_target_mm -= skip_dist;
+                }
             }
         }
     }
