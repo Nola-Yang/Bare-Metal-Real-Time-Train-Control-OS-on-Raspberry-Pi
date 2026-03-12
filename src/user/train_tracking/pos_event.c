@@ -194,6 +194,7 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
             pos->offroute_expected_sensor = expected_sensor;
             pos->offroute_actual_sensor   = hit;
             pos->pred_next_sensor      = NULL;
+            pos->pred_alt_sensor       = NULL;
             pos->pred_trigger_time     = 0;
             track_set_speed(pos->train_num, 0);
             traffic_release_train(pos->train_num);
@@ -484,6 +485,7 @@ void pos_on_tick(uint64_t now_us) {
                          * a WAIT_RESOURCE delay between reversal and route-start
                          * does not cause the sensor to be time-gated out. */
                         pos->pred_next_sensor       = pos->cur_sensor;
+                        pos->pred_alt_sensor        = NULL;
                         pos->pred_trigger_time      = 0;
                         pos->dead_track_deadline_us = 0;
 
@@ -563,6 +565,7 @@ void pos_on_tick(uint64_t now_us) {
             pos->offroute_expected_sensor = pos->pred_next_sensor;
             pos->offroute_actual_sensor   = NULL;
             pos->pred_next_sensor         = NULL;
+            pos->pred_alt_sensor          = NULL;
             pos->pred_trigger_time        = 0;
             pos->dead_track_deadline_us   = 0;
             traffic_release_train(pos->train_num);
@@ -598,6 +601,7 @@ void pos_on_tick(uint64_t now_us) {
                         pos->offroute_expected_sensor = skipped;
                         pos->offroute_actual_sensor   = NULL;
                         pos->pred_next_sensor         = NULL;
+                        pos->pred_alt_sensor          = NULL;
                         pos->pred_trigger_time        = 0;
                         track_set_speed(pos->train_num, 0);
                         traffic_release_train(pos->train_num);

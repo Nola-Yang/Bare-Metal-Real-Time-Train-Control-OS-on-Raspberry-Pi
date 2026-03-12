@@ -118,6 +118,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->effective_v           = 0;
             slot->user_speed            = 0;
             slot->pred_next_sensor      = NULL;
+            slot->pred_alt_sensor       = NULL;
             slot->pred_trigger_time     = 0;
             slot->last_time_err_us      = 0;
             slot->last_dist_err_mm      = 0;
@@ -307,10 +308,12 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
     if (pos->cur_sensor != NULL) {
         if (just_reversed) {
             pos->pred_next_sensor  = pos->cur_sensor;
+            pos->pred_alt_sensor   = NULL;
             pos->pred_trigger_time = now_us;
 
         } else if (physical_anchor_pending) {
-            pos->pred_next_sensor = pos->cur_sensor;  
+            pos->pred_next_sensor = pos->cur_sensor;
+            pos->pred_alt_sensor  = NULL;
             uint64_t dt = (anchor_dist_mm > 0 && pos->effective_v > 0)
                           ? (uint64_t)(uint32_t)anchor_dist_mm * 1000000ULL
                             / (uint64_t)(uint32_t)pos->effective_v
@@ -358,6 +361,7 @@ void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us) {
     pos->stopping_since_us = now_us;
     pos->effective_v = 0;
     pos->pred_next_sensor = NULL;
+    pos->pred_alt_sensor  = NULL;
     pos->pred_trigger_time = 0;
     pos->dead_track_deadline_us = 0;
     ui_mark_position_dirty();
@@ -381,6 +385,7 @@ void pos_on_reverse(int train_num) {
         pos->cur_sensor = pos->cur_sensor->reverse;
 
     pos->pred_next_sensor  = NULL;
+    pos->pred_alt_sensor   = NULL;
     pos->pred_trigger_time = 0;
     traffic_release_train(train_num);
 
@@ -550,6 +555,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
         pos->going_forward   = !pos->going_forward;
         pos->skip_offroute_count = 1;
         pos->pred_next_sensor       = cur_sensor_orig->reverse;
+        pos->pred_alt_sensor        = NULL;
         pos->pred_trigger_time      = 0;
         pos->dead_track_deadline_us = 0;
     }

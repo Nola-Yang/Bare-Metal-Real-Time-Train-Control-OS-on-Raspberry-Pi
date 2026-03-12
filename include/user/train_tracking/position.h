@@ -46,8 +46,9 @@ typedef struct {
     int         user_speed;     //0-14
 
     /* Prediction */
-    track_node *pred_next_sensor;  
-    uint64_t    pred_trigger_time; 
+    track_node *pred_next_sensor;
+    track_node *pred_alt_sensor;   /* first sensor in OTHER branch direction at next switch */
+    uint64_t    pred_trigger_time;
     int64_t     last_time_err_us;  /* t_actual - t_predicted (us) */
     int32_t     last_dist_err_mm;  /* effective_v * last_time_err_us / 1e6 */
 

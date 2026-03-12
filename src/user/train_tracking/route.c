@@ -328,18 +328,47 @@ int follow_reaches_loop(track_node *start, int max_hops) {
     return 0;
 }
 
+/* Walk forward from start and return the first SENSOR node, or NULL. */
+static track_node *first_sensor_forward(track_node *start, int max_hops) {
+    if (!start) return NULL;
+    track_node *n = start;
+    for (int h = 0; h < max_hops; h++) {
+        if (n->type == NODE_SENSOR) return n;
+        if (n->type == NODE_EXIT)   return NULL;
+        track_edge *e = get_next_edge(n);
+        if (!e || !e->dest) return NULL;
+        n = e->dest;
+        if (n->type == NODE_SENSOR) return n;
+        if (n->type == NODE_EXIT)   return NULL;
+    }
+    return NULL;
+}
+
 track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
                                 uint64_t *out_dt_us) {
     if (!cur) {
         if (out_dt_us) *out_dt_us = 0;
+        if (pos) pos->pred_alt_sensor = NULL;
         return NULL;
     }
 
     track_node *n = cur;
     uint64_t total_us = 0;
     int hops = 0;
+    int found_branch = 0;
 
     for (;;) {
+        /* At the first branch: record the alternate-direction sensor. */
+        if (!found_branch && n->type == NODE_BRANCH) {
+            found_branch = 1;
+            if (pos) {
+                int sw_idx = track_switch_to_index(n->num);
+                char st = (sw_idx >= 0) ? track_get_switch_state()[sw_idx].state : '?';
+                int alt_dir = (st == 'S') ? DIR_CURVED : DIR_STRAIGHT;
+                pos->pred_alt_sensor = first_sensor_forward(n->edge[alt_dir].dest, 20);
+            }
+        }
+
         track_edge *e = get_next_edge(n);
         if (!e || !e->dest) break;
 
@@ -358,6 +387,7 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
     }
 
     if (out_dt_us) *out_dt_us = 0;
+    if (!found_branch && pos) pos->pred_alt_sensor = NULL;
     return NULL;
 }
 

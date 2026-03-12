@@ -244,6 +244,10 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
             score = 10000;
             conf = 3;
             has_candidate = 1;
+        } else if (pos->pred_alt_sensor == hit) {
+            score = 8500;
+            conf = 2;
+            has_candidate = 1;
         } else if (pos->pred_next_sensor) {
             int32_t pred_dist = follow_dist(pos->pred_next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS);
             if (pred_dist >= 0) {
