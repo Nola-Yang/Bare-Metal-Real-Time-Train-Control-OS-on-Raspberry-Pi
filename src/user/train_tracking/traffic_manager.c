@@ -49,10 +49,7 @@ static int should_consider_for_attr(const train_pos_t *pos) {
         pos->route_state == TRAIN_STATE_WAIT_RESOURCE) {
         return 0;
     }
-    if (pos->user_speed > 0) return 1;
-    return (pos->route_state == TRAIN_STATE_STOPPING ||
-            pos->route_state == TRAIN_STATE_STOPPING_GOTO ||
-            pos->route_state == TRAIN_STATE_STOPPING_TR);
+    return 1;
 }
 
 static int is_bootstrap_state(train_route_state_t st) {
