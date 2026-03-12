@@ -371,7 +371,7 @@ void pos_on_tick(uint64_t now_us) {
             if (now_us >= pos->stopping_since_us + brake_us) {
                 pos->route_state = TRAIN_STATE_STOPPED;
                 pos->effective_v = 0;
-                traffic_release_train(pos->train_num);
+                traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
                 start_queued_goto_if_any(pos);
                 ui_mark_position_dirty();
             }
@@ -493,7 +493,7 @@ void pos_on_tick(uint64_t now_us) {
                         pos->route_state        = TRAIN_STATE_STOPPED;
                         pos->orig_user_target   = NULL;
                         pos->orig_target_offset = 0;
-                        traffic_release_train(pos->train_num);
+                        traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
                         if (!has_queued) {
                             demo_on_train_stopped(pos->train_num, now_us);
                         }

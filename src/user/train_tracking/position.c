@@ -351,8 +351,7 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
 void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us) {
     if (!pos) return;
     track_set_speed(pos->train_num, 0);
-    /* Avoid reservation deadlocks while waiting; route will be re-reserved on retry. */
-    traffic_release_train(pos->train_num);
+    traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
     pos->route_state = TRAIN_STATE_WAIT_RESOURCE;
     pos->wait_since_us = now_us;
     pos->next_replan_us = now_us + REPLAN_INTERVAL_US;

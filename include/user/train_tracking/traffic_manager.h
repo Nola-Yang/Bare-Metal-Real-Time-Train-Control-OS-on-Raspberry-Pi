@@ -25,6 +25,12 @@ int traffic_reserve_plan(int train_num, track_node *start, const route_plan_t *p
 /* Release all reservations owned by train_num. */
 void traffic_release_train(int train_num);
 
+/* Release all reservations except the physical position (cur and its reverse).
+ * Ensures cur and cur->reverse remain reserved for train_num.
+ * Use this when entering STOPPED or WAIT_RESOURCE so other trains cannot
+ * claim the track segment the stopped train physically occupies. */
+void traffic_release_train_keep_position(int train_num, track_node *cur);
+
 /* Release reservations on traversed nodes from `from` toward `to` (exclusive). */
 void traffic_release_passed(int train_num, track_node *from, track_node *to);
 

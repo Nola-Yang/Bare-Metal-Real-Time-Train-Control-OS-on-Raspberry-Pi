@@ -161,6 +161,20 @@ void traffic_release_train(int train_num) {
     }
 }
 
+void traffic_release_train_keep_position(int train_num, track_node *cur) {
+    int keep0 = cur ? node_index(cur) : -1;
+    int keep1 = (keep0 >= 0) ? reverse_index(keep0) : -1;
+
+    for (int i = 0; i < TRACK_MAX; i++) {
+        if (node_owner[i] != train_num) continue;
+        if (i == keep0 || i == keep1) continue;
+        node_owner[i] = -1;
+    }
+   
+    if (keep0 >= 0) node_owner[keep0] = train_num;
+    if (keep1 >= 0) node_owner[keep1] = train_num;
+}
+
 void traffic_release_passed(int train_num, track_node *from, track_node *to) {
     if (train_num < 0 || !from || !to) return;
     if (from == to) return;
