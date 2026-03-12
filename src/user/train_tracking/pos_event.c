@@ -197,7 +197,6 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
             pos->pred_alt_sensor       = NULL;
             pos->pred_trigger_time     = 0;
             track_set_speed(pos->train_num, 0);
-            traffic_release_train(pos->train_num);
             pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
             pos->stopping_since_us = time_us;
             ui_mark_position_dirty();
@@ -285,6 +284,20 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
                     track_set_speed(pos->train_num, 0);
                 }
             }
+        } else {
+            /* Target unreachable from current sensor (switch diverged or wrong path).
+             * Enter off-route; resources released in RECOVERY_STOPPING completion. */
+            pos->offroute_valid           = 1;
+            pos->offroute_expected_sensor = pos->pred_next_sensor;
+            pos->offroute_actual_sensor   = NULL;
+            pos->pred_next_sensor         = NULL;
+            pos->pred_alt_sensor          = NULL;
+            pos->pred_trigger_time        = 0;
+            track_set_speed(pos->train_num, 0);
+            pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
+            pos->stopping_since_us = time_us;
+            ui_mark_position_dirty();
+            return;
         }
     }
 
@@ -356,6 +369,20 @@ void pos_on_tick(uint64_t now_us) {
             if (pos->user_speed > 0 && pos->user_speed <= 14)
                 pos->cached_v[pos->user_speed] = pos->effective_v;
             pos->effective_v = 0;
+
+            traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
+
+            /* Try replanning directly to original target before falling back
+             * to the loop-stabilization recovery path. */
+            if (pos->pending_target == NULL && pos->orig_user_target != NULL) {
+                pos->pending_target    = pos->orig_user_target;
+                pos->pending_offset_mm = pos->orig_target_offset;
+            }
+            if (pos->pending_target != NULL && pos_try_direct_goto(pos)) {
+                continue;
+            }
+            pos->pending_target    = NULL;
+            pos->pending_offset_mm = 0;
             transition_to_enter_loop(pos, now_us);
             continue;
         }
@@ -522,8 +549,6 @@ void pos_on_tick(uint64_t now_us) {
                 int32_t  traveled = (int32_t)((int64_t)pos->effective_v *
                                               (int64_t)elapsed / 1000000LL);
 
-            
-
                 int32_t rem = dist_from_cur + pos->target_offset_mm - traveled;
                 if (rem < 0) rem = 0;
                 pos->dist_to_target_mm = rem;
@@ -545,7 +570,21 @@ void pos_on_tick(uint64_t now_us) {
                         continue;
                     }
                 }
-                    ui_mark_position_dirty();
+                ui_mark_position_dirty();
+            } else {
+                /* Target unreachable from cur_sensor — switch diverged.
+                 * Enter off-route; resources released in RECOVERY_STOPPING completion. */
+                pos->offroute_valid           = 1;
+                pos->offroute_expected_sensor = pos->pred_next_sensor;
+                pos->offroute_actual_sensor   = NULL;
+                pos->pred_next_sensor         = NULL;
+                pos->pred_alt_sensor          = NULL;
+                pos->pred_trigger_time        = 0;
+                track_set_speed(pos->train_num, 0);
+                pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
+                pos->stopping_since_us = now_us;
+                ui_mark_position_dirty();
+                continue;
             }
         }
 
@@ -604,7 +643,6 @@ void pos_on_tick(uint64_t now_us) {
                         pos->pred_alt_sensor          = NULL;
                         pos->pred_trigger_time        = 0;
                         track_set_speed(pos->train_num, 0);
-                        traffic_release_train(pos->train_num);
                         pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
                         pos->stopping_since_us = now_us;
                         ui_mark_position_dirty();
