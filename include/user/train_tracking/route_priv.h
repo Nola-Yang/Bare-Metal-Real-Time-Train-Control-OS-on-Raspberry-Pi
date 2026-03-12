@@ -39,12 +39,24 @@ void observe_path_and_correct_switches(track_node *from, track_node *to);
  * Current retry list: SW1, SW153, SW155, SW15. */
 void resend_unreliable_switches(const int *sw_nums, const char *sw_dirs, int sw_count);
 
-/* ===== BFS route planning ===== */
+/* ===== Route planning constants ===== */
 
-/* BFS from start to target; fills plan.  Returns 1 on success, 0 if no path. */
+#define GOTO_MIN_DIST_FACTOR 6
+
+/* ===== Route planning ===== */
+
+/* Dijkstra shortest-distance route from start to target; fills plan.
+ * Returns 1 on success, 0 if no path.  plan->has_reversal is always 0. */
 int  bfs_find_route(track_node *start, track_node *target, route_plan_t *plan);
 
-/* BFS from start to the nearest fixed-loop sensor.
+/* Optimal route from start to target (or target->reverse), trying both
+ * direct and single mid-route reversal.  d_brake is the minimum leg
+ * length required for braking.  Returns 1 on success, 0 if unreachable.
+ * plan->has_reversal is set to 1 when a reversal route is chosen. */
+int  bfs_find_route_optimal(track_node *start, track_node *target,
+                             int32_t d_brake, route_plan_t *plan);
+
+/* Dijkstra from start to the nearest fixed-loop sensor.
  * Returns 1 on success, 0 if no loop entry is reachable. */
 int  bfs_find_route_to_loop(track_node *start, route_plan_t *plan);
 

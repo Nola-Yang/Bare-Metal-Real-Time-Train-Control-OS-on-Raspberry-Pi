@@ -18,6 +18,9 @@ extern train_pos_t g_pos[MAX_POS_TRAINS];
 /* Dead-track timeout multiplier relative to predicted sensor intervals. */
 #define DEAD_TRACK_DEADLINE_MULTIPLIER 2
 
+/* Fixed user speed used for all goto operations. */
+#define GOTO_USER_SPEED 8
+
 
 
 /* Drive a stationary train back onto the fixed loop and set route_state to

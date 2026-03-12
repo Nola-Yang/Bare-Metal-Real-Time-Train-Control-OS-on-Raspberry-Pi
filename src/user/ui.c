@@ -135,9 +135,17 @@ void ui_draw_position(void) {
         case TRAIN_STATE_STOPPING_GOTO:     p = buf_append(p, "SGT");   break;
         default:                            p = buf_append(p, "???");   break;
         }
+        if (pos->midrev_active) {
+            p = buf_append(p, "\033[35m[REV]\033[0m");  /* magenta tag */
+        }
         if (pos->target_sensor && pos->target_sensor->name) {
             p = buf_append(p, " tgt=");
             p = buf_append(p, pos->target_sensor->name);
+            if (pos->midrev_active && pos->midrev_final_target &&
+                pos->midrev_final_target->name) {
+                p = buf_append(p, "->");
+                p = buf_append(p, pos->midrev_final_target->name);
+            }
         }
         if (pos->route_state == TRAIN_STATE_ON_ROUTE &&
             pos->target_sensor && pos->target_sensor->name) {

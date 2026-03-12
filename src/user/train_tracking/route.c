@@ -62,23 +62,127 @@ static inline const int *loop_sensor_forward_order(void) {
 #endif
 }
 
-/* ===== BFS data ===== */
+/* ===== Dijkstra shortest-path tables ===== */
 
-#define BFS_QUEUE_MAX 256
+#define DIJK_INF 0x7FFFFFFF
 
-typedef struct {
-    track_node *node;
-    int16_t     parent;    /* index in queue; -1 for root */
-    int16_t     sw_num;    /* user switch number (-1 = no switch on this hop) */
-    char        sw_dir;
-    char        _pad[3];
-    int32_t     cum_dist;  /* accumulated mm from BFS start to this node */
-} bfs_entry_t;
+/*
+ * Two independent Dijkstra tables:
+ *   fwd_* — forward search (start → target, or start → reversal sensor)
+ *   rev_* — reversal-leg search (reversal_sensor->reverse → target)
+ *
+ * Each table stores per-node shortest distance, finalized flag,
+ * predecessor node index, and the switch that was set when entering
+ * this node from its predecessor.
+ */
+static int32_t fwd_dist[TRACK_MAX];
+static int8_t  fwd_done[TRACK_MAX];
+static int16_t fwd_prev[TRACK_MAX];   
+static int16_t fwd_sw_num[TRACK_MAX];
+static char    fwd_sw_dir[TRACK_MAX]; 
 
-static bfs_entry_t bfs_q[BFS_QUEUE_MAX];
-static uint8_t     bfs_visited[TRACK_MAX];
+static int32_t rev_dist[TRACK_MAX];
+static int8_t  rev_done[TRACK_MAX];
+static int16_t rev_prev[TRACK_MAX];
+static int16_t rev_sw_num[TRACK_MAX];
+static char    rev_sw_dir[TRACK_MAX];
 
-/* ===== Static helpers (internal only) ===== */
+/* ===== Dijkstra helpers ===== */
+
+static void dijk_init(int32_t *dist, int8_t *done, int16_t *prev,
+                       int16_t *sw_num, char *sw_dir, track_node *start) {
+    for (int i = 0; i < TRACK_MAX; i++) {
+        dist[i]   = DIJK_INF;
+        done[i]   = 0;
+        prev[i]   = -1;
+        sw_num[i] = -1;
+        sw_dir[i] = '?';
+    }
+    int si = (int)(start - g_track);
+    if (si >= 0 && si < TRACK_MAX) dist[si] = 0;
+}
+
+static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
+                     int16_t *sw_num, char *sw_dir) {
+    for (;;) {
+        int u = -1;
+        int32_t min_d = DIJK_INF;
+        for (int i = 0; i < TRACK_MAX; i++) {
+            if (!done[i] && dist[i] < min_d) { u = i; min_d = dist[i]; }
+        }
+        if (u < 0) break;
+        done[u] = 1;
+
+        track_node *n = &g_track[u];
+        if (n->type == NODE_EXIT || n->type == NODE_NONE) continue;
+
+        if (n->type == NODE_BRANCH) {
+            for (int d = 0; d <= 1; d++) {   
+                track_edge *e = &n->edge[d];
+                if (!e->dest) continue;
+                int v = (int)(e->dest - g_track);
+                if (v < 0 || v >= TRACK_MAX || done[v]) continue;
+                int32_t nd = min_d + (int32_t)e->dist;
+                if (nd < dist[v]) {
+                    dist[v]   = nd;
+                    prev[v]   = (int16_t)u;
+                    sw_num[v] = (int16_t)n->num;
+                    sw_dir[v] = (d == DIR_STRAIGHT) ? 'S' : 'C';
+                }
+            }
+        } else {
+            track_edge *e = &n->edge[DIR_AHEAD];
+            if (!e->dest) continue;
+            int v = (int)(e->dest - g_track);
+            if (v < 0 || v >= TRACK_MAX || done[v]) continue;
+            int32_t nd = min_d + (int32_t)e->dist;
+            if (nd < dist[v]) {
+                dist[v]   = nd;
+                prev[v]   = (int16_t)u;
+                sw_num[v] = -1;
+                sw_dir[v] = '?';
+            }
+        }
+    }
+}
+
+/*
+ * Trace shortest path from Dijkstra tables to `target`.
+ * Fills out_sw_nums/out_sw_dirs/out_sw_count (forward order).
+ * Returns total distance to target, or -1 if unreachable.
+ */
+static int32_t dijk_reconstruct(int32_t *dist, int16_t *prev,
+                                 int16_t *sw_num, char *sw_dir,
+                                 track_node *target,
+                                 int *out_sw_nums, char *out_sw_dirs,
+                                 int *out_sw_count, int max_sw) {
+    int tgt_idx = (int)(target - g_track);
+    if (tgt_idx < 0 || tgt_idx >= TRACK_MAX) return -1;
+    if (dist[tgt_idx] == DIJK_INF) return -1;
+
+    int   stk_num[20];
+    char  stk_dir[20];
+    int   stk_top = 0;
+    int   idx = tgt_idx;
+    while (prev[idx] >= 0 && stk_top < 20) {
+        if (sw_num[idx] >= 0) {
+            stk_num[stk_top] = sw_num[idx];
+            stk_dir[stk_top] = sw_dir[idx];
+            stk_top++;
+        }
+        idx = prev[idx];
+    }
+
+    *out_sw_count = 0;
+    for (int s = stk_top - 1; s >= 0 && *out_sw_count < max_sw; s--) {
+        out_sw_nums[*out_sw_count] = stk_num[s];
+        out_sw_dirs[*out_sw_count] = stk_dir[s];
+        (*out_sw_count)++;
+    }
+    return dist[tgt_idx];
+}
+
+/* ===== Other static helpers ===== */
 
 /* Return the edge to follow from node n using current switch states. */
 static track_edge *get_next_edge(track_node *n) {
@@ -133,21 +237,6 @@ static int32_t min_dist_to(track_node *start, track_node *target, int max_hops) 
     int32_t r = min_dist_to(start->edge[DIR_AHEAD].dest, target, max_hops - 1);
     if (r < 0) return -1;
     return (int32_t)start->edge[DIR_AHEAD].dist + r;
-}
-
-static void bfs_enqueue(int *tail, track_node *node, int parent_idx,
-                        int sw_num, char sw_dir, int32_t cum_dist) {
-    if (*tail >= BFS_QUEUE_MAX) return;
-    int node_idx = (int)(node - g_track);
-    if (node_idx < 0 || node_idx >= TRACK_MAX) return;
-    if (bfs_visited[node_idx]) return;
-    bfs_visited[node_idx] = 1;
-    bfs_q[*tail].node     = node;
-    bfs_q[*tail].parent   = (int16_t)parent_idx;
-    bfs_q[*tail].sw_num   = (int16_t)sw_num;
-    bfs_q[*tail].sw_dir   = sw_dir;
-    bfs_q[*tail].cum_dist = cum_dist;
-    (*tail)++;
 }
 
 /* ===== Loop sensor membership ===== */
@@ -283,7 +372,7 @@ void observe_path_and_correct_switches(track_node *from, track_node *to) {
     }
 }
 
-/* ===== BFS route planning ===== */
+/* ===== Route planning (Dijkstra shortest distance) ===== */
 
 int bfs_find_route(track_node *start, track_node *target, route_plan_t *plan) {
     if (!start || !target || !plan) return 0;
@@ -291,60 +380,110 @@ int bfs_find_route(track_node *start, track_node *target, route_plan_t *plan) {
         plan->sw_count = 0;
         plan->loop_exit_branch = NULL;
         plan->total_dist_mm = 0;
+        plan->has_reversal = 0;
         return 1;
     }
 
-    for (int i = 0; i < TRACK_MAX; i++) bfs_visited[i] = 0;
+    dijk_init(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir, start);
+    dijk_run(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir);
 
-    int head = 0, tail = 0;
-    bfs_enqueue(&tail, start, -1, -1, '?', 0);
+    int32_t d = dijk_reconstruct(fwd_dist, fwd_prev, fwd_sw_num, fwd_sw_dir,
+                                  target,
+                                  plan->sw_nums, plan->sw_dirs,
+                                  &plan->sw_count, 20);
+    if (d < 0) return 0;
+    plan->total_dist_mm = d;
+    plan->loop_exit_branch = NULL;
+    plan->has_reversal = 0;
+    plan->chosen_target = NULL;
+    return 1;
+}
 
-    while (head < tail) {
-        bfs_entry_t *cur = &bfs_q[head];
-        track_node  *n   = cur->node;
 
-        if (n == target) {
-            plan->sw_count = 0;
-            plan->total_dist_mm = cur->cum_dist;
-            int stack[20];
-            int stack_top = 0;
-            int idx = head;
-            while (idx >= 0 && stack_top < 20) {
-                if (bfs_q[idx].sw_num >= 0)
-                   stack[stack_top++] = idx;
-                if (bfs_q[idx].parent < 0) break;
-                idx = (int)bfs_q[idx].parent;
+int bfs_find_route_optimal(track_node *start, track_node *target,
+                            int32_t d_brake, route_plan_t *plan) {
+    if (!start || !target || !plan) return 0;
+
+    track_node *tgts[2] = { target, target->reverse };
+
+    int32_t    best_total = DIJK_INF;
+    route_plan_t best;
+    best.sw_count     = 0;
+    best.has_reversal = 0;
+    int found = 0;
+
+    for (int ti = 0; ti < 2; ti++) {
+        track_node *tgt = tgts[ti];
+        if (!tgt) continue;
+        int tgt_idx = (int)(tgt - g_track);
+        if (tgt_idx < 0 || tgt_idx >= TRACK_MAX) continue;
+
+        /* Forward Dijkstra from start — fills fwd_* tables. */
+        dijk_init(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir, start);
+        dijk_run(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir);
+
+        if (fwd_dist[tgt_idx] < DIJK_INF) {
+            int32_t d = fwd_dist[tgt_idx];
+            if (d < best_total) {
+                route_plan_t rp;
+                rp.loop_exit_branch = NULL;
+                rp.has_reversal     = 0;
+                rp.total_dist_mm    = d;
+                rp.chosen_target    = tgt;
+                dijk_reconstruct(fwd_dist, fwd_prev, fwd_sw_num, fwd_sw_dir,
+                                  tgt, rp.sw_nums, rp.sw_dirs, &rp.sw_count, 20);
+                best_total = d;
+                best  = rp;
+                found = 1;
             }
-
-            for (int s = stack_top - 1; s >= 0 && plan->sw_count < 20; s--) {
-                int qi = stack[s];
-                plan->sw_nums[plan->sw_count] = (int)bfs_q[qi].sw_num;
-                plan->sw_dirs[plan->sw_count] = bfs_q[qi].sw_dir;
-                plan->sw_count++;
-            }
-            plan->loop_exit_branch = NULL;
-            return 1;
         }
 
-        head++;
+        /* --- Reversal candidates: all sensors reachable with dist >= d_brake --- */
+        for (int si = 0; si < TRACK_MAX; si++) {
+            track_node *s = &g_track[si];
+            if (s->type != NODE_SENSOR) continue;
+            if (!s->reverse) continue;
+            if (fwd_dist[si] == DIJK_INF) continue;
+          
+            if (fwd_dist[si] < GOTO_MIN_DIST_FACTOR * d_brake) continue;
 
-        if (n->type == NODE_BRANCH) {
-            if (n->edge[DIR_STRAIGHT].dest)
-                bfs_enqueue(&tail, n->edge[DIR_STRAIGHT].dest,
-                            head-1, n->num, 'S',
-                            cur->cum_dist + (int32_t)n->edge[DIR_STRAIGHT].dist);
-            if (n->edge[DIR_CURVED].dest)
-                bfs_enqueue(&tail, n->edge[DIR_CURVED].dest,
-                            head-1, n->num, 'C',
-                            cur->cum_dist + (int32_t)n->edge[DIR_CURVED].dist);
-        } else if (n->type != NODE_EXIT) {
-            if (n->edge[DIR_AHEAD].dest)
-                bfs_enqueue(&tail, n->edge[DIR_AHEAD].dest, head-1, -1, '?',
-                            cur->cum_dist + (int32_t)n->edge[DIR_AHEAD].dist);
+            /* Dijkstra from s->reverse — fills rev_* tables. */
+            dijk_init(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir,
+                      s->reverse);
+            dijk_run(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir);
+
+            if (rev_dist[tgt_idx] == DIJK_INF) continue;
+            if (rev_dist[tgt_idx] < GOTO_MIN_DIST_FACTOR * d_brake) continue;
+
+            int32_t total = fwd_dist[si] + 2 * d_brake + rev_dist[tgt_idx];
+            if (total >= best_total) continue;
+
+            route_plan_t rp;
+            rp.loop_exit_branch        = NULL;
+            rp.has_reversal            = 1;
+            rp.chosen_target           = tgt;
+            rp.reversal_sensor         = s;
+            rp.dist_to_reversal_mm     = fwd_dist[si];
+            rp.dist_after_reversal_mm  = rev_dist[tgt_idx];
+            rp.total_dist_mm           = total;
+
+            /* First-leg switches (fwd_* still valid — not overwritten by rev_*). */
+            dijk_reconstruct(fwd_dist, fwd_prev, fwd_sw_num, fwd_sw_dir,
+                              s, rp.sw_nums, rp.sw_dirs, &rp.sw_count, 20);
+
+            /* Second-leg switches. */
+            dijk_reconstruct(rev_dist, rev_prev, rev_sw_num, rev_sw_dir,
+                              tgt, rp.sw_nums2, rp.sw_dirs2, &rp.sw_count2, 20);
+
+            best_total = total;
+            best  = rp;
+            found = 1;
         }
     }
 
-    return 0;
+    if (!found) return 0;
+    *plan = best;
+    return 1;
 }
 
 

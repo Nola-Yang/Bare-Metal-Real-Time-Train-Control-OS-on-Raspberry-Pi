@@ -13,7 +13,6 @@
 
 train_pos_t g_pos[MAX_POS_TRAINS];
 
-#define GOTO_USER_SPEED 8
 #define MAX_SENSORS 80
 
 #ifdef TRACK_D
@@ -138,6 +137,16 @@ static train_pos_t *find_or_create_pos(int train_num) {
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
             slot->speed_warmup_mm = 0;
             slot->skip_offroute_count = 0;
+            slot->midrev_active       = 0;
+            slot->midrev_sensor       = NULL;
+            slot->midrev_final_target = NULL;
+            slot->midrev_final_offset = 0;
+            slot->midrev_sw_count     = 0;
+            slot->midrev_dist_after   = 0;
+            for (int k = 0; k < 20; k++) {
+                slot->midrev_sw_nums[k] = 0;
+                slot->midrev_sw_dirs[k] = '?';
+            }
             return slot;
         }
     }
@@ -375,60 +384,64 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     if (!pos->cur_sensor || !user_target) return 0;
 
-    /* Plan from pred_next_sensor (already past cur_sensor), fall back to cur_sensor. */
+    /* Plan from pred_next_sensor if available, else from cur_sensor. */
     track_node *plan_start = pos->pred_next_sensor
                              ? pos->pred_next_sensor : pos->cur_sensor;
 
     int32_t tv        = GOTO_SPEED_MM_S[pos->train_ind];
     int32_t ta        = GOTO_DECEL_MM_S2[pos->train_ind];
     int32_t d_brake   = tv * tv / (2 * ta);
-    int32_t threshold = 6 * d_brake;
+    int32_t threshold = GOTO_MIN_DIST_FACTOR * d_brake;
 
-    track_node *try_targets[2] = { user_target, user_target->reverse };
+    /*
+     * Two candidate origins:
+     *   origins[0] = plan_start  (pred_next_sensor or cur_sensor) — forward direction
+     *   origins[1] = cur_sensor->reverse                          — reversed direction
+     */
+    track_node *cur_sensor_orig = pos->cur_sensor;  /* save before any mutation */
+    track_node *origins[2] = { plan_start,
+                                cur_sensor_orig->reverse ? cur_sensor_orig->reverse : NULL };
     route_plan_t rp;
-    track_node  *chosen_target = NULL;
-    int          need_reverse  = 0;
+    track_node  *chosen_origin = NULL;
+    int32_t      best_total    = 0;
+    int          need_initial_reverse = 0;
 
-    /* Search all 4 candidates (2 forward + 2 reverse) in one pass.
-     * Save the entire route_plan_t of the best candidate — no second BFS. */
-    {
-        /* origins[0] = plan_start (forward), origins[1] = plan_start->reverse */
-        track_node *origins[2] = { plan_start,
-                                   plan_start->reverse ? plan_start->reverse : NULL };
+    for (int o = 0; o < 2; o++) {
+        if (!origins[o]) continue;
         route_plan_t rp_temp;
-        int32_t      best_dist = 0;
-
-        for (int o = 0; o < 2; o++) {
-            if (!origins[o]) continue;
-            for (int t = 0; t < 2; t++) {
-                track_node *tgt = try_targets[t];
-                if (!tgt) continue;
-                if (!bfs_find_route(origins[o], tgt, &rp_temp)) continue;
-                int32_t d = rp_temp.total_dist_mm;
-                if (d > threshold && (chosen_target == NULL || d < best_dist)) {
-                    rp            = rp_temp;   
-                    chosen_target = tgt;
-                    best_dist     = d;
-                    need_reverse  = (o == 1);
-                }
-            }
+        if (!bfs_find_route_optimal(origins[o], user_target, d_brake, &rp_temp))
+            continue;
+       
+        int32_t effective_d = rp_temp.has_reversal
+                              ? rp_temp.dist_to_reversal_mm + rp_temp.dist_after_reversal_mm
+                              : rp_temp.total_dist_mm;
+        if (effective_d <= threshold) continue;
+        if (chosen_origin == NULL || rp_temp.total_dist_mm < best_total) {
+            rp                    = rp_temp;
+            chosen_origin         = origins[o];
+            best_total            = rp_temp.total_dist_mm;
+            need_initial_reverse  = (o == 1);
         }
-
-        if (!chosen_target) return 0;
     }
+
+    if (!chosen_origin) return 0;
 
     uint64_t now_us = read_timer();
 
-    /* Issue reverse and update position state (mirrors transition_to_enter_loop). */
-    if (need_reverse) {
-        track_node *rev_start = plan_start->reverse;
+    if (need_initial_reverse) {
         track_reverse(pos->train_num);
-        pos->cur_sensor      = rev_start;
+        pos->cur_sensor      = cur_sensor_orig->reverse;  
         pos->going_forward   = !pos->going_forward;
         pos->skip_offroute_count = 1;
-        pos->pred_next_sensor  = rev_start;
+        pos->pred_next_sensor  = cur_sensor_orig->reverse;
         pos->pred_trigger_time = now_us;
+        pos->dead_track_deadline_us = 0;
     }
+
+    track_node *eff_start = chosen_origin;
+
+    track_node *chosen_target = rp.has_reversal ? rp.reversal_sensor
+                                                 : rp.chosen_target;
 
     for (int i = rp.sw_count - 1; i >= 0; i--) {
         track_set_switch(rp.sw_nums[i], rp.sw_dirs[i]);
@@ -437,10 +450,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
     resend_unreliable_switches(rp.sw_nums, rp.sw_dirs, rp.sw_count);
     if (rp.sw_count > 0) ui_mark_switches_dirty();
 
-    track_node *eff_start = need_reverse ? plan_start->reverse : plan_start;
 
-    pos->target_sensor    = chosen_target;
-    pos->target_offset_mm = offset_mm;
     pos->last_plan_valid      = 1;
     pos->last_plan_loop_start = eff_start;
     pos->last_plan_target     = chosen_target;
@@ -453,6 +463,28 @@ int pos_try_direct_goto(train_pos_t *pos) {
     pos->offroute_expected_sensor = NULL;
     pos->offroute_actual_sensor   = NULL;
 
+    /* Set up mid-route reversal state if needed. */
+    if (rp.has_reversal) {
+        pos->midrev_active       = 1;
+        pos->midrev_sensor       = rp.reversal_sensor;
+        pos->midrev_final_target = rp.chosen_target;
+        pos->midrev_final_offset = offset_mm;
+        pos->midrev_sw_count     = rp.sw_count2;
+        for (int i = 0; i < rp.sw_count2; i++) {
+            pos->midrev_sw_nums[i] = rp.sw_nums2[i];
+            pos->midrev_sw_dirs[i] = rp.sw_dirs2[i];
+        }
+        pos->midrev_dist_after = rp.dist_after_reversal_mm;
+        pos->target_sensor    = rp.reversal_sensor;
+        pos->target_offset_mm = 0;
+        pos->orig_user_target   = pos->midrev_final_target;
+        pos->orig_target_offset = offset_mm;
+    } else {
+        pos->midrev_active    = 0;
+        pos->target_sensor    = chosen_target;
+        pos->target_offset_mm = offset_mm;
+    }
+
     pos->user_speed  = GOTO_USER_SPEED;
     int can_spd = 1 + (pos->user_speed - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
@@ -461,12 +493,14 @@ int pos_try_direct_goto(train_pos_t *pos) {
     pos->speed_warmup_mm = 400;
     pos->cur_sensor_time = now_us;
 
-    int32_t dist_from_start = follow_dist(eff_start, chosen_target, 200);
-    if (dist_from_start < 0)
-        dist_from_start = follow_dist(pos->cur_sensor, chosen_target, 200);
-    pos->dist_to_target_mm = (dist_from_start >= 0)
-                             ? ((dist_from_start + offset_mm > 0)
-                                ? dist_from_start + offset_mm : 0)
+    int32_t dist_first_leg = rp.has_reversal
+                             ? rp.dist_to_reversal_mm
+                             : follow_dist(eff_start, chosen_target, 200);
+    if (dist_first_leg < 0)
+        dist_first_leg = follow_dist(pos->cur_sensor, pos->target_sensor, 200);
+    pos->dist_to_target_mm = (dist_first_leg >= 0)
+                             ? ((dist_first_leg + pos->target_offset_mm > 0)
+                                ? dist_first_leg + pos->target_offset_mm : 0)
                              : 0;
 
     pos->pending_target    = NULL;
@@ -474,7 +508,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
     pos->stable_sensor_count = 0;
     pos->route_state = TRAIN_STATE_ON_ROUTE;
 
-    if (!need_reverse) {
+    if (!need_initial_reverse) {
         uint64_t dt = 0;
         pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
         pos->pred_trigger_time = now_us + dt;

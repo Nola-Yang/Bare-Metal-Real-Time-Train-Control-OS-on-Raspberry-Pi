@@ -379,10 +379,66 @@ void pos_on_tick(uint64_t now_us) {
                 if (now_us >= pos->stopping_since_us + brake_us) {
                     if (pos->user_speed > 0 && pos->user_speed <= 14)
                         pos->cached_v[pos->user_speed] = pos->effective_v;
-                    pos->route_state       = TRAIN_STATE_STOPPED;
-                    pos->effective_v       = 0;
-                    pos->orig_user_target  = NULL;
-                    pos->orig_target_offset = 0;
+                    pos->effective_v = 0;
+
+                    if (pos->midrev_active) {
+                        pos->midrev_active = 0;
+
+                        track_reverse(pos->train_num);
+                        pos->going_forward = !pos->going_forward;
+                        if (pos->cur_sensor && pos->cur_sensor->reverse)
+                            pos->cur_sensor = pos->cur_sensor->reverse;
+                        pos->skip_offroute_count = 1;
+
+                        for (int j = pos->midrev_sw_count - 1; j >= 0; j--) {
+                            track_set_switch(pos->midrev_sw_nums[j],
+                                             pos->midrev_sw_dirs[j]);
+                            track_update_switch(pos->midrev_sw_nums[j],
+                                                pos->midrev_sw_dirs[j]);
+                        }
+                        resend_unreliable_switches(pos->midrev_sw_nums,
+                                                    pos->midrev_sw_dirs,
+                                                    pos->midrev_sw_count);
+                        if (pos->midrev_sw_count > 0) ui_mark_switches_dirty();
+
+                        pos->target_sensor    = pos->midrev_final_target;
+                        pos->target_offset_mm = pos->midrev_final_offset;
+
+                        {
+                            int32_t d2 = follow_dist(pos->cur_sensor,
+                                                      pos->midrev_final_target,
+                                                      200);
+                            if (d2 >= 0) {
+                                int32_t rem2 = d2 + pos->midrev_final_offset;
+                                pos->dist_to_target_mm = (rem2 > 0) ? rem2 : 0;
+                            } else {
+                                /* fallback: use pre-planned estimate */
+                                int32_t rem2 = pos->midrev_dist_after
+                                               + pos->midrev_final_offset;
+                                pos->dist_to_target_mm = (rem2 > 0) ? rem2 : 0;
+                            }
+                        }
+
+                        pos->user_speed = GOTO_USER_SPEED;
+                        int can_spd = 1 + (GOTO_USER_SPEED - 1) * 77;
+                        track_set_speed(pos->train_num, can_spd);
+                        int32_t cv = pos->cached_v[GOTO_USER_SPEED];
+                        pos->effective_v = (cv > 0) ? cv
+                            : speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
+                        pos->speed_warmup_mm = 400;
+                        pos->cur_sensor_time = now_us;
+                        pos->stopping_since_us = 0;
+
+                        pos->pred_next_sensor       = pos->cur_sensor;
+                        pos->pred_trigger_time      = now_us;
+                        pos->dead_track_deadline_us = 0;
+
+                        pos->route_state = TRAIN_STATE_ON_ROUTE;
+                    } else {
+                        pos->route_state        = TRAIN_STATE_STOPPED;
+                        pos->orig_user_target   = NULL;
+                        pos->orig_target_offset = 0;
+                    }
                     ui_mark_position_dirty();
                 }
             }

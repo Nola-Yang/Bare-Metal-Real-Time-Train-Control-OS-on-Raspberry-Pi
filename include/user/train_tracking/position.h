@@ -115,16 +115,40 @@ typedef struct {
      * post-reverse sensor hit which is inherently unpredicted. */
     int         skip_offroute_count;
 
+    /* Mid-route reversal state.
+     * When midrev_active=1, the current target_sensor is the reversal stop
+     * point.  After the train stops there, it reverses and continues to
+     * midrev_final_target via the second-leg switches stored here. */
+    int         midrev_active;
+    track_node *midrev_sensor;        /* sensor that triggered the reversal stop */
+    track_node *midrev_final_target;  /* ultimate destination after reversal */
+    int32_t     midrev_final_offset;  /* offset past final target (mm) */
+    int         midrev_sw_count;
+    int         midrev_sw_nums[20];
+    char        midrev_sw_dirs[20];
+    int32_t     midrev_dist_after;    /* dist from reversal->reverse to final target */
+
 } train_pos_t;
 
-/* ---------- Route plan (from plan_route BFS) ---------- */
+/* ---------- Route plan (from Dijkstra route planning) ---------- */
 
 typedef struct {
     track_node *loop_exit_branch; /* first branch off the loop */
     int   sw_nums[20];
     char  sw_dirs[20];
     int   sw_count;
-    int32_t total_dist_mm;        /* accumulated path distance from BFS start to target */
+    int32_t total_dist_mm;        /* accumulated path distance from start to target */
+
+    track_node *chosen_target;
+
+    /* Optional mid-route reversal */
+    int        has_reversal;           /* 1 = route has one mid-point reversal */
+    track_node *reversal_sensor;       /* sensor to stop at before reversing */
+    int32_t    dist_to_reversal_mm;    /* first-leg distance (start → reversal) */
+    int        sw_count2;              /* switch count for second leg */
+    int        sw_nums2[20];           /* switch numbers after reversal */
+    char       sw_dirs2[20];           /* switch directions after reversal */
+    int32_t    dist_after_reversal_mm; /* second-leg distance (reversal→reverse → target) */
 } route_plan_t;
 
 /* ---------- Public API ---------- */
