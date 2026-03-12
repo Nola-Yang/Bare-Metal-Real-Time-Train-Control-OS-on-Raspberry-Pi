@@ -24,4 +24,9 @@ extern train_pos_t g_pos[MAX_POS_TRAINS];
  * ENTER_LOOP. */
 void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us);
 
+/* Attempt a direct on-route plan from the current stopped position to
+ * pos->pending_target, skipping the loop-enter/stabilise sequence.
+ * Returns 1 and sets ON_ROUTE if distance > 3x braking distance; 0 otherwise. */
+int pos_try_direct_goto(train_pos_t *pos);
+
 #endif /* _position_priv_h_ */

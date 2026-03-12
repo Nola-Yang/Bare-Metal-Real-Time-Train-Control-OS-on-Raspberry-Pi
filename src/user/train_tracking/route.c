@@ -72,6 +72,7 @@ typedef struct {
     int16_t     sw_num;    /* user switch number (-1 = no switch on this hop) */
     char        sw_dir;
     char        _pad[3];
+    int32_t     cum_dist;  /* accumulated mm from BFS start to this node */
 } bfs_entry_t;
 
 static bfs_entry_t bfs_q[BFS_QUEUE_MAX];
@@ -105,13 +106,8 @@ static track_edge *get_next_edge(track_node *n) {
 /*
  * Returns the minimum mm-distance from `start` to `target`, trying both
  * directions at every branch encountered.  Returns -1 if unreachable within
- * max_hops.
- *
- * Used by observe_path_and_correct_switches to disambiguate which branch
- * direction was actually taken: the train physically travelled the shorter
- * path, so if one direction reaches `target` much sooner than the other, we
- * can safely infer the train went that way even when both are theoretically
- * reachable.
+ * max_hops.  Used internally by observe_path_and_correct_switches.
+ * max_hops should be kept small (≤40) to bound stack depth.
  */
 static int32_t min_dist_to(track_node *start, track_node *target, int max_hops) {
     if (!start || max_hops <= 0) return -1;
@@ -140,16 +136,17 @@ static int32_t min_dist_to(track_node *start, track_node *target, int max_hops) 
 }
 
 static void bfs_enqueue(int *tail, track_node *node, int parent_idx,
-                        int sw_num, char sw_dir) {
+                        int sw_num, char sw_dir, int32_t cum_dist) {
     if (*tail >= BFS_QUEUE_MAX) return;
     int node_idx = (int)(node - g_track);
     if (node_idx < 0 || node_idx >= TRACK_MAX) return;
     if (bfs_visited[node_idx]) return;
     bfs_visited[node_idx] = 1;
-    bfs_q[*tail].node    = node;
-    bfs_q[*tail].parent  = (int16_t)parent_idx;
-    bfs_q[*tail].sw_num  = (int16_t)sw_num;
-    bfs_q[*tail].sw_dir  = sw_dir;
+    bfs_q[*tail].node     = node;
+    bfs_q[*tail].parent   = (int16_t)parent_idx;
+    bfs_q[*tail].sw_num   = (int16_t)sw_num;
+    bfs_q[*tail].sw_dir   = sw_dir;
+    bfs_q[*tail].cum_dist = cum_dist;
     (*tail)++;
 }
 
@@ -293,13 +290,14 @@ int bfs_find_route(track_node *start, track_node *target, route_plan_t *plan) {
     if (start == target) {
         plan->sw_count = 0;
         plan->loop_exit_branch = NULL;
+        plan->total_dist_mm = 0;
         return 1;
     }
 
     for (int i = 0; i < TRACK_MAX; i++) bfs_visited[i] = 0;
 
     int head = 0, tail = 0;
-    bfs_enqueue(&tail, start, -1, -1, '?');
+    bfs_enqueue(&tail, start, -1, -1, '?', 0);
 
     while (head < tail) {
         bfs_entry_t *cur = &bfs_q[head];
@@ -307,16 +305,17 @@ int bfs_find_route(track_node *start, track_node *target, route_plan_t *plan) {
 
         if (n == target) {
             plan->sw_count = 0;
+            plan->total_dist_mm = cur->cum_dist;
             int stack[20];
             int stack_top = 0;
             int idx = head;
-            while (idx >= 0 && stack_top < 20) {                              
-                if (bfs_q[idx].sw_num >= 0)    
-                   stack[stack_top++] = idx;  
-                if (bfs_q[idx].parent < 0) break;                                         
+            while (idx >= 0 && stack_top < 20) {
+                if (bfs_q[idx].sw_num >= 0)
+                   stack[stack_top++] = idx;
+                if (bfs_q[idx].parent < 0) break;
                 idx = (int)bfs_q[idx].parent;
             }
-            
+
             for (int s = stack_top - 1; s >= 0 && plan->sw_count < 20; s--) {
                 int qi = stack[s];
                 plan->sw_nums[plan->sw_count] = (int)bfs_q[qi].sw_num;
@@ -332,13 +331,16 @@ int bfs_find_route(track_node *start, track_node *target, route_plan_t *plan) {
         if (n->type == NODE_BRANCH) {
             if (n->edge[DIR_STRAIGHT].dest)
                 bfs_enqueue(&tail, n->edge[DIR_STRAIGHT].dest,
-                            head-1, n->num, 'S');
+                            head-1, n->num, 'S',
+                            cur->cum_dist + (int32_t)n->edge[DIR_STRAIGHT].dist);
             if (n->edge[DIR_CURVED].dest)
                 bfs_enqueue(&tail, n->edge[DIR_CURVED].dest,
-                            head-1, n->num, 'C');
+                            head-1, n->num, 'C',
+                            cur->cum_dist + (int32_t)n->edge[DIR_CURVED].dist);
         } else if (n->type != NODE_EXIT) {
             if (n->edge[DIR_AHEAD].dest)
-                bfs_enqueue(&tail, n->edge[DIR_AHEAD].dest, head-1, -1, '?');
+                bfs_enqueue(&tail, n->edge[DIR_AHEAD].dest, head-1, -1, '?',
+                            cur->cum_dist + (int32_t)n->edge[DIR_AHEAD].dist);
         }
     }
 
@@ -473,3 +475,4 @@ void execute_pending_route(train_pos_t *pos) {
 
     ui_mark_position_dirty();
 }
+

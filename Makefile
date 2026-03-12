@@ -2,7 +2,7 @@ FILENAME=kernel
 SRC_DIR:=src
 INCLUDE_DIR:=include
 BUILD_DIR:=build
-XDIR:=/u/cs452/public/xdev
+XDIR:=/Applications/ArmGNUToolchain/15.2.rel1/aarch64-none-elf
 TRIPLE=aarch64-none-elf
 XBINDIR:=$(XDIR)/bin
 CC:=$(XBINDIR)/$(TRIPLE)-gcc -ffreestanding
@@ -21,7 +21,7 @@ LDFLAGS:=-Wl,-nmagic -Wl,-Tlinker.ld -Wl,--no-warn-rwx-segments -nostdlib -lgcc
 OPT?=1
 CACHE?=b
 VERBOSE?=0
-TRACK?=A
+TRACK?=D
 IDLE_WINDOW_TICKS?=50
 
 MAKESPEC:=.make_spec

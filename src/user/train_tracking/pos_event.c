@@ -356,7 +356,9 @@ void pos_on_tick(uint64_t now_us) {
                 if (pos->user_speed > 0 && pos->user_speed <= 14)
                     pos->cached_v[pos->user_speed] = pos->effective_v;
                 pos->effective_v = 0;
-                transition_to_enter_loop(pos, now_us);
+                if (!pos_try_direct_goto(pos)) {
+                    transition_to_enter_loop(pos, now_us);
+                }
             }
             continue;
         }

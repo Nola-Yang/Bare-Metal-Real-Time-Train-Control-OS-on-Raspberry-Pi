@@ -124,6 +124,7 @@ typedef struct {
     int   sw_nums[20];
     char  sw_dirs[20];
     int   sw_count;
+    int32_t total_dist_mm;        /* accumulated path distance from BFS start to target */
 } route_plan_t;
 
 /* ---------- Public API ---------- */

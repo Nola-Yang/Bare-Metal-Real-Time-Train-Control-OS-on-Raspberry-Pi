@@ -368,6 +368,132 @@ void pos_apply_loop_switches(void) {
     ui_mark_switches_dirty();
 }
 
+
+int pos_try_direct_goto(train_pos_t *pos) {
+    track_node *user_target = pos->pending_target;
+    int32_t     offset_mm   = pos->pending_offset_mm;
+
+    if (!pos->cur_sensor || !user_target) return 0;
+
+    /* Plan from pred_next_sensor (already past cur_sensor), fall back to cur_sensor. */
+    track_node *plan_start = pos->pred_next_sensor
+                             ? pos->pred_next_sensor : pos->cur_sensor;
+
+    int32_t tv        = GOTO_SPEED_MM_S[pos->train_ind];
+    int32_t ta        = GOTO_DECEL_MM_S2[pos->train_ind];
+    int32_t d_brake   = tv * tv / (2 * ta);
+    int32_t threshold = 6 * d_brake;
+
+    track_node *try_targets[2] = { user_target, user_target->reverse };
+    route_plan_t rp;
+    track_node  *chosen_target = NULL;
+    int          need_reverse  = 0;
+
+    /* Search all 4 candidates (2 forward + 2 reverse) in one pass.
+     * Save the entire route_plan_t of the best candidate — no second BFS. */
+    {
+        /* origins[0] = plan_start (forward), origins[1] = plan_start->reverse */
+        track_node *origins[2] = { plan_start,
+                                   plan_start->reverse ? plan_start->reverse : NULL };
+        route_plan_t rp_temp;
+        int32_t      best_dist = 0;
+
+        for (int o = 0; o < 2; o++) {
+            if (!origins[o]) continue;
+            for (int t = 0; t < 2; t++) {
+                track_node *tgt = try_targets[t];
+                if (!tgt) continue;
+                if (!bfs_find_route(origins[o], tgt, &rp_temp)) continue;
+                int32_t d = rp_temp.total_dist_mm;
+                if (d > threshold && (chosen_target == NULL || d < best_dist)) {
+                    rp            = rp_temp;   
+                    chosen_target = tgt;
+                    best_dist     = d;
+                    need_reverse  = (o == 1);
+                }
+            }
+        }
+
+        if (!chosen_target) return 0;
+    }
+
+    uint64_t now_us = read_timer();
+
+    /* Issue reverse and update position state (mirrors transition_to_enter_loop). */
+    if (need_reverse) {
+        track_node *rev_start = plan_start->reverse;
+        track_reverse(pos->train_num);
+        pos->cur_sensor      = rev_start;
+        pos->going_forward   = !pos->going_forward;
+        pos->skip_offroute_count = 1;
+        pos->pred_next_sensor  = rev_start;
+        pos->pred_trigger_time = now_us;
+    }
+
+    for (int i = rp.sw_count - 1; i >= 0; i--) {
+        track_set_switch(rp.sw_nums[i], rp.sw_dirs[i]);
+        track_update_switch(rp.sw_nums[i], rp.sw_dirs[i]);
+    }
+    resend_unreliable_switches(rp.sw_nums, rp.sw_dirs, rp.sw_count);
+    if (rp.sw_count > 0) ui_mark_switches_dirty();
+
+    track_node *eff_start = need_reverse ? plan_start->reverse : plan_start;
+
+    pos->target_sensor    = chosen_target;
+    pos->target_offset_mm = offset_mm;
+    pos->last_plan_valid      = 1;
+    pos->last_plan_loop_start = eff_start;
+    pos->last_plan_target     = chosen_target;
+    pos->last_plan_sw_count   = rp.sw_count;
+    for (int i = 0; i < rp.sw_count; i++) {
+        pos->last_plan_sw_nums[i] = rp.sw_nums[i];
+        pos->last_plan_sw_dirs[i] = rp.sw_dirs[i];
+    }
+    pos->offroute_valid           = 0;
+    pos->offroute_expected_sensor = NULL;
+    pos->offroute_actual_sensor   = NULL;
+
+    pos->user_speed  = GOTO_USER_SPEED;
+    int can_spd = 1 + (pos->user_speed - 1) * 77;
+    track_set_speed(pos->train_num, can_spd);
+    int32_t cv = pos->cached_v[pos->user_speed];
+    pos->effective_v     = (cv > 0) ? cv : speed_table_get_v(pos->train_ind, pos->user_speed);
+    pos->speed_warmup_mm = 400;
+    pos->cur_sensor_time = now_us;
+
+    int32_t dist_from_start = follow_dist(eff_start, chosen_target, 200);
+    if (dist_from_start < 0)
+        dist_from_start = follow_dist(pos->cur_sensor, chosen_target, 200);
+    pos->dist_to_target_mm = (dist_from_start >= 0)
+                             ? ((dist_from_start + offset_mm > 0)
+                                ? dist_from_start + offset_mm : 0)
+                             : 0;
+
+    pos->pending_target    = NULL;
+    pos->pending_offset_mm = 0;
+    pos->stable_sensor_count = 0;
+    pos->route_state = TRAIN_STATE_ON_ROUTE;
+
+    if (!need_reverse) {
+        uint64_t dt = 0;
+        pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
+        pos->pred_trigger_time = now_us + dt;
+    }
+
+    if (pos->pred_next_sensor != NULL && pos->pred_trigger_time > now_us) {
+        uint64_t T1 = pos->pred_trigger_time - now_us;
+        uint64_t T2 = 0;
+        predict_next_sensor(pos, pos->pred_next_sensor, &T2);
+        pos->dead_track_deadline_us =
+            now_us + DEAD_TRACK_DEADLINE_MULTIPLIER * (T1 + T2);
+    } else {
+        pos->dead_track_deadline_us = 0;
+    }
+
+    ui_mark_position_dirty();
+    return 1;
+}
+
 int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     KASSERT(target != NULL);
     if (!target) return 0;
@@ -455,9 +581,8 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
                 pos->dead_track_deadline_us = 0;
             }
         } else {
-            /* pos Known, running via tr.
-             * Issue stop command now; pos_on_tick will call
-             * transition_to_enter_loop() once physically stopped. */
+            /* pos Known, running via tr, not on loop.
+             * Stop first; pos_on_tick will plan the route once stationary. */
             track_set_speed(train_num, 0);
             pos->stopping_since_us = read_timer();
             pos->route_state = TRAIN_STATE_STOPPING_GOTO;
@@ -470,7 +595,11 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
         pos->route_state = TRAIN_STATE_STOPPING_GOTO;
 
     } else if (pos->route_state == TRAIN_STATE_STOPPED) {
-        transition_to_enter_loop(pos, read_timer());
+        /* For long distances from a known stopped position, go directly on-route.
+         * Otherwise fall back to the loop-enter sequence. */
+        if (!pos_try_direct_goto(pos)) {
+            transition_to_enter_loop(pos, read_timer());
+        }
     }
 
     return 1;
