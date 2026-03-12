@@ -330,7 +330,7 @@ int follow_reaches_loop(track_node *start, int max_hops) {
 
 track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
                                 uint64_t *out_dt_us) {
-    if (!cur || pos->effective_v <= 0) {
+    if (!cur) {
         if (out_dt_us) *out_dt_us = 0;
         return NULL;
     }
@@ -343,8 +343,11 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
         track_edge *e = get_next_edge(n);
         if (!e || !e->dest) break;
 
-        int32_t v = pos->effective_v;
-        total_us += (uint64_t)((int64_t)e->dist * 1000000LL / v);
+        /* Only accumulate timing when speed is known; dt=0 means timing unknown. */
+        if (pos->effective_v > 0) {
+            int32_t v = pos->effective_v;
+            total_us += (uint64_t)((int64_t)e->dist * 1000000LL / v);
+        }
 
         n = e->dest;
         if (n->type == NODE_SENSOR) {

@@ -452,9 +452,23 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     if (!pos->cur_sensor || !user_target) return 0;
 
-    /* Plan from pred_next_sensor if available, else from cur_sensor. */
-    track_node *plan_start = pos->pred_next_sensor
-                             ? pos->pred_next_sensor : pos->cur_sensor;
+    track_node *cur_sensor_orig = pos->cur_sensor; 
+
+    /* Plan from pred_next_sensor if available.
+     * Never use cur_sensor directly — the train has already passed it.
+     * Fallback: walk the graph for the real next sensor; if the path leads
+     * to an EXIT (dead end), use cur_sensor->reverse instead (needs reversal). */
+    track_node *plan_start = pos->pred_next_sensor;
+    int plan_start_needs_reverse = 0;
+    if (!plan_start) {
+        uint64_t dt_ignored = 0;
+        plan_start = predict_next_sensor(pos, pos->cur_sensor, &dt_ignored);
+    }
+    if (!plan_start) {
+        /* Dead-end forward path — must reverse; treat like origins[1]. */
+        plan_start = cur_sensor_orig->reverse;
+        plan_start_needs_reverse = 1;
+    }
 
     int32_t tv        = GOTO_SPEED_MM_S[pos->train_ind];
     int32_t ta        = GOTO_DECEL_MM_S2[pos->train_ind];
@@ -463,12 +477,14 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     /*
      * Two candidate origins:
-     *   origins[0] = plan_start  (pred_next_sensor or cur_sensor) — forward direction
-     *   origins[1] = cur_sensor->reverse                          — reversed direction
+     *   origins[0] = plan_start  (pred_next_sensor or graph-walk next) — forward direction
+     *   origins[1] = cur_sensor->reverse                               — reversed direction
+     * When plan_start_needs_reverse, origins[0] IS the reverse node;
+     * skip origins[1] to avoid duplicate planning.
      */
-    track_node *cur_sensor_orig = pos->cur_sensor;  /* save before any mutation */
     track_node *origins[2] = { plan_start,
-                                cur_sensor_orig->reverse ? cur_sensor_orig->reverse : NULL };
+                                (!plan_start_needs_reverse && cur_sensor_orig->reverse)
+                                    ? cur_sensor_orig->reverse : NULL };
     uint8_t *blocked = g_pos_try_blocked;
     route_plan_t *rp = &g_pos_try_rp;
     route_plan_t *rp_unconstrained = &g_pos_try_rp_unconstrained;
@@ -498,7 +514,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
             *rp                   = *rp_temp;
             chosen_origin         = origins[o];
             best_total            = rp_temp->total_dist_mm;
-            need_initial_reverse  = (o == 1);
+            need_initial_reverse  = (o == 1) || (o == 0 && plan_start_needs_reverse);
         }
     }
 

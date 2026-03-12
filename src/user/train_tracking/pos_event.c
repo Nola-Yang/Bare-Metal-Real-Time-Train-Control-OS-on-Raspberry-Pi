@@ -209,7 +209,7 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     /* Predict next sensor */
     uint64_t dt_pred = 0;
     pos->pred_next_sensor  = predict_next_sensor(pos, hit, &dt_pred);
-    pos->pred_trigger_time = time_us + dt_pred;
+    pos->pred_trigger_time = (dt_pred > 0) ? time_us + dt_pred : 0;
 
     if (pos->pred_next_sensor != NULL && dt_pred > 0) {
         uint64_t T2 = 0;
