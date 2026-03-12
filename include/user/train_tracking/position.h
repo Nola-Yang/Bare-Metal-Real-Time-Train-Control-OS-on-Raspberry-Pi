@@ -6,7 +6,7 @@
 #include "track.h"
 
 /* Maximum number of trains tracked simultaneously */
-#define MAX_POS_TRAINS 4
+#define MAX_POS_TRAINS 5
 
 /* Number of sensors in the fixed loop (same for Track A and Track B) */
 #define LOOP_SENSOR_COUNT 10
@@ -30,6 +30,7 @@ typedef enum {
     TRAIN_STATE_ENTER_LOOP        = 9,  /* pos/dir known, stationary; driving back to loop */
     TRAIN_STATE_STOPPING_GOTO     = 10, /* goto while running; stop sent -> ENTER_LOOP */
     TRAIN_STATE_DEAD_TRACK        = 11, /* stopped on powerless track; waiting for manual push */
+    TRAIN_STATE_WAIT_RESOURCE     = 12, /* route blocked by reservation; stopped and waiting */
 } train_route_state_t;
 
 /* ---------- Per-train position state ---------- */
@@ -60,6 +61,12 @@ typedef struct {
      * Cleared when the route is actually executed. */
     track_node *pending_target;
     int32_t     pending_offset_mm;
+
+    /* One-slot queued goto request while a goto is already active.
+     * last-write-wins when multiple queued requests arrive. */
+    track_node *queued_target;
+    int32_t     queued_offset_mm;
+    int         queued_valid;
 
     /* Consecutive sensors with acceptable prediction error (LOOP_STABILIZE).
      * Reset to 0 on any unstable reading. */
@@ -92,6 +99,10 @@ typedef struct {
     /* Timestamp (us) when route_state entered TRAIN_STATE_STOPPING.
      * Used by pos_on_tick() to fire the STOPPING → STOPPED transition. */
     uint64_t    stopping_since_us;
+
+    /* WAIT_RESOURCE bookkeeping */
+    uint64_t    wait_since_us;
+    uint64_t    next_replan_us;
 
     /* cur_sensor_time + 2*(T1+T2), where T1/T2 are the
      * expected travel times to the next two sensors.  
@@ -128,6 +139,10 @@ typedef struct {
     char        midrev_sw_dirs[20];
     int32_t     midrev_dist_after;    /* dist from reversal->reverse to final target */
 
+    /* Sensor-attribution diagnostics */
+    int32_t     last_attr_score;
+    int32_t     last_attr_conf;
+
 } train_pos_t;
 
 /* ---------- Route plan (from Dijkstra route planning) ---------- */
@@ -149,6 +164,12 @@ typedef struct {
     int        sw_nums2[20];           /* switch numbers after reversal */
     char       sw_dirs2[20];           /* switch directions after reversal */
     int32_t    dist_after_reversal_mm; /* second-leg distance (reversal→reverse → target) */
+
+    /* Reconstructed node indices of planned legs for reservation. */
+    int        path_count;
+    uint16_t   path_nodes[TRACK_MAX];
+    int        path_count2;
+    uint16_t   path_nodes2[TRACK_MAX];
 } route_plan_t;
 
 /* ---------- Public API ---------- */
@@ -187,6 +208,11 @@ train_pos_t *pos_get(int train_num);
 /* Return pointer to the i-th slot in the position table (0 .. MAX_POS_TRAINS-1).
  * Returns NULL if i is out of range. */
 train_pos_t *pos_get_by_index(int i);
+
+/* Queue a goto for an already-active train. last-write-wins. */
+int pos_queue_goto(int train_num, track_node *target, int32_t offset_mm);
+
+void pos_mark_routes_dirty(void);
 
 /* Find a track node by name.
  * Returns NULL if not found. */

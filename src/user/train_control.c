@@ -6,6 +6,7 @@
 #include "server/can_server.h"
 #include "track.h"
 #include "train_tracking/position.h"
+#include "train_tracking/traffic_manager.h"
 #include "ui.h"
 #include "idle_task.h"
 #include "command.h"
@@ -13,6 +14,7 @@
 #include "task_manager.h"
 #include "ring_buffer.h"
 #include "kassert.h"
+#include "demo_manager.h"
 
 // Reverse delay pending queue
 #define RV_QUEUE_MAX 8
@@ -111,6 +113,8 @@ static void process_can_frame(const can_frame_t *frame, uint64_t now) {
         char dir    = (frame->data[4] == 0x01) ? 'S' : 'C';
         if (track_is_valid_switch(sw_num)) {
             track_update_switch(sw_num, dir);
+            pos_mark_routes_dirty();
+            ui_notify_switch_change(sw_num, dir);
             ui_mark_switches_dirty();
         }
     }
@@ -132,6 +136,7 @@ void train_control_task(void) {
 
     track_init(can_tid, term_tid);
     pos_init();
+    demo_init();
     ui_init(term_tid);
     ring_buffer_init(&rv_queue);
 
@@ -228,6 +233,7 @@ void train_control_task(void) {
                 ui_update_idle(idle_percent);
 
                 pos_on_tick(tick_now);
+                demo_on_tick(tick_now);
 
                 if (ui_is_switches_dirty()) {
                     ui_puts("\033[s");

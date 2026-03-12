@@ -9,9 +9,11 @@
 
 #include "train_tracking/position_priv.h"
 #include "train_tracking/route_priv.h"
+#include "train_tracking/traffic_manager.h"
 #include "track.h"
 #include "train_tracking/track_data.h"
 #include "train_tracking/speed_table.h"
+#include "demo_manager.h"
 #include "timer.h"
 #include "kassert.h"
 #include "ui.h"
@@ -112,6 +114,10 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     pos->cur_sensor      = hit;
     pos->cur_sensor_time = time_us;
 
+    if (prev_sensor && prev_sensor != hit) {
+        traffic_release_passed(pos->train_num, prev_sensor, hit);
+    }
+
     if (prev_sensor && !b_was_predicted && !b_is_skip) {
         observe_path_and_correct_switches(prev_sensor, hit);
     }
@@ -190,6 +196,7 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
             pos->pred_next_sensor      = NULL;
             pos->pred_trigger_time     = 0;
             track_set_speed(pos->train_num, 0);
+            traffic_release_train(pos->train_num);
             pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
             pos->stopping_since_us = time_us;
             ui_mark_position_dirty();
@@ -283,6 +290,16 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     ui_mark_position_dirty();
 }
 
+static void start_queued_goto_if_any(train_pos_t *pos) {
+    if (!pos || !pos->queued_valid || !pos->queued_target) return;
+    track_node *qt = pos->queued_target;
+    int32_t qo = pos->queued_offset_mm;
+    pos->queued_target = NULL;
+    pos->queued_offset_mm = 0;
+    pos->queued_valid = 0;
+    pos_goto(pos->train_num, qt, qo);
+}
+
 /* ===== Public event API ===== */
 
 void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us) {
@@ -292,19 +309,35 @@ void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us) {
     track_node *hit = &g_track[track_idx];
     if (hit->type != NODE_SENSOR) return;
 
-    /* assume single train: deliver every sensor to the first active slot. */
-    for (int i = 0; i < MAX_POS_TRAINS; i++) {
-        if (g_pos[i].train_num >= 0) {
-            handle_sensor(&g_pos[i], hit, time_us);
-            return;
-        }
-    }
+    train_pos_t *owner = traffic_attribute_sensor(hit, time_us);
+    if (!owner) return;
+    handle_sensor(owner, hit, time_us);
 }
 
 void pos_on_tick(uint64_t now_us) {
+    static const int WAIT_REPLAN_ORDER[6] = {13, 14, 15, 17, 18, 55};
+    for (int wi = 0; wi < 6; wi++) {
+        train_pos_t *pos = pos_get(WAIT_REPLAN_ORDER[wi]);
+        if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) continue;
+        if (pos->next_replan_us > 0 && now_us < pos->next_replan_us) continue;
+
+        pos->next_replan_us = now_us + REPLAN_INTERVAL_US;
+        if (pos->pending_target == NULL && pos->orig_user_target != NULL) {
+            pos->pending_target = pos->orig_user_target;
+            pos->pending_offset_mm = pos->orig_target_offset;
+        }
+        if (pos->pending_target != NULL) {
+            if (!pos_try_direct_goto(pos) && pos->cur_sensor != NULL) {
+                transition_to_enter_loop(pos, now_us);
+            }
+        }
+    }
+
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         train_pos_t *pos = &g_pos[i];
         if (pos->train_num < 0) continue;
+
+        if (pos->route_state == TRAIN_STATE_WAIT_RESOURCE) continue;
 
         /* train physically stopped; no estimation until sensor fires. */
         if (pos->route_state == TRAIN_STATE_DEAD_TRACK) continue;
@@ -338,6 +371,8 @@ void pos_on_tick(uint64_t now_us) {
             if (now_us >= pos->stopping_since_us + brake_us) {
                 pos->route_state = TRAIN_STATE_STOPPED;
                 pos->effective_v = 0;
+                traffic_release_train(pos->train_num);
+                start_queued_goto_if_any(pos);
                 ui_mark_position_dirty();
             }
             continue;
@@ -390,6 +425,20 @@ void pos_on_tick(uint64_t now_us) {
                             pos->cur_sensor = pos->cur_sensor->reverse;
                         pos->skip_offroute_count = 1;
 
+                        int switch_blocked = 0;
+                        for (int j = pos->midrev_sw_count - 1; j >= 0; j--) {
+                            int owner = traffic_can_set_switch(pos->midrev_sw_nums[j],
+                                                               pos->train_num);
+                            if (owner >= 0) {
+                                switch_blocked = 1;
+                                break;
+                            }
+                        }
+                        if (switch_blocked) {
+                            pos_enter_wait_resource(pos, now_us);
+                            continue;
+                        }
+
                         for (int j = pos->midrev_sw_count - 1; j >= 0; j--) {
                             track_set_switch(pos->midrev_sw_nums[j],
                                              pos->midrev_sw_dirs[j]);
@@ -429,15 +478,26 @@ void pos_on_tick(uint64_t now_us) {
                         pos->cur_sensor_time = now_us;
                         pos->stopping_since_us = 0;
 
+                        /* First sensor after reversal = the reversal sensor itself
+                         * (cur_sensor was already updated to old_cur->reverse above).
+                         * Use pred_trigger_time=0 to suppress the time gate so that
+                         * a WAIT_RESOURCE delay between reversal and route-start
+                         * does not cause the sensor to be time-gated out. */
                         pos->pred_next_sensor       = pos->cur_sensor;
-                        pos->pred_trigger_time      = now_us;
+                        pos->pred_trigger_time      = 0;
                         pos->dead_track_deadline_us = 0;
 
                         pos->route_state = TRAIN_STATE_ON_ROUTE;
                     } else {
+                        int has_queued = (pos->queued_valid && pos->queued_target != NULL);
                         pos->route_state        = TRAIN_STATE_STOPPED;
                         pos->orig_user_target   = NULL;
                         pos->orig_target_offset = 0;
+                        traffic_release_train(pos->train_num);
+                        if (!has_queued) {
+                            demo_on_train_stopped(pos->train_num, now_us);
+                        }
+                        start_queued_goto_if_any(pos);
                     }
                     ui_mark_position_dirty();
                 }
@@ -505,6 +565,7 @@ void pos_on_tick(uint64_t now_us) {
             pos->pred_next_sensor         = NULL;
             pos->pred_trigger_time        = 0;
             pos->dead_track_deadline_us   = 0;
+            traffic_release_train(pos->train_num);
             /* orig_user_target / orig_target_offset kept for recovery */
             ui_mark_position_dirty();
             continue;
@@ -539,6 +600,7 @@ void pos_on_tick(uint64_t now_us) {
                         pos->pred_next_sensor         = NULL;
                         pos->pred_trigger_time        = 0;
                         track_set_speed(pos->train_num, 0);
+                        traffic_release_train(pos->train_num);
                         pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
                         pos->stopping_since_us = now_us;
                         ui_mark_position_dirty();

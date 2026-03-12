@@ -49,12 +49,22 @@ void resend_unreliable_switches(const int *sw_nums, const char *sw_dirs, int sw_
  * Returns 1 on success, 0 if no path.  plan->has_reversal is always 0. */
 int  bfs_find_route(track_node *start, track_node *target, route_plan_t *plan);
 
+/* Constrained shortest-distance route from start to target; blocked[i]=1
+ * forbids entering node i (except the start node itself). */
+int  bfs_find_route_constrained(track_node *start, track_node *target,
+                                const uint8_t *blocked, route_plan_t *plan);
+
 /* Optimal route from start to target (or target->reverse), trying both
  * direct and single mid-route reversal.  d_brake is the minimum leg
  * length required for braking.  Returns 1 on success, 0 if unreachable.
  * plan->has_reversal is set to 1 when a reversal route is chosen. */
 int  bfs_find_route_optimal(track_node *start, track_node *target,
                              int32_t d_brake, route_plan_t *plan);
+
+/* Constrained optimal route (direct + one reversal) under blocked-node map. */
+int  bfs_find_route_optimal_constrained(track_node *start, track_node *target,
+                                        int32_t d_brake, const uint8_t *blocked,
+                                        route_plan_t *plan);
 
 /* Dijkstra from start to the nearest fixed-loop sensor.
  * Returns 1 on success, 0 if no loop entry is reachable. */

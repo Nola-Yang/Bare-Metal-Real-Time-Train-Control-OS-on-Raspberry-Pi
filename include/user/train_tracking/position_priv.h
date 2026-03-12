@@ -21,6 +21,9 @@ extern train_pos_t g_pos[MAX_POS_TRAINS];
 /* Fixed user speed used for all goto operations. */
 #define GOTO_USER_SPEED 8
 
+/* WAIT_RESOURCE periodic replan interval (us). */
+#define REPLAN_INTERVAL_US 200000ULL
+
 
 
 /* Drive a stationary train back onto the fixed loop and set route_state to
@@ -31,5 +34,8 @@ void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us);
  * pos->pending_target, skipping the loop-enter/stabilise sequence.
  * Returns 1 and sets ON_ROUTE if distance > 3x braking distance; 0 otherwise. */
 int pos_try_direct_goto(train_pos_t *pos);
+
+/* Stop and wait for resources; pending_target remains unchanged for retries. */
+void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us);
 
 #endif /* _position_priv_h_ */

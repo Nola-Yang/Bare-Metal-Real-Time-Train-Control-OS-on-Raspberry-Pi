@@ -23,6 +23,7 @@ static int sensor_log_head = 0;
 static int train_num_to_active_index(int train_num) {
     if (13 <= train_num && train_num <= 15) return train_num - 13;
     if (17 <= train_num && train_num <= 18) return train_num - 14;
+    if (train_num == 55) return 0; /* 55 reuses train-13 calibration/profile */
     return -1;
 }
 

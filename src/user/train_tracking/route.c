@@ -6,6 +6,8 @@
  */
 
 #include "train_tracking/route_priv.h"
+#include "train_tracking/position_priv.h"
+#include "train_tracking/traffic_manager.h"
 #include "track.h"
 #include "train_tracking/track_data.h"
 #include "timer.h"
@@ -87,6 +89,11 @@ static int16_t rev_prev[TRACK_MAX];
 static int16_t rev_sw_num[TRACK_MAX];
 static char    rev_sw_dir[TRACK_MAX];
 
+static route_plan_t g_opt_best_plan;
+static route_plan_t g_opt_cand_plan;
+static route_plan_t g_exec_plan;
+static route_plan_t g_exec_unconstrained_plan;
+
 /* ===== Dijkstra helpers ===== */
 
 static void dijk_init(int32_t *dist, int8_t *done, int16_t *prev,
@@ -103,7 +110,8 @@ static void dijk_init(int32_t *dist, int8_t *done, int16_t *prev,
 }
 
 static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
-                     int16_t *sw_num, char *sw_dir) {
+                     int16_t *sw_num, char *sw_dir,
+                     const uint8_t *blocked, int start_idx) {
     for (;;) {
         int u = -1;
         int32_t min_d = DIJK_INF;
@@ -112,6 +120,8 @@ static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
         }
         if (u < 0) break;
         done[u] = 1;
+
+        if (blocked && blocked[u] && u != start_idx) continue;
 
         track_node *n = &g_track[u];
         if (n->type == NODE_EXIT || n->type == NODE_NONE) continue;
@@ -122,6 +132,7 @@ static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
                 if (!e->dest) continue;
                 int v = (int)(e->dest - g_track);
                 if (v < 0 || v >= TRACK_MAX || done[v]) continue;
+                if (blocked && blocked[v] && v != start_idx) continue;
                 int32_t nd = min_d + (int32_t)e->dist;
                 if (nd < dist[v]) {
                     dist[v]   = nd;
@@ -135,6 +146,7 @@ static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
             if (!e->dest) continue;
             int v = (int)(e->dest - g_track);
             if (v < 0 || v >= TRACK_MAX || done[v]) continue;
+            if (blocked && blocked[v] && v != start_idx) continue;
             int32_t nd = min_d + (int32_t)e->dist;
             if (nd < dist[v]) {
                 dist[v]   = nd;
@@ -144,6 +156,33 @@ static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
             }
         }
     }
+}
+
+/* Trace shortest path node indices from Dijkstra prev table to target.
+ * Emits indices in forward order, including start and target. */
+static int dijk_reconstruct_nodes(int16_t *prev, track_node *target,
+                                  uint16_t *out_nodes, int *out_count,
+                                  int max_nodes) {
+    int tgt_idx = (int)(target - g_track);
+    if (tgt_idx < 0 || tgt_idx >= TRACK_MAX || !out_nodes || !out_count || max_nodes <= 0) {
+        return 0;
+    }
+
+    uint16_t tmp[TRACK_MAX];
+    int top = 0;
+    int idx = tgt_idx;
+    while (idx >= 0 && idx < TRACK_MAX && top < TRACK_MAX) {
+        tmp[top++] = (uint16_t)idx;
+        idx = prev[idx];
+    }
+    if (top <= 0) return 0;
+
+    *out_count = 0;
+    for (int i = top - 1; i >= 0 && *out_count < max_nodes; i--) {
+        out_nodes[*out_count] = tmp[i];
+        (*out_count)++;
+    }
+    return (*out_count > 0);
 }
 
 /*
@@ -375,41 +414,63 @@ void observe_path_and_correct_switches(track_node *from, track_node *to) {
 /* ===== Route planning (Dijkstra shortest distance) ===== */
 
 int bfs_find_route(track_node *start, track_node *target, route_plan_t *plan) {
+    return bfs_find_route_constrained(start, target, NULL, plan);
+}
+
+int bfs_find_route_constrained(track_node *start, track_node *target,
+                               const uint8_t *blocked, route_plan_t *plan) {
     if (!start || !target || !plan) return 0;
     if (start == target) {
         plan->sw_count = 0;
         plan->loop_exit_branch = NULL;
         plan->total_dist_mm = 0;
         plan->has_reversal = 0;
+        plan->chosen_target = target;
+        plan->path_count = 1;
+        plan->path_nodes[0] = (uint16_t)(start - g_track);
+        plan->path_count2 = 0;
         return 1;
     }
 
     dijk_init(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir, start);
-    dijk_run(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir);
+    dijk_run(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir,
+             blocked, (int)(start - g_track));
 
     int32_t d = dijk_reconstruct(fwd_dist, fwd_prev, fwd_sw_num, fwd_sw_dir,
                                   target,
                                   plan->sw_nums, plan->sw_dirs,
                                   &plan->sw_count, 20);
     if (d < 0) return 0;
+    if (!dijk_reconstruct_nodes(fwd_prev, target, plan->path_nodes,
+                                &plan->path_count, TRACK_MAX)) {
+        return 0;
+    }
     plan->total_dist_mm = d;
     plan->loop_exit_branch = NULL;
     plan->has_reversal = 0;
-    plan->chosen_target = NULL;
+    plan->chosen_target = target;
+    plan->path_count2 = 0;
     return 1;
 }
 
 
 int bfs_find_route_optimal(track_node *start, track_node *target,
                             int32_t d_brake, route_plan_t *plan) {
+    return bfs_find_route_optimal_constrained(start, target, d_brake, NULL, plan);
+}
+
+int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
+                                       int32_t d_brake, const uint8_t *blocked,
+                                       route_plan_t *plan) {
     if (!start || !target || !plan) return 0;
 
     track_node *tgts[2] = { target, target->reverse };
 
     int32_t    best_total = DIJK_INF;
-    route_plan_t best;
-    best.sw_count     = 0;
-    best.has_reversal = 0;
+    route_plan_t *best = &g_opt_best_plan;
+    route_plan_t *cand = &g_opt_cand_plan;
+    best->sw_count     = 0;
+    best->has_reversal = 0;
     int found = 0;
 
     for (int ti = 0; ti < 2; ti++) {
@@ -420,20 +481,25 @@ int bfs_find_route_optimal(track_node *start, track_node *target,
 
         /* Forward Dijkstra from start — fills fwd_* tables. */
         dijk_init(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir, start);
-        dijk_run(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir);
+        dijk_run(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir,
+                 blocked, (int)(start - g_track));
 
         if (fwd_dist[tgt_idx] < DIJK_INF) {
             int32_t d = fwd_dist[tgt_idx];
             if (d < best_total) {
-                route_plan_t rp;
-                rp.loop_exit_branch = NULL;
-                rp.has_reversal     = 0;
-                rp.total_dist_mm    = d;
-                rp.chosen_target    = tgt;
+                cand->loop_exit_branch = NULL;
+                cand->has_reversal     = 0;
+                cand->total_dist_mm    = d;
+                cand->chosen_target    = tgt;
                 dijk_reconstruct(fwd_dist, fwd_prev, fwd_sw_num, fwd_sw_dir,
-                                  tgt, rp.sw_nums, rp.sw_dirs, &rp.sw_count, 20);
+                                  tgt, cand->sw_nums, cand->sw_dirs, &cand->sw_count, 20);
+                if (!dijk_reconstruct_nodes(fwd_prev, tgt, cand->path_nodes,
+                                            &cand->path_count, TRACK_MAX)) {
+                    continue;
+                }
+                cand->path_count2 = 0;
                 best_total = d;
-                best  = rp;
+                *best = *cand;
                 found = 1;
             }
         }
@@ -450,7 +516,8 @@ int bfs_find_route_optimal(track_node *start, track_node *target,
             /* Dijkstra from s->reverse — fills rev_* tables. */
             dijk_init(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir,
                       s->reverse);
-            dijk_run(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir);
+            dijk_run(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir,
+                     blocked, (int)(s->reverse - g_track));
 
             if (rev_dist[tgt_idx] == DIJK_INF) continue;
             if (rev_dist[tgt_idx] < GOTO_MIN_DIST_FACTOR * d_brake) continue;
@@ -458,31 +525,38 @@ int bfs_find_route_optimal(track_node *start, track_node *target,
             int32_t total = fwd_dist[si] + 2 * d_brake + rev_dist[tgt_idx];
             if (total >= best_total) continue;
 
-            route_plan_t rp;
-            rp.loop_exit_branch        = NULL;
-            rp.has_reversal            = 1;
-            rp.chosen_target           = tgt;
-            rp.reversal_sensor         = s;
-            rp.dist_to_reversal_mm     = fwd_dist[si];
-            rp.dist_after_reversal_mm  = rev_dist[tgt_idx];
-            rp.total_dist_mm           = total;
+            cand->loop_exit_branch        = NULL;
+            cand->has_reversal            = 1;
+            cand->chosen_target           = tgt;
+            cand->reversal_sensor         = s;
+            cand->dist_to_reversal_mm     = fwd_dist[si];
+            cand->dist_after_reversal_mm  = rev_dist[tgt_idx];
+            cand->total_dist_mm           = total;
 
             /* First-leg switches (fwd_* still valid — not overwritten by rev_*). */
             dijk_reconstruct(fwd_dist, fwd_prev, fwd_sw_num, fwd_sw_dir,
-                              s, rp.sw_nums, rp.sw_dirs, &rp.sw_count, 20);
+                              s, cand->sw_nums, cand->sw_dirs, &cand->sw_count, 20);
+            if (!dijk_reconstruct_nodes(fwd_prev, s, cand->path_nodes,
+                                        &cand->path_count, TRACK_MAX)) {
+                continue;
+            }
 
             /* Second-leg switches. */
             dijk_reconstruct(rev_dist, rev_prev, rev_sw_num, rev_sw_dir,
-                              tgt, rp.sw_nums2, rp.sw_dirs2, &rp.sw_count2, 20);
+                              tgt, cand->sw_nums2, cand->sw_dirs2, &cand->sw_count2, 20);
+            if (!dijk_reconstruct_nodes(rev_prev, tgt, cand->path_nodes2,
+                                        &cand->path_count2, TRACK_MAX)) {
+                continue;
+            }
 
             best_total = total;
-            best  = rp;
+            *best = *cand;
             found = 1;
         }
     }
 
     if (!found) return 0;
-    *plan = best;
+    *plan = *best;
     return 1;
 }
 
@@ -524,9 +598,14 @@ void execute_pending_route(train_pos_t *pos) {
     
     int search_start = (start_pos + 1) % LOOP_SENSOR_COUNT_INTERNAL;
 
-    route_plan_t rp;
+    uint8_t blocked[TRACK_MAX];
+    traffic_build_constraints(pos->train_num, blocked);
+
+    route_plan_t *rp = &g_exec_plan;
+    route_plan_t *rp_unconstrained = &g_exec_unconstrained_plan;
     track_node  *target = NULL;
     track_node  *loop_plan_start = NULL;
+    int blocked_by_reservation = 0;
 
     /* Try user_target first, then its reverse node.
      * For each candidate target, iterate through all loop sensors in the
@@ -548,24 +627,48 @@ void execute_pending_route(train_pos_t *pos) {
                 cand = g_track[ci].reverse;
             }
             if (!cand) continue;
-            if (bfs_find_route(cand, tgt, &rp)) {
+            if (bfs_find_route_constrained(cand, tgt, blocked, rp)) {
                 target = tgt;
                 loop_plan_start = cand;
                 break;
             }
+            if (!blocked_by_reservation && bfs_find_route(cand, tgt, rp_unconstrained)) {
+                blocked_by_reservation = 1;
+            }
         }
     }
 
-    KASSERT(target && loop_plan_start &&
-            "No loop sensor reaches target or target_reverse");
-    /* Apply route switches from far to near along the path. */
-    for (int i = rp.sw_count - 1; i >= 0; i--) {
-        track_set_switch(rp.sw_nums[i], rp.sw_dirs[i]);
-        track_update_switch(rp.sw_nums[i], rp.sw_dirs[i]); 
+    if (!target || !loop_plan_start) {
+        if (blocked_by_reservation) {
+            pos_enter_wait_resource(pos, read_timer());
+            return;
+        }
+        KASSERT(0 && "No loop sensor reaches target or target_reverse");
+        return;
     }
-    resend_unreliable_switches(rp.sw_nums, rp.sw_dirs, rp.sw_count);
 
-    if (rp.sw_count > 0) {
+    for (int i = rp->sw_count - 1; i >= 0; i--) {
+        int owner = traffic_can_set_switch(rp->sw_nums[i], pos->train_num);
+        if (owner >= 0) {
+            pos_enter_wait_resource(pos, read_timer());
+            return;
+        }
+    }
+
+    traffic_release_train(pos->train_num);
+    if (!traffic_reserve_plan(pos->train_num, loop_plan_start, rp)) {
+        pos_enter_wait_resource(pos, read_timer());
+        return;
+    }
+
+    /* Apply route switches from far to near along the path. */
+    for (int i = rp->sw_count - 1; i >= 0; i--) {
+        track_set_switch(rp->sw_nums[i], rp->sw_dirs[i]);
+        track_update_switch(rp->sw_nums[i], rp->sw_dirs[i]); 
+    }
+    resend_unreliable_switches(rp->sw_nums, rp->sw_dirs, rp->sw_count);
+
+    if (rp->sw_count > 0) {
         ui_mark_switches_dirty();
     }
 
@@ -574,10 +677,10 @@ void execute_pending_route(train_pos_t *pos) {
     pos->last_plan_valid      = 1;
     pos->last_plan_loop_start = loop_plan_start;
     pos->last_plan_target     = target;
-    pos->last_plan_sw_count   = rp.sw_count;
-    for (int i = 0; i < rp.sw_count; i++) {
-        pos->last_plan_sw_nums[i] = rp.sw_nums[i];
-        pos->last_plan_sw_dirs[i] = rp.sw_dirs[i];
+    pos->last_plan_sw_count   = rp->sw_count;
+    for (int i = 0; i < rp->sw_count; i++) {
+        pos->last_plan_sw_nums[i] = rp->sw_nums[i];
+        pos->last_plan_sw_dirs[i] = rp->sw_dirs[i];
     }
     pos->offroute_valid           = 0;
     pos->offroute_expected_sensor = NULL;
@@ -603,6 +706,8 @@ void execute_pending_route(train_pos_t *pos) {
     pos->pending_offset_mm   = 0;
     pos->stable_sensor_count = 0;
     pos->route_state         = TRAIN_STATE_ON_ROUTE;
+    pos->wait_since_us       = 0;
+    pos->next_replan_us      = 0;
 
     /* Refresh prediction with the newly set route switches.
      *
@@ -614,4 +719,3 @@ void execute_pending_route(train_pos_t *pos) {
 
     ui_mark_position_dirty();
 }
-

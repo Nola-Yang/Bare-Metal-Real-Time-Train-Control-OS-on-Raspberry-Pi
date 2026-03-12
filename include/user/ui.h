@@ -34,6 +34,9 @@ void ui_mark_sensors_dirty(void);
 void ui_mark_position_dirty(void);
 void ui_mark_prediction_dirty(void);
 
+/* Record a switch change event for the Row 10 log and redraw it. */
+void ui_notify_switch_change(int sw_num, char dir);
+
 // Output helper
 void ui_puts(const char *str);
 

@@ -1,7 +1,9 @@
 #include "command.h"
+#include "demo_manager.h"
 #include "util.h"
 #include "track.h"
 #include "train_tracking/position.h"
+#include "train_tracking/traffic_manager.h"
 #include "ui.h"
 #include "kassert.h"
 
@@ -33,7 +35,7 @@ static int parse_train_token(const char *tok, int *out) {
         return 0;
     }
     if (!track_is_valid_train(*out)) {
-        ui_puts("Train must be one of: 13, 14, 15, 17, 18\r\n");
+        ui_puts("Train must be one of: 13, 14, 15, 17, 18, 55\r\n");
         return 0;
     }
     return 1;
@@ -65,8 +67,8 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
     KASSERT(rv_train != NULL);
 
     *rv_train = -1;
-    char *argv[6];
-    int argc = tokenize(cmd, argv, 6);
+    char *argv[10];
+    int argc = tokenize(cmd, argv, 10);
 
     if (argc == 0) return 1;
 
@@ -74,6 +76,12 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
     if ((argv[0][0] == 'q' || argv[0][0] == 'Q') && argv[0][1] == '\0') {
         ui_puts("Rebooting...\r\n");
         return 0;
+    }
+
+    // demo
+    if (argv[0][0] == 'd' && argv[0][1] == 'e' && argv[0][2] == 'm' &&
+        argv[0][3] == 'o' && argv[0][4] == '\0') {
+        return demo_handle_command(argc, argv);
     }
 
     // tr
@@ -121,6 +129,19 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
         }
         if (dir == 's') dir = 'S';
         if (dir == 'c') dir = 'C';
+
+        int owner = traffic_can_set_switch(sw, -1);
+        if (owner >= 0) {
+            char *temp = buf_get_temp();
+            char *p = temp;
+            p = buf_append(p, "Switch locked by tr ");
+            p = buf_append_int(p, owner);
+            p = buf_append(p, "\r\n");
+            *p = '\0';
+            ui_puts(temp);
+            return 2;
+        }
+
         track_set_switch(sw, dir);
         return 1;
     }
@@ -183,10 +204,6 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
         }
         int train = 0;
         if (!parse_train_token(argv[1], &train)) return 2;
-        if (pos_is_train_goto_active(train)) {
-            ui_puts("Error: goto in progress for this train\r\n");
-            return 2;
-        }
         if (rv_in_progress) {
             ui_puts("goto: cannot execute while rv is in progress\r\n");
             return 2;
