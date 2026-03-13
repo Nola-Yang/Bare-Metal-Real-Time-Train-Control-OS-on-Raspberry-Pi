@@ -26,13 +26,8 @@ extern train_pos_t g_pos[MAX_POS_TRAINS];
 
 
 
-/* Drive a stationary train back onto the fixed loop and set route_state to
- * ENTER_LOOP. */
-void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us);
-
 /* Attempt a direct on-route plan from the current stopped position to
- * pos->pending_target, skipping the loop-enter/stabilise sequence.
- * Returns 1 and sets ON_ROUTE if distance > 3x braking distance; 0 otherwise. */
+ * pos->pending_target. Returns 1 and sets ON_ROUTE if route found; 0 otherwise. */
 int pos_try_direct_goto(train_pos_t *pos);
 
 /* Stop and wait for resources; pending_target remains unchanged for retries. */

@@ -17,7 +17,6 @@ train_pos_t g_pos[MAX_POS_TRAINS];
 #define MAX_SENSORS 80
 
 
-static route_plan_t g_enter_loop_rp;
 static uint8_t      g_pos_try_blocked[TRACK_MAX];
 static route_plan_t g_pos_try_rp;
 static route_plan_t g_pos_try_rp_unconstrained;
@@ -131,7 +130,6 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->queued_target         = NULL;
             slot->queued_offset_mm      = 0;
             slot->queued_valid          = 0;
-            slot->stable_sensor_count   = 0;
             slot->going_forward         = 1;
             slot->orig_user_target      = NULL;
             slot->orig_target_offset    = 0;
@@ -173,9 +171,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
 
 static int state_is_goto_active(train_route_state_t st) {
     return (st == TRAIN_STATE_STOPPING_GOTO     ||
-            st == TRAIN_STATE_ENTER_LOOP        ||
             st == TRAIN_STATE_LOOP_FIND_DIR     ||
-            st == TRAIN_STATE_LOOP_STABILIZE    ||
             st == TRAIN_STATE_ON_ROUTE          ||
             st == TRAIN_STATE_STOPPING          ||
             st == TRAIN_STATE_RECOVERY_STOPPING ||
@@ -195,160 +191,6 @@ static int apply_route_switches_safe(const int *sw_nums, const char *sw_dirs,
     }
     resend_unreliable_switches(sw_nums, sw_dirs, sw_count);
     return 1;
-}
-
-/* ===== Loop-entry setup helper ===== */
-
-/*
- * transition_to_enter_loop — drive a stationary train back onto the fixed
- * loop and enter ENTER_LOOP state so handle_sensor can confirm arrival.
- *
- * Steps:
- *   1. Re-apply loop switch defaults.
- *   2. If the last known sensor is off-loop, BFS to the nearest loop entry
- *      and set the required intermediate switches.  If no forward path
- *      exists, reverse the train and retry from the reverse node.
- *   3. Restart the train at speed 8.
- *   4. Refresh effective_v and next-sensor prediction.
- *   5. Set route_state = ENTER_LOOP.
- */
-void transition_to_enter_loop(train_pos_t *pos, uint64_t now_us) {
-    int just_reversed         = 0;
-    int physical_anchor_pending = 0;
-    route_plan_t *rp = &g_enter_loop_rp;
-
-    traffic_release_train(pos->train_num);
-
-    track_node *physical_anchor = NULL;
-    int32_t     anchor_dist_mm  = 0;
-    if (pos->cur_sensor != NULL) {
-        int32_t saved_ev = pos->effective_v;
-        if (saved_ev == 0) {
-            int32_t tv = speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
-            pos->effective_v = (tv > 0) ? tv : 100;
-        }
-        uint64_t dummy_dt = 0;
-        physical_anchor = predict_next_sensor(pos, pos->cur_sensor, &dummy_dt);
-        pos->effective_v = saved_ev;
-
-        if (physical_anchor != NULL) {
-            anchor_dist_mm = follow_dist(pos->cur_sensor, physical_anchor, 80);
-            if (anchor_dist_mm < 0) anchor_dist_mm = 0;
-        }
-    }
-
-    KASSERT(pos->cur_sensor != NULL);
-
-    if (physical_anchor != NULL && (!is_forward_loop_sensor(physical_anchor) && !is_reverse_loop_sensor(physical_anchor))) {
-        KASSERT(physical_anchor != NULL);
-        track_node *rev = physical_anchor->reverse;
-
-        /* Priority 1: reverse direction reaches loop with current switches unchanged. */
-        if (rev != NULL && follow_reaches_loop(rev, 80)) {
-            track_reverse(pos->train_num);
-            pos->cur_sensor    = rev;
-            pos->going_forward = !pos->going_forward;
-            just_reversed      = 1;
-
-        } else {
-            /* Priority 2:BFS */
-            if (!bfs_find_route_to_loop(physical_anchor, rp)) {
-                KASSERT(rev != NULL && bfs_find_route_to_loop(rev, rp));
-                track_reverse(pos->train_num);
-                pos->cur_sensor    = rev;
-                pos->going_forward = !pos->going_forward;
-                just_reversed      = 1;
-                if (!apply_route_switches_safe(rp->sw_nums, rp->sw_dirs, rp->sw_count, pos->train_num)) {
-                    pos_enter_wait_resource(pos, now_us);
-                    return;
-                }
-
-            } else {
-                pos->cur_sensor = physical_anchor;
-                if (!apply_route_switches_safe(rp->sw_nums, rp->sw_dirs, rp->sw_count, pos->train_num)) {
-                    pos_enter_wait_resource(pos, now_us);
-                    return;
-                }
-                physical_anchor_pending = 1;
-            }
-        }
-    } else if (physical_anchor != NULL) {
-        pos_apply_loop_switches();
-    } else {
-        // ahead is exit, must reverse
-        KASSERT(physical_anchor == NULL);
-        track_reverse(pos->train_num);
-        pos->cur_sensor    = pos->cur_sensor->reverse;
-        pos->going_forward = !pos->going_forward;
-        just_reversed      = 1;
-        if (!follow_reaches_loop(pos->cur_sensor, 80)) {
-            KASSERT(bfs_find_route_to_loop(pos->cur_sensor, rp));
-            if (!apply_route_switches_safe(rp->sw_nums, rp->sw_dirs, rp->sw_count, pos->train_num)) {
-                pos_enter_wait_resource(pos, now_us);
-                return;
-            }
-        }
-        
-    }
-
-    if (just_reversed)
-        pos->skip_offroute_count = 1;
-
-    /* Restart the train */
-    pos->user_speed = GOTO_USER_SPEED;
-    int can_spd = 1 + (pos->user_speed - 1) * 77;
-    track_set_speed(pos->train_num, can_spd);
-    int32_t cv_loop  = pos->cached_v[pos->user_speed];
-    pos->effective_v = (cv_loop > 0) ? cv_loop
-                                     : speed_table_get_v(pos->train_ind, pos->user_speed);
-    pos->speed_warmup_mm = 400;
-    pos->cur_sensor_time = now_us;
-
-    /* Prediction */
-    if (pos->cur_sensor != NULL) {
-        if (just_reversed) {
-            pos->pred_next_sensor  = pos->cur_sensor;
-            pos->pred_alt_sensor   = NULL;
-            pos->pred_trigger_time = now_us;
-
-        } else if (physical_anchor_pending) {
-            pos->pred_next_sensor = pos->cur_sensor;
-            pos->pred_alt_sensor  = NULL;
-            uint64_t dt = (anchor_dist_mm > 0 && pos->effective_v > 0)
-                          ? (uint64_t)(uint32_t)anchor_dist_mm * 1000000ULL
-                            / (uint64_t)(uint32_t)pos->effective_v
-                          : 10000000ULL;              
-            pos->pred_trigger_time = now_us + dt;
-
-        } else {
-            uint64_t dt = 0;
-            pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
-            pos->pred_trigger_time = now_us + dt;
-        }
-
-        /* Set dead-track deadline = now + 3*(T1+T2) */
-        if (pos->pred_next_sensor != NULL && pos->pred_trigger_time > now_us) {
-            uint64_t T1 = pos->pred_trigger_time - now_us;
-            uint64_t T2 = 0;
-            predict_next_sensor(pos, pos->pred_next_sensor, &T2);
-            pos->dead_track_deadline_us =
-                now_us + DEAD_TRACK_DEADLINE_MULTIPLIER * (T1 + T2);
-        } else {
-            pos->dead_track_deadline_us = 0;
-        }
-    }
-
-    /* Restore pending_target from orig_user_target so that a second call
-     * to execute_pending_route() after recovery still has a target to work
-     * with. */
-    if (pos->orig_user_target != NULL && pos->pending_target == NULL) {
-        pos->pending_target    = pos->orig_user_target;
-        pos->pending_offset_mm = pos->orig_target_offset;
-    }
-
-    pos->stable_sensor_count = 0;
-    pos->route_state = TRAIN_STATE_ENTER_LOOP;
-    ui_mark_position_dirty();
 }
 
 void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us) {
@@ -622,7 +464,6 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     pos->pending_target    = NULL;
     pos->pending_offset_mm = 0;
-    pos->stable_sensor_count = 0;
     pos->route_state = TRAIN_STATE_ON_ROUTE;
     pos->wait_since_us = 0;
     pos->next_replan_us = 0;
@@ -686,85 +527,29 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     ui_mark_position_dirty();
 
     if (pos->route_state == TRAIN_STATE_UNKNOWN) {
-        /* assume train is on loop.
-         * If the user type tr but the sys didn't recieve the
-         * pos and dir, assumption still hold. just overwrite the speed.
-         * auto-start at fixed speed 8 to acquire position and direction */
-
-        pos_apply_loop_switches();
+        /* Position unknown — start moving to trigger a sensor and acquire position.
+         * handle_sensor will stop the train and transition to STOPPING_GOTO. */
         pos->user_speed = GOTO_USER_SPEED;
         int can_spd = 1 + (pos->user_speed - 1) * 77;
         track_set_speed(train_num, can_spd);
-
         pos->effective_v     = speed_table_get_v(pos->train_ind, pos->user_speed);
         pos->cur_sensor_time = read_timer();
-        pos->going_forward   = 1;
-        pos->stable_sensor_count = 0;
-        pos->route_state = TRAIN_STATE_LOOP_FIND_DIR;
-        uint64_t dt = 0;
-        pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
-        pos->pred_trigger_time = pos->cur_sensor_time + dt;
-        if (pos->pred_next_sensor != NULL && dt > 0) {
-            uint64_t T2 = 0;
-            predict_next_sensor(pos, pos->pred_next_sensor, &T2);
-            pos->dead_track_deadline_us =
-                pos->cur_sensor_time + DEAD_TRACK_DEADLINE_MULTIPLIER * (dt + T2);
-        } else {
-            pos->dead_track_deadline_us = 0;
-        }
+        pos->route_state     = TRAIN_STATE_LOOP_FIND_DIR;
 
     } else if (pos->route_state == TRAIN_STATE_KNOWN) {
-        int pred_on_loop = (pos->pred_next_sensor != NULL &&
-                            (is_forward_loop_sensor(pos->pred_next_sensor) ||
-                             is_reverse_loop_sensor(pos->pred_next_sensor)));
-        if (pred_on_loop) {
-            /* Train already running on the loop — skip stop/re-enter and
-             * go straight to LOOP_STABILIZE. */
-            pos_apply_loop_switches();
-            pos->going_forward       = is_forward_loop_sensor(pos->pred_next_sensor) ? 1 : 0;
-            pos->stable_sensor_count = 0;
-            pos->route_state         = TRAIN_STATE_LOOP_STABILIZE;
-            /* Adjust speed to fixed goto speed. */
-            pos->user_speed  = GOTO_USER_SPEED;
-            int can_spd = 1 + (pos->user_speed - 1) * 77;
-            track_set_speed(pos->train_num, can_spd);
-            int32_t cv = pos->cached_v[pos->user_speed];
-            pos->effective_v = (cv > 0) ? cv
-                                        : speed_table_get_v(pos->train_ind, pos->user_speed);
-            pos->speed_warmup_mm = 400;
-            /* Refresh prediction with new speed */
-            uint64_t dt = 0;
-            pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
-            uint64_t now_goto      = read_timer();
-            pos->pred_trigger_time = now_goto + dt;
-            if (pos->pred_next_sensor != NULL && dt > 0) {
-                uint64_t T2 = 0;
-                predict_next_sensor(pos, pos->pred_next_sensor, &T2);
-                pos->dead_track_deadline_us =
-                    now_goto + DEAD_TRACK_DEADLINE_MULTIPLIER * (dt + T2);
-            } else {
-                pos->dead_track_deadline_us = 0;
-            }
-        } else {
-            /* pos Known, running via tr, not on loop.
-             * Stop first; pos_on_tick will plan the route once stationary. */
-            track_set_speed(train_num, 0);
-            pos->stopping_since_us = read_timer();
-            pos->route_state = TRAIN_STATE_STOPPING_GOTO;
-        }
+        /* Position known, train running via tr. Stop and replan. */
+        track_set_speed(train_num, 0);
+        pos->stopping_since_us = read_timer();
+        pos->route_state = TRAIN_STATE_STOPPING_GOTO;
 
     } else if (pos->route_state == TRAIN_STATE_STOPPING_TR) {
-        /* Train is already decelerating from a tr 0 command.
-         * Redirect the post-stop action from STOPPED to ENTER_LOOP. */
+        /* Train already decelerating; redirect post-stop to replan. */
         if (pos->user_speed == 0) pos->user_speed = GOTO_USER_SPEED;
         pos->route_state = TRAIN_STATE_STOPPING_GOTO;
 
     } else if (pos->route_state == TRAIN_STATE_STOPPED) {
-        /* For long distances from a known stopped position, go directly on-route.
-         * Otherwise fall back to the loop-enter sequence. */
-        if (!pos_try_direct_goto(pos)) {
-            transition_to_enter_loop(pos, read_timer());
-        }
+        int ok = pos_try_direct_goto(pos);
+        KASSERT(ok);
     }
 
     return 1;

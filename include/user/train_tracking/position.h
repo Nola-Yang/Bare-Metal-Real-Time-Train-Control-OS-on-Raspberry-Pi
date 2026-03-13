@@ -24,13 +24,11 @@ typedef enum {
     TRAIN_STATE_ON_ROUTE          = 3,  /* following planned route to target */
     TRAIN_STATE_STOPPING          = 4,  /* goto braking command issued */
     TRAIN_STATE_STOPPED           = 5,  /* fully stationary; pos known */
-    TRAIN_STATE_LOOP_STABILIZE    = 6,  /* on loop, running; waiting for speed to stabilise */
-    TRAIN_STATE_LOOP_FIND_DIR     = 7,  /* on loop, running; need two sensors to confirm dir */
-    TRAIN_STATE_RECOVERY_STOPPING = 8,  /* off-route deviation; stopping -> ENTER_LOOP */
-    TRAIN_STATE_ENTER_LOOP        = 9,  /* pos/dir known, stationary; driving back to loop */
-    TRAIN_STATE_STOPPING_GOTO     = 10, /* goto while running; stop sent -> ENTER_LOOP */
-    TRAIN_STATE_DEAD_TRACK        = 11, /* stopped on powerless track; waiting for manual push */
-    TRAIN_STATE_WAIT_RESOURCE     = 12, /* route blocked by reservation; stopped and waiting */
+    TRAIN_STATE_LOOP_FIND_DIR     = 6,  /* position unknown; running until first sensor hit */
+    TRAIN_STATE_RECOVERY_STOPPING = 7,  /* off-route deviation; stopping -> replan */
+    TRAIN_STATE_STOPPING_GOTO     = 8, /* goto while running; stop sent -> replan */
+    TRAIN_STATE_DEAD_TRACK        = 9, /* stopped on powerless track; waiting for manual push */
+    TRAIN_STATE_WAIT_RESOURCE     = 10, /* route blocked by reservation; stopped and waiting */
 } train_route_state_t;
 
 /* ---------- Per-train position state ---------- */
@@ -68,10 +66,6 @@ typedef struct {
     track_node *queued_target;
     int32_t     queued_offset_mm;
     int         queued_valid;
-
-    /* Consecutive sensors with acceptable prediction error (LOOP_STABILIZE).
-     * Reset to 0 on any unstable reading. */
-    int stable_sensor_count;
 
     /* 1 = forward loop direction.
      * 0 = reverse direction.

@@ -102,10 +102,8 @@ static const char *route_state_str(train_route_state_t s) {
     case TRAIN_STATE_ON_ROUTE:          return "RTE";
     case TRAIN_STATE_STOPPING:          return "STP";
     case TRAIN_STATE_STOPPED:           return "SPD";
-    case TRAIN_STATE_LOOP_STABILIZE:    return "STB";
     case TRAIN_STATE_LOOP_FIND_DIR:     return "DIR";
     case TRAIN_STATE_RECOVERY_STOPPING: return "REC";
-    case TRAIN_STATE_ENTER_LOOP:        return "ENT";
     case TRAIN_STATE_STOPPING_GOTO:     return "SGT";
     case TRAIN_STATE_DEAD_TRACK:        return "DED";
     case TRAIN_STATE_WAIT_RESOURCE:     return "WAI";

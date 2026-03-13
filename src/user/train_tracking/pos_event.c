@@ -71,8 +71,6 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
 
     /* EMA speed update
      *
-     * LOOP_STABILIZE: must update so predict_next_sensor stays accurate and
-     *   last_time_err_us can converge.
      * ON_ROUTE: steady cruise to target; primary source of calibration.
      *
      * All other states are excluded:
@@ -87,8 +85,7 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
     {
         train_route_state_t st = pos->route_state;
         int ema_valid = !in_warmup &&
-                        (st == TRAIN_STATE_LOOP_STABILIZE ||
-                         st == TRAIN_STATE_ON_ROUTE);
+                        (st == TRAIN_STATE_ON_ROUTE);
         if (ema_valid && *out_was_predicted && pos->cur_sensor && pos->effective_v > 0) {
             int32_t meas_dist = follow_dist(pos->cur_sensor, hit, 100);
             uint64_t dt = time_us - pos->cur_sensor_time;
@@ -141,69 +138,50 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
 
     }
 
-    /* Dead track recovery: a sensor fired after the user manually pushed
-     * the train to a powered section.  Restart the goto via the normal
-     * recovery flow */
+    /* Dead track recovery: a sensor fired — position now known. Replan. */
     if (pos->route_state == TRAIN_STATE_DEAD_TRACK) {
         pos->offroute_valid = 0;
-        transition_to_enter_loop(pos, time_us);
+        pos->effective_v = 0;
+        traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
+        if (pos->pending_target == NULL && pos->orig_user_target != NULL) {
+            pos->pending_target    = pos->orig_user_target;
+            pos->pending_offset_mm = pos->orig_target_offset;
+        }
+        KASSERT(pos->pending_target != NULL);
+        int dead_ok = pos_try_direct_goto(pos);
+        KASSERT(dead_ok);
         ui_mark_position_dirty();
         return;
     }
 
-    /* ENTER_LOOP: first loop sensor confirms the train is back on the
-     * loop.  Re-assert loop switches, update going_forward, and advance to
-     * LOOP_STABILIZE.
-     */
-    if (pos->route_state == TRAIN_STATE_ENTER_LOOP &&
-        (is_forward_loop_sensor(hit) || is_reverse_loop_sensor(hit))) {
-        pos_apply_loop_switches();
-
-        pos->going_forward    = is_forward_loop_sensor(hit) ? 1 : 0;
-        pos->route_state      = TRAIN_STATE_LOOP_STABILIZE;
-        pos->stable_sensor_count = 0;
+    /* LOOP_FIND_DIR: train was running to acquire position. Position now known
+     * (cur_sensor set above). Stop and let STOPPING_GOTO flow do the planning. */
+    if (pos->route_state == TRAIN_STATE_LOOP_FIND_DIR) {
+        track_set_speed(pos->train_num, 0);
+        pos->stopping_since_us = time_us;
+        pos->route_state       = TRAIN_STATE_STOPPING_GOTO;
         ui_mark_position_dirty();
     }
 
-
-    // off-route check
+    // off-route check (only for active routing states)
     if (pos->skip_offroute_count > 0) {
         pos->skip_offroute_count--;
-    } else if ((pos->route_state == TRAIN_STATE_ON_ROUTE          ||
-         pos->route_state == TRAIN_STATE_STOPPING          ||
-         pos->route_state == TRAIN_STATE_LOOP_FIND_DIR     ||
-         pos->route_state == TRAIN_STATE_LOOP_STABILIZE    ||
-         pos->route_state == TRAIN_STATE_ENTER_LOOP) &&
-        pos->pred_next_sensor != NULL &&
-        !b_was_predicted && !b_is_skip) {
+    } else if ((pos->route_state == TRAIN_STATE_ON_ROUTE ||
+                pos->route_state == TRAIN_STATE_STOPPING) &&
+               pos->pred_next_sensor != NULL &&
+               !b_was_predicted && !b_is_skip) {
 
-        /* Unexpected sensor: check if we can still reach the target from here.
-         * If yes, update prediction from hit and continue without off-route.
-        */
-
-        int still_reachable = 0;
-
-        if (pos->route_state == TRAIN_STATE_ENTER_LOOP ) {
-            if (follow_reaches_loop(hit, 50)) {
-                still_reachable = 1;
-            }
-        }
-
-        if (!still_reachable) {
-            pos->offroute_valid           = 1;
-            pos->offroute_expected_sensor = expected_sensor;
-            pos->offroute_actual_sensor   = hit;
-            pos->pred_next_sensor      = NULL;
-            pos->pred_alt_sensor       = NULL;
-            pos->pred_trigger_time     = 0;
-            track_set_speed(pos->train_num, 0);
-            pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
-            pos->stopping_since_us = time_us;
-            ui_mark_position_dirty();
-            return;
-        }
-
-        /* Fall through: prediction is refreshed below from hit */
+        pos->offroute_valid           = 1;
+        pos->offroute_expected_sensor = expected_sensor;
+        pos->offroute_actual_sensor   = hit;
+        pos->pred_next_sensor      = NULL;
+        pos->pred_alt_sensor       = NULL;
+        pos->pred_trigger_time     = 0;
+        track_set_speed(pos->train_num, 0);
+        pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
+        pos->stopping_since_us = time_us;
+        ui_mark_position_dirty();
+        return;
     }
 
     /* Predict next sensor */
@@ -218,45 +196,6 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
             time_us + DEAD_TRACK_DEADLINE_MULTIPLIER * (dt_pred + T2);
     } else {
         pos->dead_track_deadline_us = 0;
-    }
-
-    /* Direction detection and speed-stabilisation */
-    if (pos->pending_target) {
-
-        if (pos->route_state == TRAIN_STATE_LOOP_FIND_DIR && prev_sensor) {
-            int fwd_prev = is_forward_loop_sensor(prev_sensor);
-            int fwd_hit  = is_forward_loop_sensor(hit);
-            int rev_prev = is_reverse_loop_sensor(prev_sensor);
-            int rev_hit  = is_reverse_loop_sensor(hit);
-
-            if (fwd_prev && fwd_hit) {
-                pos->going_forward       = 1;
-                pos->route_state         = TRAIN_STATE_LOOP_STABILIZE;
-                pos->stable_sensor_count = 0;
-            } else if (rev_prev && rev_hit) {
-                pos->going_forward       = 0;
-                pos->route_state         = TRAIN_STATE_LOOP_STABILIZE;
-                pos->stable_sensor_count = 0;
-            }
-        }
-
-        else if (pos->route_state == TRAIN_STATE_LOOP_STABILIZE) {
-            if (b_was_predicted) {
-                int64_t abs_err = pos->last_time_err_us;
-                if (abs_err < 0) abs_err = -abs_err;
-                if (abs_err < STABLE_TIME_ERR_US) {
-                    pos->stable_sensor_count++;
-                } else {
-                    pos->stable_sensor_count = 0;
-                }
-            }
-            /* b_is_skip:
-             * Leave stable_sensor_count unchanged */
-
-            if (pos->stable_sensor_count >= STABLE_SENSOR_MIN) {
-                execute_pending_route(pos);
-            }
-        }
     }
 
     /* Stop-at logic */
@@ -341,9 +280,8 @@ void pos_on_tick(uint64_t now_us) {
             pos->pending_offset_mm = pos->orig_target_offset;
         }
         if (pos->pending_target != NULL) {
-            if (!pos_try_direct_goto(pos) && pos->cur_sensor != NULL) {
-                transition_to_enter_loop(pos, now_us);
-            }
+            int ok = pos_try_direct_goto(pos);
+            KASSERT(ok);
         }
     }
 
@@ -356,7 +294,7 @@ void pos_on_tick(uint64_t now_us) {
         /* train physically stopped; no estimation until sensor fires. */
         if (pos->route_state == TRAIN_STATE_DEAD_TRACK) continue;
 
-        /* Once braking is complete, state transition to ENTER_LOOP */
+        /* Once braking is complete, replan directly to original target. */
         if (pos->route_state == TRAIN_STATE_RECOVERY_STOPPING) {
             uint64_t brake_us = 1000000ULL;
             int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
@@ -378,12 +316,9 @@ void pos_on_tick(uint64_t now_us) {
                 pos->pending_target    = pos->orig_user_target;
                 pos->pending_offset_mm = pos->orig_target_offset;
             }
-            if (pos->pending_target != NULL && pos_try_direct_goto(pos)) {
-                continue;
-            }
-            pos->pending_target    = NULL;
-            pos->pending_offset_mm = 0;
-            transition_to_enter_loop(pos, now_us);
+            KASSERT(pos->pending_target != NULL);
+            int rec_ok = pos_try_direct_goto(pos);
+            KASSERT(rec_ok);
             continue;
         }
 
@@ -419,9 +354,8 @@ void pos_on_tick(uint64_t now_us) {
                 if (pos->user_speed > 0 && pos->user_speed <= 14)
                     pos->cached_v[pos->user_speed] = pos->effective_v;
                 pos->effective_v = 0;
-                if (!pos_try_direct_goto(pos)) {
-                    transition_to_enter_loop(pos, now_us);
-                }
+                int goto_ok = pos_try_direct_goto(pos);
+                KASSERT(goto_ok);
             }
             continue;
         }
@@ -590,8 +524,6 @@ void pos_on_tick(uint64_t now_us) {
 
         /* Dead-track detection */
         if ((pos->route_state == TRAIN_STATE_LOOP_FIND_DIR  ||
-             pos->route_state == TRAIN_STATE_LOOP_STABILIZE ||
-             pos->route_state == TRAIN_STATE_ENTER_LOOP     ||
              pos->route_state == TRAIN_STATE_ON_ROUTE) &&
             pos->dead_track_deadline_us > 0 &&
             now_us > pos->dead_track_deadline_us) {

@@ -28,42 +28,6 @@ void resend_unreliable_switches(const int *sw_nums, const char *sw_dirs, int sw_
 
 /* ===== Fixed loop sensor definitions ===== */
 
-#define LOOP_SENSOR_COUNT_INTERNAL 10
-
-/* Track-array indices of the 10 fixed-loop sensors (in loop order).
- * Both Track A and Track B share the same inner loop:
- *   A3=2, B15=30, C6=37, C13=44, C16=47, D7=54, D9=56, D11=58, E7=70, E12=75
- * Path: A3->BR14(S)->MR11->C13->E7->D7->MR9->BR8(S)->D9->E12->BR7(S)->D11->C16->MR6->C6->MR15->B15->A3
- */
-static const int LOOP_SENSOR_IDX_A[LOOP_SENSOR_COUNT_INTERNAL] =
-    { 2, 30, 37, 44, 47, 54, 56, 58, 70, 75 };
-static const int LOOP_SENSOR_IDX_B[LOOP_SENSOR_COUNT_INTERNAL] =
-    { 2, 30, 37, 44, 47, 54, 56, 58, 70, 75 };
-
-/* Forward traversal order of the 10 loop sensors (clockwise on track):
- * A3(2)->C13(44)->E7(70)->D7(54)->D9(56)->E12(75)->D11(58)->C16(47)->C6(37)->B15(30)->A3
- */
-static const int LOOP_SENSOR_FORWARD_ORDER_A[LOOP_SENSOR_COUNT_INTERNAL] =
-    { 2, 44, 70, 54, 56, 75, 58, 47, 37, 30 };
-static const int LOOP_SENSOR_FORWARD_ORDER_B[LOOP_SENSOR_COUNT_INTERNAL] =
-    { 2, 44, 70, 54, 56, 75, 58, 47, 37, 30 };
-
-static inline const int *loop_sensor_idx(void) {
-#ifdef TRACK_D
-    return LOOP_SENSOR_IDX_A;
-#else
-    return LOOP_SENSOR_IDX_B;
-#endif
-}
-
-static inline const int *loop_sensor_forward_order(void) {
-#ifdef TRACK_D
-    return LOOP_SENSOR_FORWARD_ORDER_A;
-#else
-    return LOOP_SENSOR_FORWARD_ORDER_B;
-#endif
-}
-
 /* ===== Dijkstra shortest-path tables ===== */
 
 #define DIJK_INF 0x7FFFFFFF
@@ -91,8 +55,6 @@ static char    rev_sw_dir[TRACK_MAX];
 
 static route_plan_t g_opt_best_plan;
 static route_plan_t g_opt_cand_plan;
-static route_plan_t g_exec_plan;
-static route_plan_t g_exec_unconstrained_plan;
 
 /* ===== Dijkstra helpers ===== */
 
@@ -278,25 +240,6 @@ static int32_t min_dist_to(track_node *start, track_node *target, int max_hops) 
     return (int32_t)start->edge[DIR_AHEAD].dist + r;
 }
 
-/* ===== Loop sensor membership ===== */
-
-int is_loop_sensor(int track_idx) {
-    for (int i = 0; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
-        if (loop_sensor_idx()[i] == track_idx) return 1;
-    }
-    return 0;
-}
-
-int is_forward_loop_sensor(track_node *n) {
-    if (!n) return 0;
-    return is_loop_sensor((int)(n - g_track));
-}
-
-int is_reverse_loop_sensor(track_node *n) {
-    if (!n || !n->reverse) return 0;
-    return is_loop_sensor((int)(n->reverse - g_track));
-}
-
 /* ===== Distance / prediction ===== */
 
 int32_t follow_dist(track_node *cur, track_node *to, int max_hops) {
@@ -314,19 +257,6 @@ int32_t follow_dist(track_node *cur, track_node *to, int max_hops) {
     return -1;
 }
 
-
-int follow_reaches_loop(track_node *start, int max_hops) {
-    if (!start) return 0;
-    track_node *n = start;
-    for (int h = 0; h < max_hops; h++) {
-        if (n->type == NODE_SENSOR && is_loop_sensor((int)(n - g_track))) return 1;
-        track_edge *e = get_next_edge(n);
-        if (!e || !e->dest) return 0;
-        n = e->dest;
-        if (n->type == NODE_EXIT) return 0;
-    }
-    return 0;
-}
 
 /* Walk forward from start and return the first SENSOR node, or NULL. */
 static track_node *first_sensor_forward(track_node *start, int max_hops) {
@@ -594,161 +524,4 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
 }
 
 
-int bfs_find_route_to_loop(track_node *start, route_plan_t *plan) {
-    if (!start || !plan) return 0;
-    for (int i = 0; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
-        track_node *loop_entry = &g_track[loop_sensor_idx()[i]];
-        if (bfs_find_route(start, loop_entry, plan)) {
-            return 1;
-        }
-    }
-    return 0;
-}
 
-/* ===== Deferred route execution ===== */
-
-void execute_pending_route(train_pos_t *pos) {
-    if (!pos->pending_target) return;
-
-    track_node *user_target = pos->pending_target;
-    int32_t     offset      = pos->pending_offset_mm;
-
-    track_node *plan_start = (pos->pred_next_sensor && pos->effective_v > 0)
-                             ? pos->pred_next_sensor : pos->cur_sensor;
-    if (!plan_start) KASSERT(0 && "No position anchor for route planning");
-
-    if (!(is_forward_loop_sensor(plan_start) ||
-          is_reverse_loop_sensor(plan_start))) return;
-
-    track_node *ps_fwd = is_forward_loop_sensor(plan_start) ? plan_start
-                                                             : plan_start->reverse;
-    int ps_idx    = (int)(ps_fwd - g_track);
-    const int *order = loop_sensor_forward_order();
-    int start_pos = 0;
-    for (int i = 0; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
-        if (order[i] == ps_idx) { start_pos = i; break; }
-    }
-    
-    int search_start = (start_pos + 1) % LOOP_SENSOR_COUNT_INTERNAL;
-
-    uint8_t blocked[TRACK_MAX];
-    traffic_build_constraints(pos->train_num, blocked);
-
-    route_plan_t *rp = &g_exec_plan;
-    route_plan_t *rp_unconstrained = &g_exec_unconstrained_plan;
-    track_node  *target = NULL;
-    track_node  *loop_plan_start = NULL;
-    int blocked_by_reservation = 0;
-
-    /* Try user_target first, then its reverse node.
-     * For each candidate target, iterate through all loop sensors in the
-     * direction of travel starting from the sensor after plan_start. */
-    track_node *try_targets[2] = { user_target, user_target->reverse };
-
-    for (int t = 0; t < 2 && !target; t++) {
-        track_node *tgt = try_targets[t];
-        if (!tgt) continue;
-
-        for (int i = 0; i < LOOP_SENSOR_COUNT_INTERNAL; i++) {
-            track_node *cand;
-            if (pos->going_forward) {
-                int ci = order[(search_start + i) % LOOP_SENSOR_COUNT_INTERNAL];
-                cand = &g_track[ci];
-            } else {
-                int ci = order[(search_start + LOOP_SENSOR_COUNT_INTERNAL - i)
-                               % LOOP_SENSOR_COUNT_INTERNAL];
-                cand = g_track[ci].reverse;
-            }
-            if (!cand) continue;
-            if (bfs_find_route_constrained(cand, tgt, blocked, rp)) {
-                target = tgt;
-                loop_plan_start = cand;
-                break;
-            }
-            if (!blocked_by_reservation && bfs_find_route(cand, tgt, rp_unconstrained)) {
-                blocked_by_reservation = 1;
-            }
-        }
-    }
-
-    if (!target || !loop_plan_start) {
-        if (blocked_by_reservation) {
-            pos_enter_wait_resource(pos, read_timer());
-            return;
-        }
-        KASSERT(0 && "No loop sensor reaches target or target_reverse");
-        return;
-    }
-
-    for (int i = rp->sw_count - 1; i >= 0; i--) {
-        int owner = traffic_can_set_switch(rp->sw_nums[i], pos->train_num);
-        if (owner >= 0) {
-            pos_enter_wait_resource(pos, read_timer());
-            return;
-        }
-    }
-
-    traffic_release_train(pos->train_num);
-    if (!traffic_reserve_plan(pos->train_num, loop_plan_start, rp)) {
-        pos_enter_wait_resource(pos, read_timer());
-        return;
-    }
-
-    /* Apply route switches from far to near along the path. */
-    for (int i = rp->sw_count - 1; i >= 0; i--) {
-        track_set_switch(rp->sw_nums[i], rp->sw_dirs[i]);
-        track_update_switch(rp->sw_nums[i], rp->sw_dirs[i]); 
-    }
-    resend_unreliable_switches(rp->sw_nums, rp->sw_dirs, rp->sw_count);
-
-    if (rp->sw_count > 0) {
-        ui_mark_switches_dirty();
-    }
-
-    pos->target_sensor    = target;
-    pos->target_offset_mm = offset;
-    pos->last_plan_valid      = 1;
-    pos->last_plan_loop_start = loop_plan_start;
-    pos->last_plan_target     = target;
-    pos->last_plan_sw_count   = rp->sw_count;
-    for (int i = 0; i < rp->sw_count; i++) {
-        pos->last_plan_sw_nums[i] = rp->sw_nums[i];
-        pos->last_plan_sw_dirs[i] = rp->sw_dirs[i];
-    }
-    pos->offroute_valid           = 0;
-    pos->offroute_expected_sensor = NULL;
-    pos->offroute_actual_sensor   = NULL;
-
-    track_node *cur = pos->cur_sensor;
-    if (cur) {
-        int32_t dist_from_cur = follow_dist(cur, target, 200);
-        if (dist_from_cur >= 0) {
-            int32_t already_gone = 0;
-            if (pos->effective_v > 0 && pos->cur_sensor_time > 0) {
-                uint64_t now_us = read_timer();
-                uint64_t dt     = now_us - pos->cur_sensor_time;
-                already_gone    = (int32_t)(
-                    (int64_t)pos->effective_v * (int64_t)dt / 1000000LL);
-            }
-            int32_t rem = dist_from_cur + offset - already_gone;
-            pos->dist_to_target_mm = (rem > 0) ? rem : 0;
-        }
-    }
-
-    pos->pending_target      = NULL;
-    pos->pending_offset_mm   = 0;
-    pos->stable_sensor_count = 0;
-    pos->route_state         = TRAIN_STATE_ON_ROUTE;
-    pos->wait_since_us       = 0;
-    pos->next_replan_us      = 0;
-
-    /* Refresh prediction with the newly set route switches.
-     *
-     * Must predict from cur_sensor, NOT from plan_start.
-     * and uses cur_sensor_time as the absolute time anchor. */
-    uint64_t dt = 0;
-    pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
-    pos->pred_trigger_time = pos->cur_sensor_time + dt;
-
-    ui_mark_position_dirty();
-}
