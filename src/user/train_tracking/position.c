@@ -149,6 +149,8 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->stopping_since_us       = 0;
             slot->wait_since_us           = 0;
             slot->next_replan_us          = 0;
+            slot->replan_retry_count      = 0;
+            slot->replan_rand_state       = (uint32_t)(slot->train_num * 1234567u + 1u);
             slot->dead_track_deadline_us  = 0;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
             slot->speed_warmup_mm = 0;
@@ -201,6 +203,7 @@ void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us) {
     traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
     pos->route_state = TRAIN_STATE_WAIT_RESOURCE;
     pos->wait_since_us = now_us;
+    pos->replan_retry_count = 0;
     pos->next_replan_us = now_us + REPLAN_INTERVAL_US;
     pos->stopping_since_us = now_us;
     pos->effective_v = 0;

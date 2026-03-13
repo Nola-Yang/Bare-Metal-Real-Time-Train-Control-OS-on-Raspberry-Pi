@@ -21,8 +21,11 @@ extern train_pos_t g_pos[MAX_POS_TRAINS];
 /* Fixed user speed used for all goto operations. */
 #define GOTO_USER_SPEED 8
 
-/* WAIT_RESOURCE periodic replan interval (us). */
-#define REPLAN_INTERVAL_US 200000ULL
+/* WAIT_RESOURCE exponential backoff parameters.
+ * wait = BASE * 2^min(retry, MAX_BACKOFF_STEPS) + jitter
+ * where jitter is in [0, BASE). Max wait ~3.2s + jitter. */
+#define REPLAN_INTERVAL_US    200000ULL   /* base interval (us) */
+#define REPLAN_MAX_BACKOFF      4         /* cap exponent at 2^4 = 16x */
 
 
 

@@ -276,7 +276,18 @@ void pos_on_tick(uint64_t now_us) {
         if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) continue;
         if (pos->next_replan_us > 0 && now_us < pos->next_replan_us) continue;
 
-        pos->next_replan_us = now_us + REPLAN_INTERVAL_US;
+       
+        int exp = pos->replan_retry_count;
+        if (exp > REPLAN_MAX_BACKOFF) exp = REPLAN_MAX_BACKOFF;
+        uint64_t backoff_us = REPLAN_INTERVAL_US << exp;
+
+        pos->replan_rand_state = pos->replan_rand_state * 1664525u + 1013904223u;
+        uint64_t jitter_us = (uint64_t)(pos->replan_rand_state >> 16)
+                             % REPLAN_INTERVAL_US;
+
+        pos->next_replan_us = now_us + backoff_us + jitter_us;
+        pos->replan_retry_count++;
+
         if (pos->pending_target == NULL && pos->orig_user_target != NULL) {
             pos->pending_target = pos->orig_user_target;
             pos->pending_offset_mm = pos->orig_target_offset;

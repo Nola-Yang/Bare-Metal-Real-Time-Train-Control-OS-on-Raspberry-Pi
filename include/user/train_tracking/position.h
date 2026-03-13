@@ -100,6 +100,8 @@ typedef struct {
     /* WAIT_RESOURCE bookkeeping */
     uint64_t    wait_since_us;
     uint64_t    next_replan_us;
+    int         replan_retry_count;  /* exponential backoff retry counter */
+    uint32_t    replan_rand_state;   /* LCG state for jitter randomization */
 
     /* cur_sensor_time + 2*(T1+T2), where T1/T2 are the
      * expected travel times to the next two sensors.  
