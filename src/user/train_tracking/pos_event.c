@@ -105,7 +105,6 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
 static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     int b_was_predicted, b_is_skip;
     update_sensor_stats(pos, hit, time_us, &b_was_predicted, &b_is_skip);
-    track_node *expected_sensor = pos->pred_next_sensor;
 
     track_node *prev_sensor = pos->cur_sensor;
     pos->cur_sensor      = hit;
@@ -115,9 +114,6 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         traffic_release_passed(pos->train_num, prev_sensor, hit);
     }
 
-    if (prev_sensor && !b_was_predicted && !b_is_skip) {
-        observe_path_and_correct_switches(prev_sensor, hit);
-    }
 
     // Infer direction for trains running without goto commands.
     if (pos->route_state == TRAIN_STATE_UNKNOWN && prev_sensor != NULL) {
@@ -161,27 +157,6 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         pos->stopping_since_us = time_us;
         pos->route_state       = TRAIN_STATE_STOPPING_GOTO;
         ui_mark_position_dirty();
-    }
-
-    // off-route check (only for active routing states)
-    if (pos->skip_offroute_count > 0) {
-        pos->skip_offroute_count--;
-    } else if ((pos->route_state == TRAIN_STATE_ON_ROUTE ||
-                pos->route_state == TRAIN_STATE_STOPPING) &&
-               pos->pred_next_sensor != NULL &&
-               !b_was_predicted && !b_is_skip) {
-
-        pos->offroute_valid           = 1;
-        pos->offroute_expected_sensor = expected_sensor;
-        pos->offroute_actual_sensor   = hit;
-        pos->pred_next_sensor      = NULL;
-        pos->pred_alt_sensor       = NULL;
-        pos->pred_trigger_time     = 0;
-        track_set_speed(pos->train_num, 0);
-        pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
-        pos->stopping_since_us = time_us;
-        ui_mark_position_dirty();
-        return;
     }
 
     /* Predict next sensor */
@@ -264,6 +239,18 @@ void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us) {
 
     train_pos_t *owner = traffic_attribute_sensor(hit, time_us);
     if (!owner) return;
+
+    /* If train took the alt-direction branch, correct the stored switch state */
+    if (owner->pred_alt_sensor == hit && owner->pred_branch_node != NULL) {
+        int sw_idx = track_switch_to_index(owner->pred_branch_node->num);
+        if (sw_idx >= 0) {
+            char stored = track_get_switch_state()[sw_idx].state;
+            char actual = (stored == 'S') ? 'C' : 'S';
+            track_update_switch(owner->pred_branch_node->num, actual);
+            ui_mark_switches_dirty();
+        }
+    }
+
     handle_sensor(owner, hit, time_us);
 }
 
@@ -385,7 +372,6 @@ void pos_on_tick(uint64_t now_us) {
                         pos->going_forward = !pos->going_forward;
                         if (pos->cur_sensor && pos->cur_sensor->reverse)
                             pos->cur_sensor = pos->cur_sensor->reverse;
-                        pos->skip_offroute_count = 1;
 
                         int switch_blocked = 0;
                         for (int j = pos->midrev_sw_count - 1; j >= 0; j--) {

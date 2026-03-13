@@ -15,11 +15,6 @@ int32_t follow_dist(track_node *cur, track_node *to, int max_hops);
 track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
                                 uint64_t *out_dt_us);
 
-/* ===== Switch path analysis ===== */
-
-/* Trace path from to; observe actual switch directions; correct stored state. */
-void observe_path_and_correct_switches(track_node *from, track_node *to);
-
 /* Re-send switch commands for known unreliable switches that appear in plan.
  * Current retry list: SW1, SW153, SW155, SW15. */
 void resend_unreliable_switches(const int *sw_nums, const char *sw_dirs, int sw_count);

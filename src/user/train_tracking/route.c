@@ -208,38 +208,6 @@ static track_edge *get_next_edge(track_node *n) {
     }
 }
 
-/*
- * Returns the minimum mm-distance from `start` to `target`, trying both
- * directions at every branch encountered.  Returns -1 if unreachable within
- * max_hops.  Used internally by observe_path_and_correct_switches.
- * max_hops should be kept small (≤40) to bound stack depth.
- */
-static int32_t min_dist_to(track_node *start, track_node *target, int max_hops) {
-    if (!start || max_hops <= 0) return -1;
-    if (start == target) return 0;
-    if (start->type == NODE_EXIT) return -1;
-
-    if (start->type == NODE_BRANCH) {
-        int32_t ds = -1, dc = -1;
-        if (start->edge[DIR_STRAIGHT].dest) {
-            int32_t r = min_dist_to(start->edge[DIR_STRAIGHT].dest, target, max_hops - 1);
-            if (r >= 0) ds = (int32_t)start->edge[DIR_STRAIGHT].dist + r;
-        }
-        if (start->edge[DIR_CURVED].dest) {
-            int32_t r = min_dist_to(start->edge[DIR_CURVED].dest, target, max_hops - 1);
-            if (r >= 0) dc = (int32_t)start->edge[DIR_CURVED].dist + r;
-        }
-        if (ds < 0) return dc;
-        if (dc < 0) return ds;
-        return (ds <= dc) ? ds : dc;
-    }
-
-    if (!start->edge[DIR_AHEAD].dest) return -1;
-    int32_t r = min_dist_to(start->edge[DIR_AHEAD].dest, target, max_hops - 1);
-    if (r < 0) return -1;
-    return (int32_t)start->edge[DIR_AHEAD].dist + r;
-}
-
 /* ===== Distance / prediction ===== */
 
 int32_t follow_dist(track_node *cur, track_node *to, int max_hops) {
@@ -278,7 +246,7 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
                                 uint64_t *out_dt_us) {
     if (!cur) {
         if (out_dt_us) *out_dt_us = 0;
-        if (pos) pos->pred_alt_sensor = NULL;
+        if (pos) { pos->pred_alt_sensor = NULL; pos->pred_branch_node = NULL; }
         return NULL;
     }
 
@@ -295,7 +263,8 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
                 int sw_idx = track_switch_to_index(n->num);
                 char st = (sw_idx >= 0) ? track_get_switch_state()[sw_idx].state : '?';
                 int alt_dir = (st == 'S') ? DIR_CURVED : DIR_STRAIGHT;
-                pos->pred_alt_sensor = first_sensor_forward(n->edge[alt_dir].dest, 20);
+                pos->pred_alt_sensor  = first_sensor_forward(n->edge[alt_dir].dest, 20);
+                pos->pred_branch_node = n;
             }
         }
 
@@ -317,61 +286,8 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
     }
 
     if (out_dt_us) *out_dt_us = 0;
-    if (!found_branch && pos) pos->pred_alt_sensor = NULL;
+    if (!found_branch && pos) { pos->pred_alt_sensor = NULL; pos->pred_branch_node = NULL; }
     return NULL;
-}
-
-/* ===== Switch path analysis ===== */
-
-void observe_path_and_correct_switches(track_node *from, track_node *to) {
-    if (!from || !to || from == to) return;
-
-    track_node *n = from;
-    int hops = 0;
-
-    while (n != to && hops < 40) {
-        if (n->type == NODE_EXIT) break;
-
-        if (n->type == NODE_BRANCH) {
-            track_node *branch = n;
-
-            int32_t ds = branch->edge[DIR_STRAIGHT].dest
-                         ? min_dist_to(branch->edge[DIR_STRAIGHT].dest, to, 40) : -1;
-            int32_t dc = branch->edge[DIR_CURVED].dest
-                         ? min_dist_to(branch->edge[DIR_CURVED].dest,   to, 40) : -1;
-
-            /* Both unreachable: give up. */
-            if (ds < 0 && dc < 0) break;
-
-            /* Both reachable with identical distance: genuinely ambiguous. */
-            if (ds >= 0 && dc >= 0 && ds == dc) break;
-
-            /* Pick the shorter (or only reachable) direction. */
-            char actual_dir;
-            track_node *next;
-            if (dc < 0 || (ds >= 0 && ds < dc)) {
-                actual_dir = 'S';
-                next       = branch->edge[DIR_STRAIGHT].dest;
-            } else {
-                actual_dir = 'C';
-                next       = branch->edge[DIR_CURVED].dest;
-            }
-
-            int sw_idx = track_switch_to_index(branch->num);
-            if (sw_idx >= 0) {
-                char stored = track_get_switch_state()[sw_idx].state;
-                if (stored != actual_dir) {
-                    track_update_switch(branch->num, actual_dir);
-                    ui_mark_switches_dirty();
-                }
-            }
-            n = next;
-        } else if (n->type != NODE_EXIT) {
-            if (!n->edge[DIR_AHEAD].dest) break;
-            n = n->edge[DIR_AHEAD].dest;
-        }
-        hops++;
-    }
 }
 
 /* ===== Route planning (Dijkstra shortest distance) ===== */

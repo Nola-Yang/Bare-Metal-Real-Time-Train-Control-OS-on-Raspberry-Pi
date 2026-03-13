@@ -118,6 +118,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->user_speed            = 0;
             slot->pred_next_sensor      = NULL;
             slot->pred_alt_sensor       = NULL;
+            slot->pred_branch_node      = NULL;
             slot->pred_trigger_time     = 0;
             slot->last_time_err_us      = 0;
             slot->last_dist_err_mm      = 0;
@@ -150,7 +151,6 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->dead_track_deadline_us  = 0;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
             slot->speed_warmup_mm = 0;
-            slot->skip_offroute_count = 0;
             slot->midrev_active       = 0;
             slot->midrev_sensor       = NULL;
             slot->midrev_final_target = NULL;
@@ -395,7 +395,6 @@ int pos_try_direct_goto(train_pos_t *pos) {
         track_reverse(pos->train_num);
         pos->cur_sensor      = cur_sensor_orig->reverse;
         pos->going_forward   = !pos->going_forward;
-        pos->skip_offroute_count = 1;
         pos->pred_next_sensor       = cur_sensor_orig->reverse;
         pos->pred_alt_sensor        = NULL;
         pos->pred_trigger_time      = 0;

@@ -46,6 +46,7 @@ typedef struct {
     /* Prediction */
     track_node *pred_next_sensor;
     track_node *pred_alt_sensor;   /* first sensor in OTHER branch direction at next switch */
+    track_node *pred_branch_node;  /* first BRANCH on path from cur_sensor; paired with pred_alt_sensor */
     uint64_t    pred_trigger_time;
     int64_t     last_time_err_us;  /* t_actual - t_predicted (us) */
     int32_t     last_dist_err_mm;  /* effective_v * last_time_err_us / 1e6 */
@@ -115,11 +116,6 @@ typedef struct {
      * EMA calibration is suppressed while this is > 0.
      * Decremented by the measured edge distance on each sensor trigger. */
     int32_t     speed_warmup_mm;
-
-    /* When > 0, skip off-route check for that many sensor triggers.
-     * Set to 1 on reverse during an active goto to absorb the first
-     * post-reverse sensor hit which is inherently unpredicted. */
-    int         skip_offroute_count;
 
     /* Mid-route reversal state.
      * When midrev_active=1, the current target_sensor is the reversal stop
