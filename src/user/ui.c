@@ -24,10 +24,19 @@ static int sw_log_count = 0;
 
 // UI layout constants
 enum {
-    UI_RESERVATION_ROWS  = 8,
-    UI_CMD_SCROLL_TOP    = 51,
-    UI_CMD_SCROLL_BOTTOM = 90,
-    UI_CMD_ROW           = 51,
+    UI_RESERVATION_TRAIN_COUNT = 6,
+    UI_RESERVATION_BLOCK_ROWS  = 4,
+    UI_RESERVATION_BLOCK_COLS  = 2,
+    UI_RESERVATION_START_ROW   = 35,
+    UI_RESERVATION_GROUP_ROWS  = 3,
+    UI_RESERVATION_END_ROW     = UI_RESERVATION_START_ROW +
+                                 UI_RESERVATION_GROUP_ROWS * UI_RESERVATION_BLOCK_ROWS - 1,
+    UI_RESERVATION_COL_WIDTH   = 58,
+    UI_RESERVATION_COL_GAP     = 4,
+    UI_RESERVATION_LINE_CHARS  = UI_RESERVATION_COL_WIDTH - 2,
+    UI_CMD_SCROLL_TOP          = UI_RESERVATION_END_ROW + 2,
+    UI_CMD_SCROLL_BOTTOM       = 120,
+    UI_CMD_ROW                 = UI_CMD_SCROLL_TOP,
     UI_CMD_COL           = 1
 };
 
@@ -362,41 +371,129 @@ static void ui_build_demo_tuning_line(uint64_t now_us, char *out, int cap) {
     ui_limited_finish(out, n, cap);
 }
 
-static char *ui_append_reservation_row(char *p, int row, int train_num) {
+static int ui_text_len(const char *s) {
+    int n = 0;
+    while (s && s[n]) n++;
+    return n;
+}
+
+static void ui_build_reservation_token(int idx, char *out, int cap) {
+    int n = 0;
+    const char *name = (idx >= 0 && idx < TRACK_MAX && g_track[idx].name)
+                       ? g_track[idx].name : "?";
+    n = ui_limited_append_str(out, n, cap, name);
+    n = ui_limited_append_char(out, n, cap, '(');
+    n = ui_limited_append_int(out, n, cap, idx);
+    n = ui_limited_append_char(out, n, cap, ')');
+    ui_limited_finish(out, n, cap);
+}
+
+static void ui_init_text_line(char *line, int cap) {
+    if (cap <= 0) return;
+    line[0] = '\0';
+}
+
+static void ui_build_reservation_block_lines(
+    int train_num,
+    char lines[UI_RESERVATION_BLOCK_ROWS][UI_RESERVATION_COL_WIDTH + 1]
+) {
     uint16_t nodes[TRACK_MAX];
     int total = traffic_get_reserved_nodes(train_num, NULL, 0);
     int fill = (total < TRACK_MAX) ? total : TRACK_MAX;
+    int row = 1;
+    int line_len = 2;
+    int line_has_tokens = 0;
+    int overflow = 0;
     (void)traffic_get_reserved_nodes(train_num, nodes, fill);
 
-    p = ui_move_to_row(p, row);
-    p = buf_append(p, "tr");
-    p = buf_append_int(p, train_num);
-    p = buf_append(p, " count=");
-    p = buf_append_int(p, total);
-    p = buf_append(p, " : ");
-    for (int i = 0; i < fill; i++) {
-        int idx = (int)nodes[i];
-        const char *name = (idx >= 0 && idx < TRACK_MAX && g_track[idx].name)
-                           ? g_track[idx].name : "?";
-        p = buf_append(p, name);
-        p = buf_append(p, "(");
-        p = buf_append_int(p, idx);
-        p = buf_append(p, ")");
-        if (i + 1 < fill) p = buf_append(p, ", ");
+    for (int i = 0; i < UI_RESERVATION_BLOCK_ROWS; i++) {
+        ui_init_text_line(lines[i], UI_RESERVATION_COL_WIDTH + 1);
     }
-    p = buf_append(p, "\033[K");
-    return p;
+
+    {
+        int n = 0;
+        n = ui_limited_append_str(lines[0], n, UI_RESERVATION_COL_WIDTH + 1, "tr");
+        n = ui_limited_append_int(lines[0], n, UI_RESERVATION_COL_WIDTH + 1, train_num);
+        n = ui_limited_append_str(lines[0], n, UI_RESERVATION_COL_WIDTH + 1, " count=");
+        n = ui_limited_append_int(lines[0], n, UI_RESERVATION_COL_WIDTH + 1, total);
+        ui_limited_finish(lines[0], n, UI_RESERVATION_COL_WIDTH + 1);
+    }
+
+    if (fill <= 0) {
+        lines[1][0] = ' ';
+        lines[1][1] = ' ';
+        lines[1][2] = '-';
+        lines[1][3] = '\0';
+        return;
+    }
+
+    lines[1][0] = ' ';
+    lines[1][1] = ' ';
+    lines[1][2] = '\0';
+
+    for (int i = 0; i < fill; i++) {
+        char token[24];
+        int token_len;
+        int needed;
+        ui_build_reservation_token((int)nodes[i], token, sizeof(token));
+        token_len = ui_text_len(token);
+        needed = token_len + (line_has_tokens ? 2 : 0);
+
+        if (line_has_tokens && line_len + needed > UI_RESERVATION_LINE_CHARS) {
+            row++;
+            if (row >= UI_RESERVATION_BLOCK_ROWS) {
+                overflow = 1;
+                break;
+            }
+            lines[row][0] = ' ';
+            lines[row][1] = ' ';
+            lines[row][2] = '\0';
+            line_len = 2;
+            line_has_tokens = 0;
+        }
+
+        if (line_has_tokens) {
+            lines[row][line_len++] = ',';
+            lines[row][line_len++] = ' ';
+        }
+        for (int j = 0; token[j] && line_len + 1 < UI_RESERVATION_COL_WIDTH; j++) {
+            lines[row][line_len++] = token[j];
+        }
+        lines[row][line_len] = '\0';
+        line_has_tokens = 1;
+    }
+
+    if (overflow) {
+        int ellipsis_row = UI_RESERVATION_BLOCK_ROWS - 1;
+        int n = ui_text_len(lines[ellipsis_row]);
+        if (n == 0) {
+            lines[ellipsis_row][0] = ' ';
+            lines[ellipsis_row][1] = ' ';
+            lines[ellipsis_row][2] = '.';
+            lines[ellipsis_row][3] = '.';
+            lines[ellipsis_row][4] = '.';
+            lines[ellipsis_row][5] = '\0';
+        } else if (n + 4 < UI_RESERVATION_COL_WIDTH) {
+            lines[ellipsis_row][n++] = ' ';
+            lines[ellipsis_row][n++] = '.';
+            lines[ellipsis_row][n++] = '.';
+            lines[ellipsis_row][n++] = '.';
+            lines[ellipsis_row][n] = '\0';
+        }
+    }
 }
 
-/* ---- Fixed lower UI blocks (Rows 22-50) ---- */
+/* ---- Fixed lower UI blocks (Rows 22+) ---- */
 void ui_draw_position(void) {
     char *temp_buf = buf_get_temp();
     char *p = temp_buf;
     int trains[5];
-    int owners[8];
-    int owner_count = 0;
     uint64_t now_us = read_timer();
     char line_buf[160];
+    static const int RESERVATION_TRAINS[UI_RESERVATION_TRAIN_COUNT] = {13, 14, 15, 17, 18, 55};
+    char reservation_blocks[UI_RESERVATION_TRAIN_COUNT]
+                           [UI_RESERVATION_BLOCK_ROWS]
+                           [UI_RESERVATION_COL_WIDTH + 1];
 
     ui_build_train_rows(trains);
 
@@ -467,26 +564,23 @@ void ui_draw_position(void) {
     p = ui_append_blank_row(p, 33);
 
     p = ui_append_section_bar(p, 34, "Reservations");
-
-    owner_count = traffic_get_reserved_train_list(owners, 8);
-    if (owner_count <= 0) {
-        p = ui_move_to_row(p, 35);
-        p = buf_append(p, "none\033[K");
-        for (int row = 36; row <= 49; row++) {
-            p = ui_append_blank_row(p, row);
-        }
-    } else {
-        for (int i = 0; i < UI_RESERVATION_ROWS; i++) {
-            int row = 35 + i;
-            if (i < owner_count) p = ui_append_reservation_row(p, row, owners[i]);
-            else p = ui_append_blank_row(p, row);
-        }
-        for (int row = 35 + UI_RESERVATION_ROWS; row <= 49; row++) {
-            p = ui_append_blank_row(p, row);
+    for (int i = 0; i < UI_RESERVATION_TRAIN_COUNT; i++) {
+        ui_build_reservation_block_lines(RESERVATION_TRAINS[i], reservation_blocks[i]);
+    }
+    for (int group = 0; group < UI_RESERVATION_GROUP_ROWS; group++) {
+        for (int line = 0; line < UI_RESERVATION_BLOCK_ROWS; line++) {
+            int row = UI_RESERVATION_START_ROW + group * UI_RESERVATION_BLOCK_ROWS + line;
+            int left_idx = group * UI_RESERVATION_BLOCK_COLS;
+            int right_idx = left_idx + 1;
+            p = ui_move_to_row(p, row);
+            p = ui_append_field(p, reservation_blocks[left_idx][line], UI_RESERVATION_COL_WIDTH);
+            p = ui_append_field(p, "", UI_RESERVATION_COL_GAP);
+            p = ui_append_field(p, reservation_blocks[right_idx][line], UI_RESERVATION_COL_WIDTH);
+            p = buf_append(p, "\033[K");
         }
     }
 
-    p = ui_move_to_row(p, 50);
+    p = ui_move_to_row(p, UI_CMD_SCROLL_TOP - 1);
     p = buf_append(p, "===================================================================================================\033[K");
     *p = '\0';
     ui_puts(temp_buf);
