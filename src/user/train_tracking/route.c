@@ -71,6 +71,10 @@ static route_plan_t g_opt_cand_plan;
 
 /* ===== Dijkstra helpers ===== */
 
+static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
+                     int16_t *sw_num, char *sw_dir,
+                     const uint8_t *blocked, int start_idx);
+
 static void dijk_init(int32_t *dist, int8_t *done, int16_t *prev,
                        int16_t *sw_num, char *sw_dir, track_node *start) {
     for (int i = 0; i < TRACK_MAX; i++) {
