@@ -163,6 +163,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
             }
             slot->last_attr_score = 0;
             slot->last_attr_conf  = 0;
+            slot->find_dir_only   = 0;
             return slot;
         }
     }
@@ -551,6 +552,39 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
         KASSERT(ok);
     }
 
+    return 1;
+}
+
+int pos_start_direction_find(int train_num) {
+    train_pos_t *pos = find_or_create_pos(train_num);
+    if (!pos) return 0;
+    if (pos->route_state != TRAIN_STATE_UNKNOWN) return 0;
+
+    traffic_release_train(train_num);
+
+    pos->pending_target           = NULL;
+    pos->pending_offset_mm        = 0;
+    pos->orig_user_target         = NULL;
+    pos->orig_target_offset       = 0;
+    pos->target_sensor            = NULL;
+    pos->target_offset_mm         = 0;
+    pos->dist_to_target_mm        = 0;
+    pos->wait_since_us            = 0;
+    pos->next_replan_us           = 0;
+    pos->last_plan_valid          = 0;
+    pos->offroute_valid           = 0;
+    pos->offroute_expected_sensor = NULL;
+    pos->offroute_actual_sensor   = NULL;
+    pos->find_dir_only            = 1;
+
+    pos->user_speed  = GOTO_USER_SPEED;
+    int can_spd = 1 + (pos->user_speed - 1) * 77;
+    track_set_speed(train_num, can_spd);
+    pos->effective_v     = speed_table_get_v(pos->train_ind, pos->user_speed);
+    pos->cur_sensor_time = read_timer();
+    pos->route_state     = TRAIN_STATE_LOOP_FIND_DIR;
+
+    ui_mark_position_dirty();
     return 1;
 }
 

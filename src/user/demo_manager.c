@@ -44,6 +44,7 @@ static uint32_t g_demo_seed = 1;
 static uint32_t g_demo_rng_state = 1;
 
 static int g_gold_min_trip_mm = 1400;
+static uint32_t g_demo_last_ui_uptime_sec = UINT32_MAX;
 
 static demo_train_slot_t g_slots[DEMO_MAX_TRAINS];
 
@@ -63,18 +64,6 @@ static int parse_int_token_local(const char *tok, int *out) {
     return 1;
 }
 
-static void ui_put_u32(uint32_t v) {
-    char b[16];
-    ui2a(v, 10, b);
-    ui_puts(b);
-}
-
-static void ui_put_i32(int v) {
-    char b[16];
-    i2a(v, b);
-    ui_puts(b);
-}
-
 static const char *demo_mode_str(demo_mode_t m) {
     switch (m) {
     case DEMO_MODE_OFF:   return "OFF";
@@ -91,23 +80,6 @@ static const char *demo_state_str(demo_run_state_t s) {
     case DEMO_RUN_STOPPING: return "STOPPING";
     case DEMO_RUN_FAILED:   return "FAILED";
     default:                return "UNK";
-    }
-}
-
-static const char *route_state_str(train_route_state_t s) {
-    switch (s) {
-    case TRAIN_STATE_UNKNOWN:           return "UNK";
-    case TRAIN_STATE_KNOWN:             return "KNW";
-    case TRAIN_STATE_STOPPING_TR:       return "STR";
-    case TRAIN_STATE_ON_ROUTE:          return "RTE";
-    case TRAIN_STATE_STOPPING:          return "STP";
-    case TRAIN_STATE_STOPPED:           return "SPD";
-    case TRAIN_STATE_LOOP_FIND_DIR:     return "DIR";
-    case TRAIN_STATE_RECOVERY_STOPPING: return "REC";
-    case TRAIN_STATE_STOPPING_GOTO:     return "SGT";
-    case TRAIN_STATE_DEAD_TRACK:        return "DED";
-    case TRAIN_STATE_WAIT_RESOURCE:     return "WAI";
-    default:                            return "???";
     }
 }
 
@@ -255,6 +227,7 @@ static void demo_update_state_counters(uint64_t now_us) {
                 slot->dead_track_count++;
             }
             slot->last_seen_state = st;
+            ui_mark_position_dirty();
         }
     }
 }
@@ -266,27 +239,22 @@ static void demo_try_finish_stop(uint64_t now_us) {
 
     g_demo_mode = DEMO_MODE_OFF;
     g_demo_state = DEMO_RUN_IDLE;
+    g_demo_start_us = 0;
+    g_demo_stop_request_us = 0;
     demo_reset_slots();
+    g_demo_last_ui_uptime_sec = UINT32_MAX;
+    ui_mark_position_dirty();
     ui_puts("demo: stopped\r\n");
-}
-
-static int demo_count_bootstrap_inflight(void) {
-    int count = 0;
-    for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
-        demo_train_slot_t *slot = &g_slots[i];
-        if (!slot->enabled || !slot->started) continue;
-        if (!pos_is_train_goto_active(slot->train_num)) continue;
-        train_pos_t *pos = pos_get(slot->train_num);
-        if (!pos || !pos->cur_sensor) count++;
-    }
-    return count;
 }
 
 static int demo_start_next_unstarted_gold(void) {
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         demo_train_slot_t *slot = &g_slots[i];
         if (!slot->enabled || slot->started) continue;
-        if (gold_dispatch_next(slot)) return 1;
+        if (!track_is_valid_train(slot->train_num)) continue;
+        if (!pos_start_direction_find(slot->train_num)) return 0;
+        slot->started = 1;
+        return 1;
     }
     return 0;
 }
@@ -298,7 +266,11 @@ static void demo_force_stop(void) {
     }
     g_demo_mode = DEMO_MODE_OFF;
     g_demo_state = DEMO_RUN_IDLE;
+    g_demo_start_us = 0;
+    g_demo_stop_request_us = 0;
     demo_reset_slots();
+    g_demo_last_ui_uptime_sec = UINT32_MAX;
+    ui_mark_position_dirty();
 }
 
 static int tok_eq(const char *a, const char *b) {
@@ -345,97 +317,20 @@ static void demo_maybe_retarget_waiting_gold(uint64_t now_us) {
     }
 }
 
-static void demo_status_print(void) {
-    uint64_t now = read_timer();
-    traffic_sensor_stats_t st;
-    traffic_get_sensor_stats_ex(&st);
-
-    ui_puts("demo status: mode=");
-    ui_puts(demo_mode_str(g_demo_mode));
-    ui_puts(" state=");
-    ui_puts(demo_state_str(g_demo_state));
-    ui_puts(" uptime=");
-    if (g_demo_start_us > 0 && now >= g_demo_start_us) ui_put_i32((int)((now - g_demo_start_us) / 1000000ULL));
-    else ui_puts("0");
-    ui_puts("s seed=");
-    ui_put_u32(g_demo_seed);
-    ui_puts("\r\n");
-
-    for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
-        demo_train_slot_t *slot = &g_slots[i];
-        if (!slot->enabled) continue;
-        train_pos_t *pos = pos_get(slot->train_num);
-        ui_puts("  tr");
-        ui_put_i32(slot->train_num);
-        ui_puts(" missions=");
-        ui_put_u32(slot->missions_completed);
-        ui_puts(" wait=");
-        ui_put_u32(slot->wait_resource_count);
-        ui_puts(" dead=");
-        ui_put_u32(slot->dead_track_count);
-        ui_puts(" st=");
-        ui_puts(pos ? route_state_str(pos->route_state) : "N/A");
-        ui_puts(" target=");
-        if (pos && pos->target_sensor && pos->target_sensor->name) ui_puts(pos->target_sensor->name);
-        else ui_puts("-");
-        ui_puts("\r\n");
+void demo_get_ui_summary(demo_ui_summary_t *out, uint64_t now_us) {
+    if (!out) return;
+    out->mode_name = demo_mode_str(g_demo_mode);
+    out->state_name = demo_state_str(g_demo_state);
+    out->seed = g_demo_seed;
+    out->gold_min_trip_mm = g_gold_min_trip_mm;
+    if (g_demo_mode != DEMO_MODE_OFF &&
+        g_demo_start_us > 0 &&
+        now_us >= g_demo_start_us) {
+        out->uptime_sec = (uint32_t)((now_us - g_demo_start_us) / 1000000ULL);
+    } else {
+        out->uptime_sec = 0;
     }
-
-    ui_puts("  sensor_stats: spurious=");
-    ui_put_i32(st.spurious_count);
-    ui_puts(" ambiguous=");
-    ui_put_i32(st.ambiguous_count);
-    if (st.last_spurious_sensor_id > 0) {
-        ui_puts(" last_spur=");
-        ui_put_i32((int)st.last_spurious_sensor_id);
-    }
-    if (st.last_ambiguous_sensor_id > 0) {
-        ui_puts(" last_amb=");
-        ui_put_i32((int)st.last_ambiguous_sensor_id);
-    }
-    ui_puts("\r\n");
-}
-
-static void demo_reservations_print(void) {
-    int owners[8];
-    int owner_count = traffic_get_reserved_train_list(owners, 8);
-    if (owner_count <= 0) {
-        ui_puts("demo reservations: none\r\n");
-        return;
-    }
-
-    ui_puts("demo reservations:\r\n");
-    for (int i = 0; i < owner_count; i++) {
-        int train = owners[i];
-        int total = traffic_get_reserved_nodes(train, NULL, 0);
-        uint16_t nodes[TRACK_MAX];
-        int fill = (total < TRACK_MAX) ? total : TRACK_MAX;
-        (void)traffic_get_reserved_nodes(train, nodes, fill);
-
-        ui_puts("  tr");
-        ui_put_i32(train);
-        ui_puts(" count=");
-        ui_put_i32(total);
-        ui_puts(": ");
-
-        for (int j = 0; j < fill; j++) {
-            int idx = (int)nodes[j];
-            const char *name = (idx >= 0 && idx < TRACK_MAX && g_track[idx].name)
-                               ? g_track[idx].name : "?";
-            ui_puts(name);
-            ui_puts("(");
-            ui_put_i32(idx);
-            ui_puts(")");
-            if (j + 1 < fill) {
-                ui_puts(",");
-                if (((j + 1) % 16) == 0) ui_puts("\r\n      ");
-            }
-        }
-        if (total > fill) {
-            ui_puts(" ...");
-        }
-        ui_puts("\r\n");
-    }
+    traffic_get_sensor_stats_ex(&out->sensor_stats);
 }
 
 void demo_init(void) {
@@ -445,6 +340,7 @@ void demo_init(void) {
     g_demo_start_us = 0;
     g_demo_stop_request_us = 0;
     g_gold_min_trip_mm = 1400;
+    g_demo_last_ui_uptime_sec = UINT32_MAX;
     demo_seed_rng((uint32_t)read_timer());
     demo_build_sensor_pool();
 }
@@ -504,9 +400,10 @@ static int demo_start_gold(int argc, char *argv[]) {
     g_demo_mode = DEMO_MODE_GOLD;
     g_demo_state = DEMO_RUN_STARTING;
     g_demo_start_us = read_timer();
+    g_demo_stop_request_us = 0;
+    g_demo_last_ui_uptime_sec = UINT32_MAX;
     demo_build_sensor_pool();
 
-    demo_train_slot_t *first_slot = NULL;
     for (int i = 0; i < train_count; i++) {
         demo_train_slot_t *slot = demo_alloc_slot(trains[i]);
         if (!slot) {
@@ -516,10 +413,10 @@ static int demo_start_gold(int argc, char *argv[]) {
             ui_puts("demo gold: failed to allocate slots\r\n");
             return 2;
         }
-        if (i == 0) first_slot = slot;
     }
 
-    if (!first_slot || !gold_dispatch_next(first_slot)) {
+    /* Start only the first train; demo_on_tick will chain the rest. */
+    if (!demo_start_next_unstarted_gold()) {
         g_demo_mode = DEMO_MODE_OFF;
         g_demo_state = DEMO_RUN_FAILED;
         demo_reset_slots();
@@ -527,8 +424,8 @@ static int demo_start_gold(int argc, char *argv[]) {
         return 2;
     }
 
-    g_demo_state = DEMO_RUN_RUNNING;
-    ui_puts("demo gold: started (staged bootstrap)\r\n");
+    ui_puts("demo gold: bootstrapping trains one by one\r\n");
+    ui_mark_position_dirty();
     return 2;
 }
 
@@ -540,7 +437,7 @@ int demo_handle_command(int argc, char *argv[]) {
     }
 
     if (argc == 1) {
-        ui_puts("Usage: demo <start|stop|status|reservations|tune|seed> ...\r\n");
+        ui_puts("Usage: demo <start|stop|tune|seed> ...\r\n");
         return 2;
     }
 
@@ -561,22 +458,8 @@ int demo_handle_command(int argc, char *argv[]) {
         }
         g_demo_state = DEMO_RUN_STOPPING;
         g_demo_stop_request_us = read_timer();
+        ui_mark_position_dirty();
         ui_puts("demo: stopping (no new missions)\r\n");
-        return 2;
-    }
-
-    if (argv[1][0] == 's' && argv[1][1] == 't' && argv[1][2] == 'a' &&
-        argv[1][3] == 't' && argv[1][4] == 'u' && argv[1][5] == 's' && argv[1][6] == '\0') {
-        demo_status_print();
-        return 2;
-    }
-
-    if (argv[1][0] == 'r' && argv[1][1] == 'e' && argv[1][2] == 's' &&
-        argv[1][3] == 'e' && argv[1][4] == 'r' && argv[1][5] == 'v' &&
-        argv[1][6] == 'a' && argv[1][7] == 't' && argv[1][8] == 'i' &&
-        argv[1][9] == 'o' && argv[1][10] == 'n' && argv[1][11] == 's' &&
-        argv[1][12] == '\0') {
-        demo_reservations_print();
         return 2;
     }
 
@@ -592,6 +475,7 @@ int demo_handle_command(int argc, char *argv[]) {
             return 2;
         }
         demo_seed_rng((uint32_t)sv);
+        ui_mark_position_dirty();
         ui_puts("demo seed: updated\r\n");
         return 2;
     }
@@ -632,17 +516,66 @@ int demo_handle_command(int argc, char *argv[]) {
 void demo_on_tick(uint64_t now_us) {
     if (g_demo_mode == DEMO_MODE_OFF) return;
 
+    uint32_t uptime_sec = 0;
+    if (g_demo_start_us > 0 && now_us >= g_demo_start_us) {
+        uptime_sec = (uint32_t)((now_us - g_demo_start_us) / 1000000ULL);
+    }
+    if (uptime_sec != g_demo_last_ui_uptime_sec) {
+        g_demo_last_ui_uptime_sec = uptime_sec;
+        ui_mark_position_dirty();
+    }
+
     demo_update_state_counters(now_us);
     demo_try_finish_stop(now_us);
-    if (g_demo_state != DEMO_RUN_RUNNING) return;
 
     if (g_demo_mode != DEMO_MODE_GOLD) return;
 
-    demo_maybe_retarget_waiting_gold(now_us);
+    /* STARTING: bootstrap trains one at a time.
+     *
+     * Phase A — position finding (sequential to avoid attribution ambiguity):
+     *   Wait for every started train to confirm its position, 
+     *   As soon as the last started train has confirmed position, kick off the
+     *   next unstarted train.
+     *
+     * Phase B — wait for all trains to reach STOPPED at their first destination:
+     *   Once every train has started, wait for all to be STOPPED before
+     *   transitioning to RUNNING.
+     */
+    if (g_demo_state == DEMO_RUN_STARTING) {
+        int any_unstarted = 0;
+        int all_stopped   = 1;
+        for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
+            demo_train_slot_t *slot = &g_slots[i];
+            if (!slot->enabled) continue;
+            if (!slot->started) { any_unstarted = 1; all_stopped = 0; continue; }
+            train_pos_t *pos = pos_get(slot->train_num);
+            if (!pos) { all_stopped = 0; continue; }
 
-    if (demo_count_bootstrap_inflight() == 0) {
-        (void)demo_start_next_unstarted_gold();
+            int pos_confirmed = pos->cur_sensor != NULL &&
+                                pos->route_state != TRAIN_STATE_UNKNOWN      &&
+                                pos->route_state != TRAIN_STATE_LOOP_FIND_DIR &&
+                                pos->route_state != TRAIN_STATE_STOPPING_GOTO;
+            if (!pos_confirmed) return;  /* still acquiring — wait */
+
+            if (pos->route_state != TRAIN_STATE_STOPPED) all_stopped = 0;
+        }
+
+        if (any_unstarted) {
+            /* Kick off the next train's bootstrap. */
+            (void)demo_start_next_unstarted_gold();
+            return;
+        }
+
+        if (!all_stopped) return;
+
+        g_demo_state = DEMO_RUN_RUNNING;
+        ui_mark_position_dirty();
+        return;
     }
+
+    if (g_demo_state != DEMO_RUN_RUNNING) return;
+
+    demo_maybe_retarget_waiting_gold(now_us);
 
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         demo_train_slot_t *slot = &g_slots[i];
@@ -663,7 +596,6 @@ void demo_on_train_stopped(int train_num, uint64_t now_us) {
 
     demo_train_slot_t *slot = demo_find_slot(train_num);
     if (!slot) return;
-    slot->missions_completed++;
 
     train_pos_t *pos = pos_get(train_num);
     if (pos && pos->queued_valid && pos->queued_target) return;
@@ -671,7 +603,8 @@ void demo_on_train_stopped(int train_num, uint64_t now_us) {
 
     if (g_demo_state != DEMO_RUN_RUNNING) return;
     if (g_demo_mode != DEMO_MODE_GOLD) return;
+
+    slot->missions_completed++;
+    ui_mark_position_dirty();
     (void)gold_dispatch_next(slot);
 }
-
-

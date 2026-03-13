@@ -2,7 +2,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define TEMP_BUF_SIZE 768
+#define TEMP_BUF_SIZE 16384
 static char temp_buf[TEMP_BUF_SIZE];
 
 

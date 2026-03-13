@@ -2,6 +2,16 @@
 #define _demo_manager_h_ 1
 
 #include <stdint.h>
+#include "train_tracking/traffic_manager.h"
+
+typedef struct {
+    const char *mode_name;
+    const char *state_name;
+    uint32_t seed;
+    uint32_t uptime_sec;
+    int gold_min_trip_mm;
+    traffic_sensor_stats_t sensor_stats;
+} demo_ui_summary_t;
 
 /* Initialize demo runtime state. */
 void demo_init(void);
@@ -15,6 +25,9 @@ void demo_on_tick(uint64_t now_us);
 
 /* Called when a train reaches STOPPED after a goto completion. */
 void demo_on_train_stopped(int train_num, uint64_t now_us);
+
+/* Export summary fields for the on-screen UI. */
+void demo_get_ui_summary(demo_ui_summary_t *out, uint64_t now_us);
 
 /* Optional hook for future sensor-anomaly notification throttling. */
 void demo_on_sensor_stats_changed(void);

@@ -134,6 +134,10 @@ typedef struct {
     int32_t     last_attr_score;
     int32_t     last_attr_conf;
 
+    /* If 1: started via pos_start_direction_find; stop after direction confirmed
+     * instead of planning a route to a target. */
+    uint8_t     find_dir_only;
+
 } train_pos_t;
 
 /* ---------- Route plan (from Dijkstra route planning) ---------- */
@@ -188,6 +192,11 @@ void pos_apply_loop_switches(void);
 
 /* Execute a goto */
 int pos_goto(int train_num, track_node *target, int32_t offset_mm);
+
+/* Start an UNKNOWN train moving to find direction; stop once direction is confirmed.
+ * No destination is planned — train transitions to STOPPED at the second sensor.
+ * Returns 1 on success, 0 if train is not UNKNOWN or slot unavailable. */
+int pos_start_direction_find(int train_num);
 
 
 /* Returns 1 if the given train has an active goto in progress; 0 otherwise. */

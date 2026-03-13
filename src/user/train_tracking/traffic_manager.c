@@ -3,6 +3,7 @@
 #include "train_tracking/route_priv.h"
 #include "track.h"
 #include "kassert.h"
+#include "ui.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -150,27 +151,42 @@ int traffic_reserve_plan(int train_num, track_node *start, const route_plan_t *p
         }
     }
 
+    ui_mark_position_dirty();
     return 1;
 }
 
 void traffic_release_train(int train_num) {
+    int changed = 0;
     for (int i = 0; i < TRACK_MAX; i++) {
-        if (node_owner[i] == train_num) node_owner[i] = -1;
+        if (node_owner[i] == train_num) {
+            node_owner[i] = -1;
+            changed = 1;
+        }
     }
+    if (changed) ui_mark_position_dirty();
 }
 
 void traffic_release_train_keep_position(int train_num, track_node *cur) {
     int keep0 = cur ? node_index(cur) : -1;
     int keep1 = (keep0 >= 0) ? reverse_index(keep0) : -1;
+    int changed = 0;
 
     for (int i = 0; i < TRACK_MAX; i++) {
         if (node_owner[i] != train_num) continue;
         if (i == keep0 || i == keep1) continue;
         node_owner[i] = -1;
+        changed = 1;
     }
    
-    if (keep0 >= 0) node_owner[keep0] = train_num;
-    if (keep1 >= 0) node_owner[keep1] = train_num;
+    if (keep0 >= 0 && node_owner[keep0] != train_num) {
+        node_owner[keep0] = train_num;
+        changed = 1;
+    }
+    if (keep1 >= 0 && node_owner[keep1] != train_num) {
+        node_owner[keep1] = train_num;
+        changed = 1;
+    }
+    if (changed) ui_mark_position_dirty();
 }
 
 void traffic_release_passed(int train_num, track_node *from, track_node *to) {
@@ -178,18 +194,31 @@ void traffic_release_passed(int train_num, track_node *from, track_node *to) {
     if (from == to) return;
 
     track_node *cur = from;
+    int changed = 0;
     for (int h = 0; h < 120; h++) {
         int idx = node_index(cur);
         int ridx = reverse_index(idx);
-        if (idx >= 0 && node_owner[idx] == train_num) node_owner[idx] = -1;
-        if (ridx >= 0 && node_owner[ridx] == train_num) node_owner[ridx] = -1;
+        if (idx >= 0 && node_owner[idx] == train_num) {
+            node_owner[idx] = -1;
+            changed = 1;
+        }
+        if (ridx >= 0 && node_owner[ridx] == train_num) {
+            node_owner[ridx] = -1;
+            changed = 1;
+        }
 
         track_edge *e = tm_get_next_edge(cur);
-        if (!e || !e->dest) return;
+        if (!e || !e->dest) {
+            if (changed) ui_mark_position_dirty();
+            return;
+        }
         cur = e->dest;
-        if (cur == to) return;
-        if (cur->type == NODE_EXIT) return;
+        if (cur == to || cur->type == NODE_EXIT) {
+            if (changed) ui_mark_position_dirty();
+            return;
+        }
     }
+    if (changed) ui_mark_position_dirty();
 }
 
 int traffic_can_set_switch(int sw_num, int requester_train) {
@@ -326,12 +355,14 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
             ambiguous_sensor_count++;
             last_ambiguous_sensor_id = (uint16_t)((int)(hit - g_track) + 1);
             last_ambiguous_time_us = time_us;
+            ui_mark_position_dirty();
             return NULL;
         }
 
         spurious_sensor_count++;
         last_spurious_sensor_id = (uint16_t)((int)(hit - g_track) + 1);
         last_spurious_time_us = time_us;
+        ui_mark_position_dirty();
         return NULL;
     }
     if (second_score >= 0 && best_score - second_score <= ATTR_MARGIN) {
@@ -367,6 +398,7 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
         last_ambiguous_sensor_id = (uint16_t)((int)(hit - g_track) + 1);
         last_ambiguous_time_us = time_us;
         chosen->last_attr_conf = (chosen_conf > 0) ? chosen_conf : 1;
+        ui_mark_position_dirty();
         return chosen;
     }
 

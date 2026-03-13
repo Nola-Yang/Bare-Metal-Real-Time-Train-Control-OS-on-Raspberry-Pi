@@ -143,16 +143,23 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
             pos->pending_target    = pos->orig_user_target;
             pos->pending_offset_mm = pos->orig_target_offset;
         }
-        KASSERT(pos->pending_target != NULL);
+        if (pos->pending_target == NULL) {
+            /* find_dir_only or no target — direction now known; just stop. */
+            pos->find_dir_only = 0;
+            pos->route_state   = TRAIN_STATE_STOPPED;
+            ui_mark_position_dirty();
+            return;
+        }
         int dead_ok = pos_try_direct_goto(pos);
         KASSERT(dead_ok);
         ui_mark_position_dirty();
         return;
     }
 
-    /* LOOP_FIND_DIR: train was running to acquire position. Position now known
-     * (cur_sensor set above). Stop and let STOPPING_GOTO flow do the planning. */
-    if (pos->route_state == TRAIN_STATE_LOOP_FIND_DIR) {
+    /* LOOP_FIND_DIR: running to acquire position.
+     * First sensor (prev_sensor==NULL): record cur_sensor, compute pred_next, keep running.
+     * Second sensor (prev_sensor!=NULL): direction known, pred_next valid -> stop. */
+    if (pos->route_state == TRAIN_STATE_LOOP_FIND_DIR && prev_sensor != NULL) {
         track_set_speed(pos->train_num, 0);
         pos->stopping_since_us = time_us;
         pos->route_state       = TRAIN_STATE_STOPPING_GOTO;
@@ -341,8 +348,15 @@ void pos_on_tick(uint64_t now_us) {
                 if (pos->user_speed > 0 && pos->user_speed <= 14)
                     pos->cached_v[pos->user_speed] = pos->effective_v;
                 pos->effective_v = 0;
-                int goto_ok = pos_try_direct_goto(pos);
-                KASSERT(goto_ok);
+                if (pos->find_dir_only) {
+                    pos->find_dir_only = 0;
+                    pos->route_state   = TRAIN_STATE_STOPPED;
+                    traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
+                    ui_mark_position_dirty();
+                } else {
+                    int goto_ok = pos_try_direct_goto(pos);
+                    KASSERT(goto_ok);
+                }
             }
             continue;
         }
