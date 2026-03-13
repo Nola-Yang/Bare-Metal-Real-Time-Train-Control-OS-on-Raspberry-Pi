@@ -218,6 +218,7 @@ void pos_init(void) {
         g_pos[i].train_num = -1;
     }
     traffic_init();
+    route_init();
 }
 
 void pos_on_reverse(int train_num) {

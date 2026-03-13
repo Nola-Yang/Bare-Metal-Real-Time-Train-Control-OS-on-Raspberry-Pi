@@ -5,6 +5,9 @@
 #include "track_node.h"
 #include "position.h"
 
+/* Build the branch-node index cache. */
+void route_init(void);
+
 /* ===== Distance / prediction ===== */
 
 /* Follow the track from cur forward until reaching to.

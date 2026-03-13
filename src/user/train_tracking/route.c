@@ -26,7 +26,20 @@ void resend_unreliable_switches(const int *sw_nums, const char *sw_dirs, int sw_
     }
 }
 
-/* ===== Fixed loop sensor definitions ===== */
+
+/* ===== Branch node index cache ===== */
+
+/* Indices of all NODE_BRANCH nodes in g_track[]. */
+static int g_branch_idx[TRACK_MAX];
+static int g_branch_count = 0;
+
+void route_init(void) {
+    g_branch_count = 0;
+    for (int i = 0; i < TRACK_MAX; i++) {
+        if (g_track[i].type == NODE_BRANCH)
+            g_branch_idx[g_branch_count++] = i;
+    }
+}
 
 /* ===== Dijkstra shortest-path tables ===== */
 
@@ -71,13 +84,26 @@ static void dijk_init(int32_t *dist, int8_t *done, int16_t *prev,
     if (si >= 0 && si < TRACK_MAX) dist[si] = 0;
 }
 
+/*
+ * Dijkstra: only branch nodes (and the non-branch start) are ever
+ * extracted as expansion candidates.  When a branch is expanded, we chain-walk
+ * forward through every non-branch node until the next branch, setting dist[]
+ * and prev[] for all intermediate nodes along the way.
+ */
 static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
                      int16_t *sw_num, char *sw_dir,
                      const uint8_t *blocked, int start_idx) {
     for (;;) {
         int u = -1;
         int32_t min_d = DIJK_INF;
-        for (int i = 0; i < TRACK_MAX; i++) {
+
+        if (g_track[start_idx].type != NODE_BRANCH &&
+            !done[start_idx] && dist[start_idx] < min_d) {
+            u = start_idx;
+            min_d = dist[start_idx];
+        }
+        for (int bi = 0; bi < g_branch_count; bi++) {
+            int i = g_branch_idx[bi];
             if (!done[i] && dist[i] < min_d) { u = i; min_d = dist[i]; }
         }
         if (u < 0) break;
@@ -88,33 +114,40 @@ static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
         track_node *n = &g_track[u];
         if (n->type == NODE_EXIT || n->type == NODE_NONE) continue;
 
-        if (n->type == NODE_BRANCH) {
-            for (int d = 0; d <= 1; d++) {   
-                track_edge *e = &n->edge[d];
-                if (!e->dest) continue;
-                int v = (int)(e->dest - g_track);
-                if (v < 0 || v >= TRACK_MAX || done[v]) continue;
-                if (blocked && blocked[v] && v != start_idx) continue;
-                int32_t nd = min_d + (int32_t)e->dist;
-                if (nd < dist[v]) {
-                    dist[v]   = nd;
-                    prev[v]   = (int16_t)u;
-                    sw_num[v] = (int16_t)n->num;
-                    sw_dir[v] = (d == DIR_STRAIGHT) ? 'S' : 'C';
-                }
-            }
-        } else {
-            track_edge *e = &n->edge[DIR_AHEAD];
+        int num_dirs = (n->type == NODE_BRANCH) ? 2 : 1;
+        for (int d = 0; d < num_dirs; d++) {
+            int dir = (n->type == NODE_BRANCH) ? d : DIR_AHEAD;
+            track_edge *e = &n->edge[dir];
             if (!e->dest) continue;
-            int v = (int)(e->dest - g_track);
-            if (v < 0 || v >= TRACK_MAX || done[v]) continue;
-            if (blocked && blocked[v] && v != start_idx) continue;
-            int32_t nd = min_d + (int32_t)e->dist;
-            if (nd < dist[v]) {
-                dist[v]   = nd;
-                prev[v]   = (int16_t)u;
-                sw_num[v] = -1;
-                sw_dir[v] = '?';
+
+            int16_t inh_sw_num = (n->type == NODE_BRANCH) ? (int16_t)n->num : -1;
+            char    inh_sw_dir = (n->type == NODE_BRANCH)
+                                     ? ((dir == DIR_STRAIGHT) ? 'S' : 'C') : '?';
+
+            int32_t acc  = min_d;
+            int     from = u;
+
+            while (e && e->dest) {
+                int v = (int)(e->dest - g_track);
+                if (v < 0 || v >= TRACK_MAX) break;
+                if (done[v]) break;
+                if (blocked && blocked[v] && v != start_idx) break;
+
+                acc += (int32_t)e->dist;
+                if (acc < dist[v]) {
+                    dist[v]   = acc;
+                    prev[v]   = (int16_t)from;
+                    sw_num[v] = inh_sw_num;
+                    sw_dir[v] = inh_sw_dir;
+                }
+
+                track_node *vn = &g_track[v];
+                if (vn->type == NODE_BRANCH || vn->type == NODE_EXIT) break;
+
+                inh_sw_num = -1;
+                inh_sw_dir = '?';
+                from = v;
+                e = &vn->edge[DIR_AHEAD];
             }
         }
     }
