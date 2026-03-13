@@ -132,6 +132,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->queued_offset_mm      = 0;
             slot->queued_valid          = 0;
             slot->going_forward         = 1;
+            slot->position_known        = 0;
             slot->orig_user_target      = NULL;
             slot->orig_target_offset    = 0;
             slot->last_plan_valid       = 0;
@@ -592,6 +593,12 @@ int pos_is_train_goto_active(int train_num) {
     train_pos_t *pos = find_pos(train_num);
     if (!pos) return 0;
     return state_is_goto_active(pos->route_state);
+}
+
+int pos_is_train_position_known(int train_num) {
+    train_pos_t *pos = find_pos(train_num);
+    if (!pos) return 0;
+    return pos->cur_sensor != NULL && pos->position_known;
 }
 
 train_pos_t *pos_get(int train_num) {

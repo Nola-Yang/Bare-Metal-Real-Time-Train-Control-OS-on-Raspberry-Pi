@@ -72,6 +72,7 @@ typedef struct {
      * 0 = reverse direction.
      * affects which target vs target->reverse. */
     int going_forward;
+    uint8_t position_known;
 
     /* Original user-specified goto target, preserved across route execution
      * for off-route recovery.*/
@@ -201,6 +202,9 @@ int pos_start_direction_find(int train_num);
 
 /* Returns 1 if the given train has an active goto in progress; 0 otherwise. */
 int pos_is_train_goto_active(int train_num);
+
+/* Returns 1 if the train's current sensor anchor and travel direction are known. */
+int pos_is_train_position_known(int train_num);
 
 /* Return pointer to the position state for a given train (-1 if none). */
 train_pos_t *pos_get(int train_num);

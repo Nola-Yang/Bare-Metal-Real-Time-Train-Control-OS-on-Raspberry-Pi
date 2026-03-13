@@ -252,6 +252,9 @@ static int demo_start_next_unstarted_gold(void) {
         demo_train_slot_t *slot = &g_slots[i];
         if (!slot->enabled || slot->started) continue;
         if (!track_is_valid_train(slot->train_num)) continue;
+        if (pos_is_train_position_known(slot->train_num)) {
+            return gold_dispatch_next(slot);
+        }
         if (!pos_start_direction_find(slot->train_num)) return 0;
         slot->started = 1;
         return 1;
@@ -533,7 +536,9 @@ void demo_on_tick(uint64_t now_us) {
     /* STARTING: bootstrap trains one at a time.
      *
      * Phase A — position finding (sequential to avoid attribution ambiguity):
-     *   Wait for every started train to confirm its position, 
+     *   Unknown-position trains acquire position one by one; known-position
+     *   trains skip straight to their first mission.
+     *   Wait for every started train to confirm its position,
      *   As soon as the last started train has confirmed position, kick off the
      *   next unstarted train.
      *

@@ -115,8 +115,9 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     }
 
 
-    // Infer direction for trains running without goto commands.
-    if (pos->route_state == TRAIN_STATE_UNKNOWN && prev_sensor != NULL) {
+    if ((pos->route_state == TRAIN_STATE_UNKNOWN ||
+         pos->route_state == TRAIN_STATE_LOOP_FIND_DIR) &&
+        prev_sensor != NULL) {
         if (follow_dist(prev_sensor, hit, 20) >= 0) {
             pos->going_forward = 1;
         } else if (prev_sensor->reverse != NULL &&
@@ -125,7 +126,11 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         } else {
             KASSERT(0 && "Two consecutive sensors with no path between them?");
         }
+        pos->position_known = 1;
+    }
 
+    // Infer direction for trains running without goto commands.
+    if (pos->route_state == TRAIN_STATE_UNKNOWN && prev_sensor != NULL) {
         /* UNKNOWN → KNOWN: position and direction known
          * Only transition if the train is running via a tr command (user_speed > 0).
         */
