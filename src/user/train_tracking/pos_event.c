@@ -113,6 +113,24 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         traffic_release_passed(pos->train_num, prev_sensor, hit);
     }
 
+    /* Reservation-based off-route detection.
+     * If ON_ROUTE and the sensor we just hit is not in our reservation, the
+     * train has diverged from its planned path.  Stop immediately and replan. */
+    if (pos->route_state == TRAIN_STATE_ON_ROUTE && pos->target_sensor != NULL) {
+        if (!traffic_is_reserved_by(hit, pos->train_num)) {
+            pos->offroute_valid           = 1;
+            pos->offroute_expected_sensor = pos->pred_next_sensor;
+            pos->offroute_actual_sensor   = hit;
+            pos->pred_next_sensor         = NULL;
+            pos->pred_alt_sensor          = NULL;
+            pos->pred_trigger_time        = 0;
+            track_set_speed(pos->train_num, 0);
+            pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
+            pos->stopping_since_us = time_us;
+            ui_mark_position_dirty();
+            return;
+        }
+    }
 
     if ((pos->route_state == TRAIN_STATE_UNKNOWN ||
          pos->route_state == TRAIN_STATE_LOOP_FIND_DIR) &&
@@ -209,20 +227,6 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
                     track_set_speed(pos->train_num, 0);
                 }
             }
-        } else {
-            /* Target unreachable from current sensor (switch diverged or wrong path).
-             * Enter off-route; resources released in RECOVERY_STOPPING completion. */
-            pos->offroute_valid           = 1;
-            pos->offroute_expected_sensor = pos->pred_next_sensor;
-            pos->offroute_actual_sensor   = NULL;
-            pos->pred_next_sensor         = NULL;
-            pos->pred_alt_sensor          = NULL;
-            pos->pred_trigger_time        = 0;
-            track_set_speed(pos->train_num, 0);
-            pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
-            pos->stopping_since_us = time_us;
-            ui_mark_position_dirty();
-            return;
         }
     }
 
@@ -505,20 +509,6 @@ void pos_on_tick(uint64_t now_us) {
                     }
                 }
                 ui_mark_position_dirty();
-            } else {
-                /* Target unreachable from cur_sensor — switch diverged.
-                 * Enter off-route; resources released in RECOVERY_STOPPING completion. */
-                pos->offroute_valid           = 1;
-                pos->offroute_expected_sensor = pos->pred_next_sensor;
-                pos->offroute_actual_sensor   = NULL;
-                pos->pred_next_sensor         = NULL;
-                pos->pred_alt_sensor          = NULL;
-                pos->pred_trigger_time        = 0;
-                track_set_speed(pos->train_num, 0);
-                pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
-                pos->stopping_since_us = now_us;
-                ui_mark_position_dirty();
-                continue;
             }
         }
 
@@ -566,21 +556,8 @@ void pos_on_tick(uint64_t now_us) {
                     (pos->pred_next_sensor ? pos->pred_next_sensor
                                            : pos->target_sensor), 50);
                 if (skip_dist > 0) {
-                    if (skip_dist >= pos->dist_to_target_mm) {
-                        /* Skipped past the target — off-route */
-                        pos->offroute_valid           = 1;
-                        pos->offroute_expected_sensor = skipped;
-                        pos->offroute_actual_sensor   = NULL;
-                        pos->pred_next_sensor         = NULL;
-                        pos->pred_alt_sensor          = NULL;
-                        pos->pred_trigger_time        = 0;
-                        track_set_speed(pos->train_num, 0);
-                        pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
-                        pos->stopping_since_us = now_us;
-                        ui_mark_position_dirty();
-                        continue;
-                    }
                     pos->dist_to_target_mm -= skip_dist;
+                    if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
                 }
             }
         }

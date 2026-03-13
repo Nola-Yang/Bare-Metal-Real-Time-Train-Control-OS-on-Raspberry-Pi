@@ -434,6 +434,12 @@ int traffic_get_reserved_nodes(int train_num, uint16_t *out, int max_nodes) {
     return total;
 }
 
+int traffic_is_reserved_by(track_node *node, int train_num) {
+    int idx = node_index(node);
+    if (idx < 0) return 0;
+    return node_owner[idx] == train_num;
+}
+
 int traffic_get_reserved_train_list(int *out_trains, int max_trains) {
     int owners[8];
     int n = 0;
