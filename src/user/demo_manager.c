@@ -83,17 +83,21 @@ static const char *demo_state_str(demo_run_state_t s) {
     }
 }
 
+static void demo_clear_slot(demo_train_slot_t *slot) {
+    slot->started = 0;
+    slot->last_target_idx = -1;
+    slot->missions_completed = 0;
+    slot->wait_resource_count = 0;
+    slot->dead_track_count = 0;
+    slot->last_seen_state = TRAIN_STATE_UNKNOWN;
+    slot->wait_enter_us = 0;
+}
+
 static void demo_reset_slots(void) {
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         g_slots[i].enabled = 0;
         g_slots[i].train_num = -1;
-        g_slots[i].started = 0;
-        g_slots[i].last_target_idx = -1;
-        g_slots[i].missions_completed = 0;
-        g_slots[i].wait_resource_count = 0;
-        g_slots[i].dead_track_count = 0;
-        g_slots[i].last_seen_state = TRAIN_STATE_UNKNOWN;
-        g_slots[i].wait_enter_us = 0;
+        demo_clear_slot(&g_slots[i]);
     }
 }
 
@@ -102,13 +106,7 @@ static demo_train_slot_t *demo_alloc_slot(int train_num) {
         if (!g_slots[i].enabled) {
             g_slots[i].enabled = 1;
             g_slots[i].train_num = train_num;
-            g_slots[i].started = 0;
-            g_slots[i].last_target_idx = -1;
-            g_slots[i].missions_completed = 0;
-            g_slots[i].wait_resource_count = 0;
-            g_slots[i].dead_track_count = 0;
-            g_slots[i].last_seen_state = TRAIN_STATE_UNKNOWN;
-            g_slots[i].wait_enter_us = 0;
+            demo_clear_slot(&g_slots[i]);
             return &g_slots[i];
         }
     }
@@ -157,6 +155,17 @@ static void demo_build_sensor_pool(void) {
     }
 }
 
+static int is_valid_target(track_node *cand, track_node *start, int min_trip_mm) {
+    if (!cand) return 0;
+    if (start && cand == start) return 0;
+    if (start) {
+        route_plan_t rp;
+        if (!bfs_find_route_optimal(start, cand, 0, &rp)) return 0;
+        if (rp.total_dist_mm < min_trip_mm) return 0;
+    }
+    return 1;
+}
+
 static track_node *gold_pick_target(int train_num, int min_trip_mm, int *out_idx) {
     if (g_sensor_pool_count <= 0) return NULL;
     train_pos_t *pos = pos_get(train_num);
@@ -166,26 +175,14 @@ static track_node *gold_pick_target(int train_num, int min_trip_mm, int *out_idx
     for (int t = 0; t < tries; t++) {
         int idx = (int)(demo_rand_u32() % (uint32_t)g_sensor_pool_count);
         track_node *cand = g_sensor_pool[idx];
-        if (!cand) continue;
-        if (start && cand == start) continue;
-        if (start) {
-            route_plan_t rp;
-            if (!bfs_find_route_optimal(start, cand, 0, &rp)) continue;
-            if (rp.total_dist_mm < min_trip_mm) continue;
-        }
+        if (!is_valid_target(cand, start, min_trip_mm)) continue;
         if (out_idx) *out_idx = (int)(cand - g_track);
         return cand;
     }
 
     for (int idx = 0; idx < g_sensor_pool_count; idx++) {
         track_node *cand = g_sensor_pool[idx];
-        if (!cand) continue;
-        if (start && cand == start) continue;
-        if (start) {
-            route_plan_t rp;
-            if (!bfs_find_route_optimal(start, cand, 0, &rp)) continue;
-            if (rp.total_dist_mm < min_trip_mm) continue;
-        }
+        if (!is_valid_target(cand, start, min_trip_mm)) continue;
         if (out_idx) *out_idx = (int)(cand - g_track);
         return cand;
     }
@@ -203,7 +200,6 @@ static int gold_dispatch_next(demo_train_slot_t *slot) {
 }
 
 static void demo_update_state_counters(uint64_t now_us) {
-    (void)now_us;
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         demo_train_slot_t *slot = &g_slots[i];
         if (!slot->enabled) continue;
