@@ -23,9 +23,6 @@ int demo_handle_command(int argc, char *argv[]);
 /* Periodic scheduler hook (10 ms). */
 void demo_on_tick(uint64_t now_us);
 
-/* Called when a train reaches STOPPED after a goto completion. */
-void demo_on_train_stopped(int train_num, uint64_t now_us);
-
 /* Export summary fields for the on-screen UI. */
 void demo_get_ui_summary(demo_ui_summary_t *out, uint64_t now_us);
 

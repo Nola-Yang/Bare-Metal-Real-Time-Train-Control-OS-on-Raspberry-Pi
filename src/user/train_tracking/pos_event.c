@@ -13,7 +13,6 @@
 #include "track.h"
 #include "train_tracking/track_data.h"
 #include "train_tracking/speed_table.h"
-#include "demo_manager.h"
 #include "timer.h"
 #include "kassert.h"
 #include "ui.h"
@@ -457,14 +456,10 @@ void pos_on_tick(uint64_t now_us) {
 
                         pos->route_state = TRAIN_STATE_ON_ROUTE;
                     } else {
-                        int has_queued = (pos->queued_valid && pos->queued_target != NULL);
                         pos->route_state        = TRAIN_STATE_STOPPED;
                         pos->orig_user_target   = NULL;
                         pos->orig_target_offset = 0;
                         traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
-                        if (!has_queued) {
-                            demo_on_train_stopped(pos->train_num, now_us);
-                        }
                         start_queued_goto_if_any(pos);
                     }
                     ui_mark_position_dirty();

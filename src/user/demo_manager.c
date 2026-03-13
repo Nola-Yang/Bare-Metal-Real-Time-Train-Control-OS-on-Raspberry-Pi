@@ -97,13 +97,6 @@ static void demo_reset_slots(void) {
     }
 }
 
-static demo_train_slot_t *demo_find_slot(int train_num) {
-    for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
-        if (g_slots[i].enabled && g_slots[i].train_num == train_num) return &g_slots[i];
-    }
-    return NULL;
-}
-
 static demo_train_slot_t *demo_alloc_slot(int train_num) {
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         if (!g_slots[i].enabled) {
@@ -225,6 +218,11 @@ static void demo_update_state_counters(uint64_t now_us) {
             }
             if (st == TRAIN_STATE_DEAD_TRACK) {
                 slot->dead_track_count++;
+            }
+            if (g_demo_state == DEMO_RUN_RUNNING &&
+                st == TRAIN_STATE_STOPPED &&
+                slot->last_seen_state == TRAIN_STATE_STOPPING) {
+                slot->missions_completed++;
             }
             slot->last_seen_state = st;
             ui_mark_position_dirty();
@@ -593,23 +591,4 @@ void demo_on_tick(uint64_t now_us) {
             (void)gold_dispatch_next(slot);
         }
     }
-}
-
-void demo_on_train_stopped(int train_num, uint64_t now_us) {
-    (void)now_us;
-    if (g_demo_mode == DEMO_MODE_OFF) return;
-
-    demo_train_slot_t *slot = demo_find_slot(train_num);
-    if (!slot) return;
-
-    train_pos_t *pos = pos_get(train_num);
-    if (pos && pos->queued_valid && pos->queued_target) return;
-    if (pos_is_train_goto_active(train_num)) return;
-
-    if (g_demo_state != DEMO_RUN_RUNNING) return;
-    if (g_demo_mode != DEMO_MODE_GOLD) return;
-
-    slot->missions_completed++;
-    ui_mark_position_dirty();
-    (void)gold_dispatch_next(slot);
 }
