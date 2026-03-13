@@ -69,16 +69,25 @@ int32_t speed_table_get_decel(int32_t train_ind, int user_speed, track_node *tar
 
 #define LOOP_SW_COUNT 7
 
-/* Track A and Track B use the same inner loop, switch settings are identical.
+/* Track A and Track B use the same inner loop; switch settings are identical.
  * Forward loop path:
  *   A3->BR14(S)->MR11->C13->E7->D7->MR9->BR8(S)->D9->E12->BR7(S)->D11->C16->MR6->C6->MR15->B15->A3
  * Reverse loop path (reverse sensors):
  *   A4->B16->BR15(S)->C5->BR6(S)->C15->D12->E11->D10->BR9(S)->D8->E8->C14->BR11(C)->MR14->A4
  */
-static const int  LOOP_SW_NUMS_A[LOOP_SW_COUNT] = { 7,   8,   14,  11,  9,   6,   15  };
-static const char LOOP_SW_DIRS_A[LOOP_SW_COUNT] = { 'S', 'S', 'S', 'C', 'S', 'S', 'S' };
-static const int  LOOP_SW_NUMS_B[LOOP_SW_COUNT] = { 7,   8,   14,  11,  9,   6,   15  };
-static const char LOOP_SW_DIRS_B[LOOP_SW_COUNT] = { 'S', 'S', 'S', 'C', 'S', 'S', 'S' };
+static const int  LOOP_SW_NUMS[LOOP_SW_COUNT] = { 7,   8,   14,  11,  9,   6,   15  };
+static const char LOOP_SW_DIRS[LOOP_SW_COUNT] = { 'S', 'S', 'S', 'C', 'S', 'S', 'S' };
+
+/* Start train moving at GOTO_USER_SPEED to find direction (LOOP_FIND_DIR).
+ * Used by pos_goto (UNKNOWN state) and pos_start_direction_find. */
+static void pos_begin_dir_find(train_pos_t *pos) {
+    pos->user_speed      = GOTO_USER_SPEED;
+    int can_spd          = 1 + (GOTO_USER_SPEED - 1) * 77;
+    track_set_speed(pos->train_num, can_spd);
+    pos->effective_v     = speed_table_get_v(pos->train_ind, pos->user_speed);
+    pos->cur_sensor_time = read_timer();
+    pos->route_state     = TRAIN_STATE_LOOP_FIND_DIR;
+}
 
 /* ===== Position slot management ===== */
 
@@ -135,19 +144,9 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->position_known        = 0;
             slot->orig_user_target      = NULL;
             slot->orig_target_offset    = 0;
-            slot->last_plan_valid       = 0;
-            slot->last_plan_loop_start  = NULL;
-            slot->last_plan_target      = NULL;
-            slot->last_plan_sw_count    = 0;
-            for (int k = 0; k < 20; k++) {
-                slot->last_plan_sw_nums[k] = 0;
-                slot->last_plan_sw_dirs[k] = '?';
-            }
             slot->offroute_valid           = 0;
             slot->offroute_expected_sensor = NULL;
-            slot->offroute_actual_sensor   = NULL;
             slot->stopping_since_us       = 0;
-            slot->wait_since_us           = 0;
             slot->next_replan_us          = 0;
             slot->replan_retry_count      = 0;
             slot->replan_rand_state       = (uint32_t)(slot->train_num * 1234567u + 1u);
@@ -164,8 +163,6 @@ static train_pos_t *find_or_create_pos(int train_num) {
                 slot->midrev_sw_nums[k] = 0;
                 slot->midrev_sw_dirs[k] = '?';
             }
-            slot->last_attr_score = 0;
-            slot->last_attr_conf  = 0;
             slot->find_dir_only   = 0;
             return slot;
         }
@@ -202,7 +199,6 @@ void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us) {
     track_set_speed(pos->train_num, 0);
     traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
     pos->route_state = TRAIN_STATE_WAIT_RESOURCE;
-    pos->wait_since_us = now_us;
     pos->replan_retry_count = 0;
     pos->next_replan_us = now_us + REPLAN_INTERVAL_US;
     pos->stopping_since_us = now_us;
@@ -284,15 +280,8 @@ void pos_on_speed_change(int train_num, int user_speed) {
 
 
 void pos_apply_loop_switches(void) {
-#ifdef TRACK_D
-    const int  *sw_nums = LOOP_SW_NUMS_A;
-    const char *sw_dirs = LOOP_SW_DIRS_A;
-#else
-    const int  *sw_nums = LOOP_SW_NUMS_B;
-    const char *sw_dirs = LOOP_SW_DIRS_B;
-#endif
     for (int i = 0; i < LOOP_SW_COUNT; i++) {
-        track_set_switch(sw_nums[i], sw_dirs[i]);
+        track_set_switch(LOOP_SW_NUMS[i], LOOP_SW_DIRS[i]);
     }
     ui_mark_switches_dirty();
 }
@@ -415,17 +404,8 @@ int pos_try_direct_goto(train_pos_t *pos) {
     if (rp->sw_count > 0) ui_mark_switches_dirty();
 
 
-    pos->last_plan_valid      = 1;
-    pos->last_plan_loop_start = eff_start;
-    pos->last_plan_target     = chosen_target;
-    pos->last_plan_sw_count   = rp->sw_count;
-    for (int i = 0; i < rp->sw_count; i++) {
-        pos->last_plan_sw_nums[i] = rp->sw_nums[i];
-        pos->last_plan_sw_dirs[i] = rp->sw_dirs[i];
-    }
     pos->offroute_valid           = 0;
     pos->offroute_expected_sensor = NULL;
-    pos->offroute_actual_sensor   = NULL;
 
     /* Set up mid-route reversal state if needed. */
     if (rp->has_reversal) {
@@ -470,7 +450,6 @@ int pos_try_direct_goto(train_pos_t *pos) {
     pos->pending_target    = NULL;
     pos->pending_offset_mm = 0;
     pos->route_state = TRAIN_STATE_ON_ROUTE;
-    pos->wait_since_us = 0;
     pos->next_replan_us = 0;
 
     if (!need_initial_reverse) {
@@ -515,31 +494,19 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     pos->pending_offset_mm  = offset_mm;
     pos->orig_user_target   = target;
     pos->orig_target_offset = offset_mm;
-    pos->last_plan_valid    = 0;
-    pos->last_plan_loop_start = NULL;
-    pos->last_plan_target   = NULL;
-    pos->last_plan_sw_count = 0;
     pos->offroute_valid           = 0;
     pos->offroute_expected_sensor = NULL;
-    pos->offroute_actual_sensor   = NULL;
-
 
     pos->target_sensor     = target;
     pos->target_offset_mm  = offset_mm;
     pos->dist_to_target_mm = 0;
-    pos->wait_since_us = 0;
     pos->next_replan_us = 0;
     ui_mark_position_dirty();
 
     if (pos->route_state == TRAIN_STATE_UNKNOWN) {
         /* Position unknown — start moving to trigger a sensor and acquire position.
          * handle_sensor will stop the train and transition to STOPPING_GOTO. */
-        pos->user_speed = GOTO_USER_SPEED;
-        int can_spd = 1 + (pos->user_speed - 1) * 77;
-        track_set_speed(train_num, can_spd);
-        pos->effective_v     = speed_table_get_v(pos->train_ind, pos->user_speed);
-        pos->cur_sensor_time = read_timer();
-        pos->route_state     = TRAIN_STATE_LOOP_FIND_DIR;
+        pos_begin_dir_find(pos);
 
     } else if (pos->route_state == TRAIN_STATE_KNOWN) {
         /* Position known, train running via tr. Stop and replan. */
@@ -574,20 +541,12 @@ int pos_start_direction_find(int train_num) {
     pos->target_sensor            = NULL;
     pos->target_offset_mm         = 0;
     pos->dist_to_target_mm        = 0;
-    pos->wait_since_us            = 0;
     pos->next_replan_us           = 0;
-    pos->last_plan_valid          = 0;
     pos->offroute_valid           = 0;
     pos->offroute_expected_sensor = NULL;
-    pos->offroute_actual_sensor   = NULL;
     pos->find_dir_only            = 1;
 
-    pos->user_speed  = GOTO_USER_SPEED;
-    int can_spd = 1 + (pos->user_speed - 1) * 77;
-    track_set_speed(train_num, can_spd);
-    pos->effective_v     = speed_table_get_v(pos->train_ind, pos->user_speed);
-    pos->cur_sensor_time = read_timer();
-    pos->route_state     = TRAIN_STATE_LOOP_FIND_DIR;
+    pos_begin_dir_find(pos);
 
     ui_mark_position_dirty();
     return 1;

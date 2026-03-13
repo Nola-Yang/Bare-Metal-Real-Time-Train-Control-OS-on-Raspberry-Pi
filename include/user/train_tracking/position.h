@@ -79,26 +79,16 @@ typedef struct {
     track_node *orig_user_target;
     int32_t     orig_target_offset;
 
-    /* Last planned route from loop to destination (for UI display). */
-    int         last_plan_valid;
-    track_node *last_plan_loop_start;
-    track_node *last_plan_target;
-    int         last_plan_sw_count;
-    int         last_plan_sw_nums[20];
-    char        last_plan_sw_dirs[20];
-
     /* Last off-route mismatch snapshot for UI:
      * expected sensor vs actual hit sensor. */
     int         offroute_valid;
     track_node *offroute_expected_sensor;
-    track_node *offroute_actual_sensor;
 
     /* Timestamp (us) when route_state entered TRAIN_STATE_STOPPING.
      * Used by pos_on_tick() to fire the STOPPING → STOPPED transition. */
     uint64_t    stopping_since_us;
 
     /* WAIT_RESOURCE bookkeeping */
-    uint64_t    wait_since_us;
     uint64_t    next_replan_us;
     int         replan_retry_count;  /* exponential backoff retry counter */
     uint32_t    replan_rand_state;   /* LCG state for jitter randomization */
@@ -133,10 +123,6 @@ typedef struct {
     char        midrev_sw_dirs[20];
     int32_t     midrev_dist_after;    /* dist from reversal->reverse to final target */
 
-    /* Sensor-attribution diagnostics */
-    int32_t     last_attr_score;
-    int32_t     last_attr_conf;
-
     /* If 1: started via pos_start_direction_find; stop after direction confirmed
      * instead of planning a route to a target. */
     uint8_t     find_dir_only;
@@ -146,7 +132,6 @@ typedef struct {
 /* ---------- Route plan (from Dijkstra route planning) ---------- */
 
 typedef struct {
-    track_node *loop_exit_branch; /* first branch off the loop */
     int   sw_nums[20];
     char  sw_dirs[20];
     int   sw_count;

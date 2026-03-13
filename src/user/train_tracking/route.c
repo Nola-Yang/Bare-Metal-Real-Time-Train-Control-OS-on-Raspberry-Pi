@@ -84,6 +84,14 @@ static void dijk_init(int32_t *dist, int8_t *done, int16_t *prev,
     if (si >= 0 && si < TRACK_MAX) dist[si] = 0;
 }
 
+/* Init and run Dijkstra from start in one call. */
+static void dijk_run_from(int32_t *dist, int8_t *done, int16_t *prev,
+                          int16_t *sw_num, char *sw_dir,
+                          const uint8_t *blocked, track_node *start) {
+    dijk_init(dist, done, prev, sw_num, sw_dir, start);
+    dijk_run(dist, done, prev, sw_num, sw_dir, blocked, (int)(start - g_track));
+}
+
 /*
  * Dijkstra: only branch nodes (and the non-branch start) are ever
  * extracted as expansion candidates.  When a branch is expanded, we chain-walk
@@ -269,10 +277,8 @@ static track_node *first_sensor_forward(track_node *start, int max_hops) {
         track_edge *e = get_next_edge(n);
         if (!e || !e->dest) return NULL;
         n = e->dest;
-        if (n->type == NODE_SENSOR) return n;
-        if (n->type == NODE_EXIT)   return NULL;
     }
-    return NULL;
+    return (n->type == NODE_SENSOR) ? n : NULL;
 }
 
 track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
@@ -325,16 +331,11 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
 
 /* ===== Route planning (Dijkstra shortest distance) ===== */
 
-int bfs_find_route(track_node *start, track_node *target, route_plan_t *plan) {
-    return bfs_find_route_constrained(start, target, NULL, plan);
-}
-
 int bfs_find_route_constrained(track_node *start, track_node *target,
                                const uint8_t *blocked, route_plan_t *plan) {
     if (!start || !target || !plan) return 0;
     if (start == target) {
         plan->sw_count = 0;
-        plan->loop_exit_branch = NULL;
         plan->total_dist_mm = 0;
         plan->has_reversal = 0;
         plan->chosen_target = target;
@@ -344,9 +345,7 @@ int bfs_find_route_constrained(track_node *start, track_node *target,
         return 1;
     }
 
-    dijk_init(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir, start);
-    dijk_run(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir,
-             blocked, (int)(start - g_track));
+    dijk_run_from(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir, blocked, start);
 
     int32_t d = dijk_reconstruct(fwd_dist, fwd_prev, fwd_sw_num, fwd_sw_dir,
                                   target,
@@ -358,7 +357,6 @@ int bfs_find_route_constrained(track_node *start, track_node *target,
         return 0;
     }
     plan->total_dist_mm = d;
-    plan->loop_exit_branch = NULL;
     plan->has_reversal = 0;
     plan->chosen_target = target;
     plan->path_count2 = 0;
@@ -392,14 +390,11 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
         if (tgt_idx < 0 || tgt_idx >= TRACK_MAX) continue;
 
         /* Forward Dijkstra from start — fills fwd_* tables. */
-        dijk_init(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir, start);
-        dijk_run(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir,
-                 blocked, (int)(start - g_track));
+        dijk_run_from(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir, blocked, start);
 
         if (fwd_dist[tgt_idx] < DIJK_INF) {
             int32_t d = fwd_dist[tgt_idx];
             if (d < best_total) {
-                cand->loop_exit_branch = NULL;
                 cand->has_reversal     = 0;
                 cand->total_dist_mm    = d;
                 cand->chosen_target    = tgt;
@@ -426,10 +421,7 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
             if (fwd_dist[si] < GOTO_MIN_DIST_FACTOR * d_brake) continue;
 
             /* Dijkstra from s->reverse — fills rev_* tables. */
-            dijk_init(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir,
-                      s->reverse);
-            dijk_run(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir,
-                     blocked, (int)(s->reverse - g_track));
+            dijk_run_from(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir, blocked, s->reverse);
 
             if (rev_dist[tgt_idx] == DIJK_INF) continue;
             if (rev_dist[tgt_idx] < GOTO_MIN_DIST_FACTOR * d_brake) continue;
@@ -437,7 +429,6 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
             int32_t total = fwd_dist[si] + 2 * d_brake + rev_dist[tgt_idx];
             if (total >= best_total) continue;
 
-            cand->loop_exit_branch        = NULL;
             cand->has_reversal            = 1;
             cand->chosen_target           = tgt;
             cand->reversal_sensor         = s;
@@ -471,6 +462,3 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
     *plan = *best;
     return 1;
 }
-
-
-

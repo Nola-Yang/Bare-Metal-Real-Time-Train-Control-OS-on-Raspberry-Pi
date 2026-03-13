@@ -26,6 +26,16 @@
     uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1000000ULL, 1000000ULL, 1000000ULL, 1000000ULL, 1000000ULL};
 #endif
 
+
+/* Estimate time (us) for a braking train to reach a full stop.
+ * Uses v * 1.5s/a_eff; falls back to 1s default. */
+static uint64_t calc_brake_us(train_pos_t *pos) {
+    int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
+    if (pos->effective_v > 0 && decel > 0)
+        return (uint64_t)pos->effective_v * 1500000ULL / (uint64_t)decel;
+    return 1000000ULL;
+}
+
 /* ===== Sensor-hit statistics helper ===== */
 
 /* Compute skip/prediction/EMA stats for a sensor hit.
@@ -120,7 +130,6 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         if (!traffic_is_reserved_by(hit, pos->train_num)) {
             pos->offroute_valid           = 1;
             pos->offroute_expected_sensor = pos->pred_next_sensor;
-            pos->offroute_actual_sensor   = hit;
             pos->pred_next_sensor         = NULL;
             pos->pred_alt_sensor          = NULL;
             pos->pred_trigger_time        = 0;
@@ -188,18 +197,25 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         ui_mark_position_dirty();
     }
 
-    /* Predict next sensor */
+    /* Predict next sensor.
+     * Keep pred_next_sensor for correct
+     * sensor attribution on the second hit, but suppress pred_trigger_time
+     * and dead_track_deadline so timing-based logic is not misled. */
     uint64_t dt_pred = 0;
     pos->pred_next_sensor  = predict_next_sensor(pos, hit, &dt_pred);
-    pos->pred_trigger_time = (dt_pred > 0) ? time_us + dt_pred : 0;
-
-    if (pos->pred_next_sensor != NULL && dt_pred > 0) {
-        uint64_t T2 = 0;
-        predict_next_sensor(pos, pos->pred_next_sensor, &T2);
-        pos->dead_track_deadline_us =
-            time_us + DEAD_TRACK_DEADLINE_MULTIPLIER * (dt_pred + T2);
-    } else {
+    if (pos->route_state == TRAIN_STATE_LOOP_FIND_DIR) {
+        pos->pred_trigger_time      = 0;
         pos->dead_track_deadline_us = 0;
+    } else {
+        pos->pred_trigger_time = (dt_pred > 0) ? time_us + dt_pred : 0;
+        if (pos->pred_next_sensor != NULL && dt_pred > 0) {
+            uint64_t T2 = 0;
+            predict_next_sensor(pos, pos->pred_next_sensor, &T2);
+            pos->dead_track_deadline_us =
+                time_us + DEAD_TRACK_DEADLINE_MULTIPLIER * (dt_pred + T2);
+        } else {
+            pos->dead_track_deadline_us = 0;
+        }
     }
 
     /* Stop-at logic */
@@ -276,14 +292,13 @@ void pos_on_tick(uint64_t now_us) {
         if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) continue;
         if (pos->next_replan_us > 0 && now_us < pos->next_replan_us) continue;
 
-       
-        int exp = pos->replan_retry_count;
-        if (exp > REPLAN_MAX_BACKOFF) exp = REPLAN_MAX_BACKOFF;
-        uint64_t backoff_us = REPLAN_INTERVAL_US << exp;
+
+        int backoff_exp = pos->replan_retry_count;
+        if (backoff_exp > REPLAN_MAX_BACKOFF) backoff_exp = REPLAN_MAX_BACKOFF;
+        uint64_t backoff_us = REPLAN_INTERVAL_US << backoff_exp;
 
         pos->replan_rand_state = pos->replan_rand_state * 1664525u + 1013904223u;
-        uint64_t jitter_us = (uint64_t)(pos->replan_rand_state >> 16)
-                             % REPLAN_INTERVAL_US;
+        uint64_t jitter_us = (pos->replan_rand_state >> 16) % (uint32_t)REPLAN_INTERVAL_US;
 
         pos->next_replan_us = now_us + backoff_us + jitter_us;
         pos->replan_retry_count++;
@@ -309,12 +324,7 @@ void pos_on_tick(uint64_t now_us) {
 
         /* Once braking is complete, replan directly to original target. */
         if (pos->route_state == TRAIN_STATE_RECOVERY_STOPPING) {
-            uint64_t brake_us = 1000000ULL;
-            int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
-            if (pos->effective_v > 0 && decel > 0) {
-                brake_us = (uint64_t)pos->effective_v * 1500000ULL
-                           / (uint64_t)decel;
-            }
+            uint64_t brake_us = calc_brake_us(pos);
             if (now_us < pos->stopping_since_us + brake_us) continue;
 
             if (pos->user_speed > 0 && pos->user_speed <= 14)
@@ -338,13 +348,7 @@ void pos_on_tick(uint64_t now_us) {
         /* tr 0 command sent; wait for physical stop -> STOPPED.
          * Keep effective_v intact until confirmed stopped for accurate estimate. */
         if (pos->route_state == TRAIN_STATE_STOPPING_TR) {
-            uint64_t brake_us = 1000000ULL;
-            int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
-            if (pos->effective_v > 0 && decel > 0) {
-                brake_us = (uint64_t)pos->effective_v * 1500000ULL
-                           / (uint64_t)decel;
-            }
-            if (now_us >= pos->stopping_since_us + brake_us) {
+            if (now_us >= pos->stopping_since_us + calc_brake_us(pos)) {
                 pos->route_state = TRAIN_STATE_STOPPED;
                 pos->effective_v = 0;
                 traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
@@ -357,13 +361,7 @@ void pos_on_tick(uint64_t now_us) {
         /* goto was issued while the train was running; stop
          * command has been sent.  Once physically stopped, drive to loop. */
         if (pos->route_state == TRAIN_STATE_STOPPING_GOTO) {
-            uint64_t brake_us = 1000000ULL;
-            int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
-            if (pos->effective_v > 0 && decel > 0) {
-                brake_us = (uint64_t)pos->effective_v * 1500000ULL
-                           / (uint64_t)decel;
-            }
-            if (now_us >= pos->stopping_since_us + brake_us) {
+            if (now_us >= pos->stopping_since_us + calc_brake_us(pos)) {
                 if (pos->user_speed > 0 && pos->user_speed <= 14)
                     pos->cached_v[pos->user_speed] = pos->effective_v;
                 pos->effective_v = 0;
@@ -380,20 +378,13 @@ void pos_on_tick(uint64_t now_us) {
             continue;
         }
 
-        /* STOPPING -> STOPPED transition.
-         * Estimate braking time = stop_distance / effective_v (with 50% margin).
+        /* STOPPING -> STOPPED transition
          * While braking/stopped, skip the sensor-timeout logic below. */
         if (pos->route_state == TRAIN_STATE_STOPPING ||
             pos->route_state == TRAIN_STATE_STOPPED) {
             if (pos->route_state == TRAIN_STATE_STOPPING &&
                 pos->stopping_since_us > 0) {
-                uint64_t brake_us = 1000000ULL;  /* 1 s default */
-                int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
-                if (pos->effective_v > 0 && decel > 0) {
-                    brake_us = (uint64_t)pos->effective_v * 1500000ULL
-                               / (uint64_t)decel;
-                }
-                if (now_us >= pos->stopping_since_us + brake_us) {
+                if (now_us >= pos->stopping_since_us + calc_brake_us(pos)) {
                     if (pos->user_speed > 0 && pos->user_speed <= 14)
                         pos->cached_v[pos->user_speed] = pos->effective_v;
                     pos->effective_v = 0;
@@ -535,7 +526,6 @@ void pos_on_tick(uint64_t now_us) {
             pos->target_offset_mm         = 0;
             pos->offroute_valid           = 1;
             pos->offroute_expected_sensor = pos->pred_next_sensor;
-            pos->offroute_actual_sensor   = NULL;
             pos->pred_next_sensor         = NULL;
             pos->pred_alt_sensor          = NULL;
             pos->pred_trigger_time        = 0;

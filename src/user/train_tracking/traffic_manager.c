@@ -31,14 +31,6 @@ static int reverse_index(int idx) {
     return r ? node_index(r) : -1;
 }
 
-static void clear_attr_diagnostics(void) {
-    for (int i = 0; i < MAX_POS_TRAINS; i++) {
-        if (g_pos[i].train_num < 0) continue;
-        g_pos[i].last_attr_score = 0;
-        g_pos[i].last_attr_conf = 0;
-    }
-}
-
 static int abs64(int64_t x) {
     return (x < 0) ? (int)(-x) : (int)x;
 }
@@ -248,8 +240,6 @@ int traffic_can_set_switch(int sw_num, int requester_train) {
 train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
     if (!hit || hit->type != NODE_SENSOR) return NULL;
 
-    clear_attr_diagnostics();
-
     train_pos_t *best = NULL;
     train_pos_t *second = NULL;
     int32_t best_score = -1;
@@ -312,9 +302,6 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
             }
         }
 
-        pos->last_attr_score = score;
-        pos->last_attr_conf = conf;
-
         if (score > best_score) {
             second_score = best_score;
             second = best;
@@ -346,8 +333,6 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
         }
 
         if (bootstrap_count == 1 && bootstrap != NULL) {
-            bootstrap->last_attr_score = 1;
-            bootstrap->last_attr_conf = 1;
             return bootstrap;
         }
 
@@ -397,12 +382,10 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
         ambiguous_sensor_count++;
         last_ambiguous_sensor_id = (uint16_t)((int)(hit - g_track) + 1);
         last_ambiguous_time_us = time_us;
-        chosen->last_attr_conf = (chosen_conf > 0) ? chosen_conf : 1;
         ui_mark_position_dirty();
         return chosen;
     }
 
-    best->last_attr_conf = 3;
     return best;
 }
 

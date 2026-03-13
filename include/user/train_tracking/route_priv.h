@@ -28,10 +28,6 @@ void resend_unreliable_switches(const int *sw_nums, const char *sw_dirs, int sw_
 
 /* ===== Route planning ===== */
 
-/* Dijkstra shortest-distance route from start to target; fills plan.
- * Returns 1 on success, 0 if no path.  plan->has_reversal is always 0. */
-int  bfs_find_route(track_node *start, track_node *target, route_plan_t *plan);
-
 /* Constrained shortest-distance route from start to target; blocked[i]=1
  * forbids entering node i (except the start node itself). */
 int  bfs_find_route_constrained(track_node *start, track_node *target,
