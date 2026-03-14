@@ -296,18 +296,18 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
         int32_t conf = 0;
         int has_candidate = 0;
 
-        if (pos->pred_next_sensor == hit) {
+        if (pos->pred.next_sensor == hit) {
             score = 10000;
             conf = 3;
             has_candidate = 1;
-        } else if (pos->pred_alt_sensor == hit) {
+        } else if (pos->pred.alt_sensor == hit) {
             score = 8500;
             conf = 2;
             has_candidate = 1;
-        } else if (pos->pred_next_sensor) {
-            int32_t pred_dist = follow_dist(pos->pred_next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS);
+        } else if (pos->pred.next_sensor) {
+            int32_t pred_dist = follow_dist(pos->pred.next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS);
             if (pred_dist >= 0) {
-                int hops = sensor_hops_between(pos->pred_next_sensor, hit, 120);
+                int hops = sensor_hops_between(pos->pred.next_sensor, hit, 120);
                 int skip = (hops >= 0) ? (hops - 1) : 99;
                 if (skip <= ATTR_MAX_SKIP) {
                     score = 7400 - skip * 600 - pred_dist / 20;
@@ -329,9 +329,9 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
         if (!has_candidate || score <= 0) continue;
 
         int terr = 0x7fffffff;
-        if (pos->pred_trigger_time > 0) {
-            terr = abs64((int64_t)time_us - (int64_t)pos->pred_trigger_time);
-            if ((uint64_t)terr > ATTR_TIME_GATE_US && pos->pred_next_sensor != hit) {
+        if (pos->pred.trigger_time > 0) {
+            terr = abs64((int64_t)time_us - (int64_t)pos->pred.trigger_time);
+            if ((uint64_t)terr > ATTR_TIME_GATE_US && pos->pred.next_sensor != hit) {
                 continue;
             }
             if ((uint64_t)terr <= ATTR_TIME_GATE_US) {
