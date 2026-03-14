@@ -36,4 +36,15 @@ int pos_try_direct_goto(train_pos_t *pos);
 /* Stop and wait for resources; pending_target remains unchanged for retries. */
 void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us);
 
+/* Zero all prediction fields (pred.* + dead_track_deadline_us). */
+void pos_clear_prediction(train_pos_t *pos);
+
+/* Set GOTO_USER_SPEED, send CAN speed command, restore effective_v from
+ * cached_v (or speed table), set 400 mm warmup, and anchor cur_sensor_time. */
+void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us);
+
+/* If user_speed is in [1,14], save effective_v into cached_v, then zero
+ * effective_v.  Call this whenever the train has fully stopped. */
+void pos_save_ema_and_stop(train_pos_t *pos);
+
 #endif /* _position_priv_h_ */

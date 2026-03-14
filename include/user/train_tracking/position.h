@@ -31,6 +31,40 @@ typedef enum {
     TRAIN_STATE_WAIT_RESOURCE     = 10, /* route blocked by reservation; stopped and waiting */
 } train_route_state_t;
 
+/* ---------- Prediction sub-state ---------- */
+
+typedef struct {
+    track_node *next_sensor;      
+    track_node *alt_sensor;        /* first sensor in OTHER branch direction at next switch */
+    track_node *branch_node;       /* first BRANCH on path from cur_sensor; paired with alt_sensor */
+    uint64_t    trigger_time;      
+    int64_t     last_time_err_us;  /* t_actual - t_predicted (us) */
+    int32_t     last_dist_err_mm;  /* effective_v * last_time_err_us / 1e6 */
+} pos_pred_t;
+
+/* ---------- Mid-route reversal sub-state ---------- */
+
+typedef struct {
+    int        active;             /* 1 = reversal is pending; 0 = no reversal */
+    track_node *sensor;            /* sensor to stop at before reversing */
+    track_node *final_target;      /* ultimate destination after reversal */
+    int32_t    final_offset;       /* offset past final target (mm) */
+    int        sw_count;
+    int        sw_nums[20];        
+    char       sw_dirs[20];       
+    int32_t    dist_after;         /* dist from reversal->reverse to final target */
+    uint16_t   path2[TRACK_MAX];   /* second-leg node path */
+    int        path2_count;
+} pos_midrev_t;
+
+/* ---------- WAIT_RESOURCE backoff sub-state ---------- */
+
+typedef struct {
+    uint64_t next_us;       
+    int      retry_count;    /* exponential backoff retry counter */
+    uint32_t rand_state;     /* LCG state for jitter randomization */
+} pos_replan_t;
+
 /* ---------- Per-train position state ---------- */
 
 typedef struct {
@@ -38,24 +72,19 @@ typedef struct {
     int train_ind;
 
     /* Current position */
-    track_node *cur_sensor;     // most-recently triggered sensor node 
-    uint64_t    cur_sensor_time;   //us
-    int32_t     effective_v;    // EMA-corrected speed estimate (mm/s) 
-    int         user_speed;     //0-14
+    track_node *cur_sensor;     /* most-recently triggered sensor node */
+    uint64_t    cur_sensor_time;   // us 
+    int32_t     effective_v;    /* EMA-corrected speed estimate (mm/s) */
+    int         user_speed;     /* 0-14 */
 
     /* Prediction */
-    track_node *pred_next_sensor;
-    track_node *pred_alt_sensor;   /* first sensor in OTHER branch direction at next switch */
-    track_node *pred_branch_node;  /* first BRANCH on path from cur_sensor; paired with pred_alt_sensor */
-    uint64_t    pred_trigger_time;
-    int64_t     last_time_err_us;  /* t_actual - t_predicted (us) */
-    int32_t     last_dist_err_mm;  /* effective_v * last_time_err_us / 1e6 */
+    pos_pred_t  pred;
 
     /* Route / target */
     train_route_state_t route_state;
-    track_node *target_sensor;     
+    track_node *target_sensor;
     int32_t     target_offset_mm;  /* additional mm past target_sensor */
-    int32_t     dist_to_target_mm; 
+    int32_t     dist_to_target_mm;
 
     /* Deferred goto: target stored here until speed is stable on the loop.
      * Cleared when the route is actually executed. */
@@ -68,14 +97,12 @@ typedef struct {
     int32_t     queued_offset_mm;
     int         queued_valid;
 
-    /* 1 = forward loop direction.
-     * 0 = reverse direction.
-     * affects which target vs target->reverse. */
+    /* 1 = forward loop direction; 0 = reverse direction. */
     int going_forward;
     uint8_t position_known;
 
     /* Original user-specified goto target, preserved across route execution
-     * for off-route recovery.*/
+     * for off-route recovery. */
     track_node *orig_user_target;
     int32_t     orig_target_offset;
 
@@ -88,21 +115,17 @@ typedef struct {
      * Used by pos_on_tick() to fire the STOPPING → STOPPED transition. */
     uint64_t    stopping_since_us;
 
-    /* WAIT_RESOURCE bookkeeping */
-    uint64_t    next_replan_us;
-    int         replan_retry_count;  /* exponential backoff retry counter */
-    uint32_t    replan_rand_state;   /* LCG state for jitter randomization */
+    /* WAIT_RESOURCE backoff */
+    pos_replan_t replan;
 
     /* cur_sensor_time + 2*(T1+T2), where T1/T2 are the
-     * expected travel times to the next two sensors.  
-     */
+     * expected travel times to the next two sensors. */
     uint64_t    dead_track_deadline_us;
 
     /* Per-speed EMA cache.
      * cached_v[s] holds the last calibrated effective_v for user speed s.
      * 0 = unset; fall back to speed_table_get_v(train, s).
-     * Saved on each stop; restored on restart at the same speed
-    */
+     * Saved on each stop; restored on restart at the same speed. */
     int32_t     cached_v[15];
 
     /* Distance remaining (mm) in the post-speed-change warm-up window.
@@ -110,37 +133,23 @@ typedef struct {
      * Decremented by the measured edge distance on each sensor trigger. */
     int32_t     speed_warmup_mm;
 
-    /* Mid-route reversal state.
-     * When midrev_active=1, the current target_sensor is the reversal stop
-     * point.  After the train stops there, it reverses and continues to
-     * midrev_final_target via the second-leg switches stored here. */
-    int         midrev_active;
-    track_node *midrev_sensor;        /* sensor that triggered the reversal stop */
-    track_node *midrev_final_target;  /* ultimate destination after reversal */
-    int32_t     midrev_final_offset;  /* offset past final target (mm) */
-    int         midrev_sw_count;
-    int         midrev_sw_nums[20];
-    char        midrev_sw_dirs[20];
-    int32_t     midrev_dist_after;    /* dist from reversal->reverse to final target */
+    /* Mid-route reversal */
+    pos_midrev_t midrev;
 
     /* Path-based distance tracking.
      * route_path[0..count-1]: node indices of the current leg in forward order.
      * route_path_cursor: index of the last confirmed sensor (cur_sensor) in route_path.
      * route_dist_anchor_mm: sum of edge lengths from route_path[cursor] to the last
      *   node (target_sensor), plus target_offset_mm.  Set at route start and updated
-     *   on every on-route sensor hit.  */
+     *   on every on-route sensor hit. */
     uint16_t route_path[TRACK_MAX];
     int      route_path_count;
     int      route_path_cursor;
     int32_t  route_dist_anchor_mm;
 
-    /* Second-leg path stored so midrev completion can switch to it. */
-    uint16_t midrev_path2[TRACK_MAX];
-    int      midrev_path2_count;
-
     /* If 1: started via pos_start_direction_find; stop after direction confirmed
      * instead of planning a route to a target. */
-    uint8_t     find_dir_only;
+    uint8_t  find_dir_only;
 
 } train_pos_t;
 

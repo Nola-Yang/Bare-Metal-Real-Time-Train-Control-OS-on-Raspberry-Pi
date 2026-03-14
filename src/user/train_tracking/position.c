@@ -28,7 +28,7 @@ static route_plan_t g_pos_try_rp_temp;
     static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
         {153, 153, 153, 153, 153};
 
-    static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] = 
+    static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] =
     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 120, -1, -1, -1, -1, 101,
      -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
      130, -1, 140  , -1, -1, -1, 120, -1, -1, -1, -1, -1, -1, 200, -1, -1,
@@ -40,7 +40,7 @@ static route_plan_t g_pos_try_rp_temp;
     static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
         {167, 167, 167, 167, 167};
 
-    static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] = 
+    static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] =
     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
      -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
      -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -125,12 +125,12 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->cur_sensor_time       = 0;
             slot->effective_v           = 0;
             slot->user_speed            = 0;
-            slot->pred_next_sensor      = NULL;
-            slot->pred_alt_sensor       = NULL;
-            slot->pred_branch_node      = NULL;
-            slot->pred_trigger_time     = 0;
-            slot->last_time_err_us      = 0;
-            slot->last_dist_err_mm      = 0;
+            slot->pred.next_sensor      = NULL;
+            slot->pred.alt_sensor       = NULL;
+            slot->pred.branch_node      = NULL;
+            slot->pred.trigger_time     = 0;
+            slot->pred.last_time_err_us = 0;
+            slot->pred.last_dist_err_mm = 0;
             slot->route_state           = TRAIN_STATE_UNKNOWN;
             slot->target_sensor         = NULL;
             slot->target_offset_mm      = 0;
@@ -146,32 +146,57 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->orig_target_offset    = 0;
             slot->offroute_valid           = 0;
             slot->offroute_expected_sensor = NULL;
-            slot->stopping_since_us       = 0;
-            slot->next_replan_us          = 0;
-            slot->replan_retry_count      = 0;
-            slot->replan_rand_state       = (uint32_t)(slot->train_num * 1234567u + 1u);
-            slot->dead_track_deadline_us  = 0;
+            slot->stopping_since_us        = 0;
+            slot->replan.next_us           = 0;
+            slot->replan.retry_count       = 0;
+            slot->replan.rand_state        = (uint32_t)(slot->train_num * 1234567u + 1u);
+            slot->dead_track_deadline_us   = 0;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
-            slot->speed_warmup_mm = 0;
-            slot->midrev_active       = 0;
-            slot->midrev_sensor       = NULL;
-            slot->midrev_final_target = NULL;
-            slot->midrev_final_offset = 0;
-            slot->route_path_count    = 0;
-            slot->route_path_cursor   = 0;
+            slot->speed_warmup_mm      = 0;
+            slot->midrev.active        = 0;
+            slot->midrev.sensor        = NULL;
+            slot->midrev.final_target  = NULL;
+            slot->midrev.final_offset  = 0;
+            slot->route_path_count     = 0;
+            slot->route_path_cursor    = 0;
             slot->route_dist_anchor_mm = 0;
-            slot->midrev_path2_count  = 0;
-            slot->midrev_sw_count     = 0;
-            slot->midrev_dist_after   = 0;
+            slot->midrev.path2_count   = 0;
+            slot->midrev.sw_count      = 0;
+            slot->midrev.dist_after    = 0;
             for (int k = 0; k < 20; k++) {
-                slot->midrev_sw_nums[k] = 0;
-                slot->midrev_sw_dirs[k] = '?';
+                slot->midrev.sw_nums[k] = 0;
+                slot->midrev.sw_dirs[k] = '?';
             }
-            slot->find_dir_only   = 0;
+            slot->find_dir_only = 0;
             return slot;
         }
     }
     return NULL;
+}
+
+
+void pos_clear_prediction(train_pos_t *pos) {
+    pos->pred.next_sensor  = NULL;
+    pos->pred.alt_sensor   = NULL;
+    pos->pred.branch_node  = NULL;
+    pos->pred.trigger_time = 0;
+    pos->dead_track_deadline_us = 0;
+}
+
+void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
+    pos->user_speed      = GOTO_USER_SPEED;
+    int can_spd          = 1 + (GOTO_USER_SPEED - 1) * 77;
+    track_set_speed(pos->train_num, can_spd);
+    int32_t cv           = pos->cached_v[GOTO_USER_SPEED];
+    pos->effective_v     = (cv > 0) ? cv : speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
+    pos->speed_warmup_mm = 400;
+    pos->cur_sensor_time = now_us;
+}
+
+void pos_save_ema_and_stop(train_pos_t *pos) {
+    if (pos->user_speed > 0 && pos->user_speed <= 14)
+        pos->cached_v[pos->user_speed] = pos->effective_v;
+    pos->effective_v = 0;
 }
 
 static int state_is_goto_active(train_route_state_t st) {
@@ -203,14 +228,11 @@ void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us) {
     track_set_speed(pos->train_num, 0);
     traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
     pos->route_state = TRAIN_STATE_WAIT_RESOURCE;
-    pos->replan_retry_count = 0;
-    pos->next_replan_us = now_us + REPLAN_INTERVAL_US;
+    pos->replan.retry_count = 0;
+    pos->replan.next_us = now_us + REPLAN_INTERVAL_US;
     pos->stopping_since_us = now_us;
     pos->effective_v = 0;
-    pos->pred_next_sensor = NULL;
-    pos->pred_alt_sensor  = NULL;
-    pos->pred_trigger_time = 0;
-    pos->dead_track_deadline_us = 0;
+    pos_clear_prediction(pos);
     ui_mark_position_dirty();
 }
 
@@ -232,9 +254,7 @@ void pos_on_reverse(int train_num) {
     if (pos->cur_sensor && pos->cur_sensor->reverse)
         pos->cur_sensor = pos->cur_sensor->reverse;
 
-    pos->pred_next_sensor  = NULL;
-    pos->pred_alt_sensor   = NULL;
-    pos->pred_trigger_time = 0;
+    pos_clear_prediction(pos);
     traffic_release_train(train_num);
 
     ui_mark_position_dirty();
@@ -294,13 +314,13 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     if (!pos->cur_sensor || !user_target) return 0;
 
-    track_node *cur_sensor_orig = pos->cur_sensor; 
+    track_node *cur_sensor_orig = pos->cur_sensor;
 
-    /* Plan from pred_next_sensor if available.
+    /* Plan from pred.next_sensor if available.
      * Never use cur_sensor directly — the train has already passed it.
      * Fallback: walk the graph for the real next sensor; if the path leads
      * to an EXIT (dead end), use cur_sensor->reverse instead (needs reversal). */
-    track_node *plan_start = pos->pred_next_sensor;
+    track_node *plan_start = pos->pred.next_sensor;
     int plan_start_needs_reverse = 0;
     if (!plan_start) {
         uint64_t dt_ignored = 0;
@@ -319,7 +339,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     /*
      * Two candidate origins:
-     *   origins[0] = plan_start  (pred_next_sensor or graph-walk next) — forward direction
+     *   origins[0] = plan_start  (pred.next_sensor or graph-walk next) — forward direction
      *   origins[1] = cur_sensor->reverse                               — reversed direction
      * When plan_start_needs_reverse, origins[0] IS the reverse node;
      * skip origins[1] to avoid duplicate planning.
@@ -347,7 +367,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
             }
             continue;
         }
-       
+
         int32_t effective_d = rp_temp->has_reversal
                               ? rp_temp->dist_to_reversal_mm + rp_temp->dist_after_reversal_mm
                               : rp_temp->total_dist_mm;
@@ -399,11 +419,11 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     if (need_initial_reverse) {
         track_reverse(pos->train_num);
-        pos->cur_sensor      = cur_sensor_orig->reverse;
-        pos->going_forward   = !pos->going_forward;
-        pos->pred_next_sensor       = cur_sensor_orig->reverse;
-        pos->pred_alt_sensor        = NULL;
-        pos->pred_trigger_time      = 0;
+        pos->cur_sensor    = cur_sensor_orig->reverse;
+        pos->going_forward = !pos->going_forward;
+        pos->pred.next_sensor  = cur_sensor_orig->reverse;
+        pos->pred.alt_sensor   = NULL;
+        pos->pred.trigger_time = 0;
         pos->dead_track_deadline_us = 0;
     }
 
@@ -420,32 +440,32 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     /* Set up mid-route reversal state if needed. */
     if (rp->has_reversal) {
-        pos->midrev_active       = 1;
-        pos->midrev_sensor       = rp->reversal_sensor;
-        pos->midrev_final_target = rp->chosen_target;
-        pos->midrev_final_offset = offset_mm;
-        pos->midrev_sw_count     = rp->sw_count2;
+        pos->midrev.active       = 1;
+        pos->midrev.sensor       = rp->reversal_sensor;
+        pos->midrev.final_target = rp->chosen_target;
+        pos->midrev.final_offset = offset_mm;
+        pos->midrev.sw_count     = rp->sw_count2;
         for (int i = 0; i < rp->sw_count2; i++) {
-            pos->midrev_sw_nums[i] = rp->sw_nums2[i];
-            pos->midrev_sw_dirs[i] = rp->sw_dirs2[i];
+            pos->midrev.sw_nums[i] = rp->sw_nums2[i];
+            pos->midrev.sw_dirs[i] = rp->sw_dirs2[i];
         }
-        pos->midrev_dist_after = rp->dist_after_reversal_mm;
+        pos->midrev.dist_after = rp->dist_after_reversal_mm;
         pos->target_sensor    = rp->reversal_sensor;
         pos->target_offset_mm = 0;
-        pos->orig_user_target   = pos->midrev_final_target;
+        pos->orig_user_target   = pos->midrev.final_target;
         pos->orig_target_offset = offset_mm;
 
         pos->route_path_count = rp->path_count;
         for (int i = 0; i < rp->path_count; i++) pos->route_path[i] = rp->path_nodes[i];
-        pos->midrev_path2_count = rp->path_count2;
-        for (int i = 0; i < rp->path_count2; i++) pos->midrev_path2[i] = rp->path_nodes2[i];
+        pos->midrev.path2_count = rp->path_count2;
+        for (int i = 0; i < rp->path_count2; i++) pos->midrev.path2[i] = rp->path_nodes2[i];
     } else {
-        pos->midrev_active    = 0;
+        pos->midrev.active    = 0;
         pos->target_sensor    = chosen_target;
         pos->target_offset_mm = offset_mm;
 
         pos->route_path_count   = rp->path_count;
-        pos->midrev_path2_count = 0;
+        pos->midrev.path2_count = 0;
         for (int i = 0; i < rp->path_count; i++) pos->route_path[i] = rp->path_nodes[i];
     }
 
@@ -456,13 +476,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
         if (pos->route_dist_anchor_mm < 0) pos->route_dist_anchor_mm = 0;
     }
 
-    pos->user_speed  = GOTO_USER_SPEED;
-    int can_spd = 1 + (pos->user_speed - 1) * 77;
-    track_set_speed(pos->train_num, can_spd);
-    int32_t cv = pos->cached_v[pos->user_speed];
-    pos->effective_v     = (cv > 0) ? cv : speed_table_get_v(pos->train_ind, pos->user_speed);
-    pos->speed_warmup_mm = 400;
-    pos->cur_sensor_time = now_us;
+    pos_launch_at_goto_speed(pos, now_us);
 
     int32_t dist_first_leg = rp->has_reversal
                              ? rp->dist_to_reversal_mm
@@ -477,18 +491,18 @@ int pos_try_direct_goto(train_pos_t *pos) {
     pos->pending_target    = NULL;
     pos->pending_offset_mm = 0;
     pos->route_state = TRAIN_STATE_ON_ROUTE;
-    pos->next_replan_us = 0;
+    pos->replan.next_us = 0;
 
     if (!need_initial_reverse) {
         uint64_t dt = 0;
-        pos->pred_next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
-        pos->pred_trigger_time = now_us + dt;
+        pos->pred.next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
+        pos->pred.trigger_time = now_us + dt;
     }
 
-    if (pos->pred_next_sensor != NULL && pos->pred_trigger_time > now_us) {
-        uint64_t T1 = pos->pred_trigger_time - now_us;
+    if (pos->pred.next_sensor != NULL && pos->pred.trigger_time > now_us) {
+        uint64_t T1 = pos->pred.trigger_time - now_us;
         uint64_t T2 = 0;
-        predict_next_sensor(pos, pos->pred_next_sensor, &T2);
+        predict_next_sensor(pos, pos->pred.next_sensor, &T2);
         pos->dead_track_deadline_us =
             now_us + DEAD_TRACK_DEADLINE_MULTIPLIER * (T1 + T2);
     } else {
@@ -527,7 +541,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     pos->target_sensor     = target;
     pos->target_offset_mm  = offset_mm;
     pos->dist_to_target_mm = 0;
-    pos->next_replan_us = 0;
+    pos->replan.next_us = 0;
     ui_mark_position_dirty();
 
     if (pos->route_state == TRAIN_STATE_UNKNOWN) {
@@ -568,7 +582,7 @@ int pos_start_direction_find(int train_num) {
     pos->target_sensor            = NULL;
     pos->target_offset_mm         = 0;
     pos->dist_to_target_mm        = 0;
-    pos->next_replan_us           = 0;
+    pos->replan.next_us           = 0;
     pos->offroute_valid           = 0;
     pos->offroute_expected_sensor = NULL;
     pos->find_dir_only            = 1;
@@ -615,7 +629,7 @@ void pos_mark_routes_dirty(void) {
         train_pos_t *pos = &g_pos[i];
         if (pos->train_num < 0) continue;
         if (pos->route_state == TRAIN_STATE_WAIT_RESOURCE) {
-            pos->next_replan_us = 0;
+            pos->replan.next_us = 0;
         }
     }
 }

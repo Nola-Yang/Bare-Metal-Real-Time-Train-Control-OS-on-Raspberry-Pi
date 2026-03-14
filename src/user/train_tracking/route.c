@@ -316,7 +316,7 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
                                 uint64_t *out_dt_us) {
     if (!cur) {
         if (out_dt_us) *out_dt_us = 0;
-        if (pos) { pos->pred_alt_sensor = NULL; pos->pred_branch_node = NULL; }
+        if (pos) { pos->pred.alt_sensor = NULL; pos->pred.branch_node = NULL; }
         return NULL;
     }
 
@@ -333,8 +333,8 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
                 int sw_idx = track_switch_to_index(n->num);
                 char st = (sw_idx >= 0) ? track_get_switch_state()[sw_idx].state : '?';
                 int alt_dir = (st == 'S') ? DIR_CURVED : DIR_STRAIGHT;
-                pos->pred_alt_sensor  = first_sensor_forward(n->edge[alt_dir].dest, 20);
-                pos->pred_branch_node = n;
+                pos->pred.alt_sensor  = first_sensor_forward(n->edge[alt_dir].dest, 20);
+                pos->pred.branch_node = n;
             }
         }
 
@@ -356,7 +356,7 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
     }
 
     if (out_dt_us) *out_dt_us = 0;
-    if (!found_branch && pos) { pos->pred_alt_sensor = NULL; pos->pred_branch_node = NULL; }
+    if (!found_branch && pos) { pos->pred.alt_sensor = NULL; pos->pred.branch_node = NULL; }
     return NULL;
 }
 

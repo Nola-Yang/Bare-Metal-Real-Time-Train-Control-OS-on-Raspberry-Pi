@@ -256,10 +256,10 @@ static void ui_build_dest_text(const train_pos_t *pos, char *out, int cap) {
         n = ui_limited_append_char(out, n, cap, '-');
     } else {
         n = ui_limited_append_str(out, n, cap, pos->target_sensor->name);
-        if (pos->midrev_active && pos->midrev_final_target &&
-            pos->midrev_final_target->name) {
+        if (pos->midrev.active && pos->midrev.final_target &&
+            pos->midrev.final_target->name) {
             n = ui_limited_append_char(out, n, cap, '>');
-            n = ui_limited_append_str(out, n, cap, pos->midrev_final_target->name);
+            n = ui_limited_append_str(out, n, cap, pos->midrev.final_target->name);
         }
     }
     ui_limited_finish(out, n, cap);
@@ -317,8 +317,8 @@ static char *ui_append_position_row(char *p, int row, int train, const train_pos
     char rem_buf[24];
     const char *cur_name = (pos && pos->cur_sensor && pos->cur_sensor->name)
                            ? pos->cur_sensor->name : "-";
-    const char *next_name = (pos && pos->pred_next_sensor && pos->pred_next_sensor->name)
-                            ? pos->pred_next_sensor->name : "-";
+    const char *next_name = (pos && pos->pred.next_sensor && pos->pred.next_sensor->name)
+                            ? pos->pred.next_sensor->name : "-";
     const char *queued_name = (pos && pos->queued_valid && pos->queued_target &&
                                pos->queued_target->name)
                               ? pos->queued_target->name : "-";

@@ -45,10 +45,10 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
                                 int *out_was_predicted, int *out_is_skip) {
 
     /* Skip detection: sensor reachable from predicted next -> missed intermediates */
-    *out_was_predicted = (pos->pred_next_sensor == hit);
+    *out_was_predicted = (pos->pred.next_sensor == hit);
     *out_is_skip = 0;
-    if (pos->pred_next_sensor && !*out_was_predicted) {
-        if (follow_dist(pos->pred_next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS) >= 0) {
+    if (pos->pred.next_sensor && !*out_was_predicted) {
+        if (follow_dist(pos->pred.next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS) >= 0) {
             *out_is_skip = 1;
         }
     }
@@ -65,15 +65,15 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
     int in_warmup = (pos->speed_warmup_mm > 0);
 
     /* Prediction error accounting */
-    if (*out_was_predicted && pos->pred_trigger_time > 0) {
-        pos->last_time_err_us =
-            (int64_t)time_us - (int64_t)pos->pred_trigger_time;
+    if (*out_was_predicted && pos->pred.trigger_time > 0) {
+        pos->pred.last_time_err_us =
+            (int64_t)time_us - (int64_t)pos->pred.trigger_time;
         {
             int64_t derr = (int64_t)pos->effective_v
-                           * pos->last_time_err_us / 1000000LL;
+                           * pos->pred.last_time_err_us / 1000000LL;
             if (derr >  99999) derr =  99999;
             if (derr < -99999) derr = -99999;
-            pos->last_dist_err_mm = (int32_t)derr;
+            pos->pred.last_dist_err_mm = (int32_t)derr;
         }
         ui_mark_prediction_dirty();
     }
@@ -101,7 +101,7 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
             if (dt > 10000 && meas_dist > 0) {
                 int32_t meas_v =
                     (int32_t)((int64_t)meas_dist * 1000000LL / (int64_t)dt);
-                
+
                 if (meas_v > 1800) meas_v = 1800;
                 pos->effective_v = (int32_t)((7LL * pos->effective_v + meas_v) / 8);
             }
@@ -129,10 +129,8 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     if (pos->route_state == TRAIN_STATE_ON_ROUTE && pos->target_sensor != NULL) {
         if (!traffic_is_reserved_by(hit, pos->train_num)) {
             pos->offroute_valid           = 1;
-            pos->offroute_expected_sensor = pos->pred_next_sensor;
-            pos->pred_next_sensor         = NULL;
-            pos->pred_alt_sensor          = NULL;
-            pos->pred_trigger_time        = 0;
+            pos->offroute_expected_sensor = pos->pred.next_sensor;
+            pos_clear_prediction(pos);
             track_set_speed(pos->train_num, 0);
             pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
             pos->stopping_since_us = time_us;
@@ -188,8 +186,8 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     }
 
     /* LOOP_FIND_DIR: running to acquire position.
-     * First sensor (prev_sensor==NULL): record cur_sensor, compute pred_next, keep running.
-     * Second sensor (prev_sensor!=NULL): direction known, pred_next valid -> stop. */
+     * First sensor (prev_sensor==NULL): record cur_sensor, compute pred.next, keep running.
+     * Second sensor (prev_sensor!=NULL): direction known, pred.next valid -> stop. */
     if (pos->route_state == TRAIN_STATE_LOOP_FIND_DIR && prev_sensor != NULL) {
         track_set_speed(pos->train_num, 0);
         pos->stopping_since_us = time_us;
@@ -198,19 +196,19 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     }
 
     /* Predict next sensor.
-     * Keep pred_next_sensor for correct
-     * sensor attribution on the second hit, but suppress pred_trigger_time
+     * Keep pred.next_sensor for correct
+     * sensor attribution on the second hit, but suppress pred.trigger_time
      * and dead_track_deadline so timing-based logic is not misled. */
     uint64_t dt_pred = 0;
-    pos->pred_next_sensor  = predict_next_sensor(pos, hit, &dt_pred);
+    pos->pred.next_sensor  = predict_next_sensor(pos, hit, &dt_pred);
     if (pos->route_state == TRAIN_STATE_LOOP_FIND_DIR) {
-        pos->pred_trigger_time      = 0;
+        pos->pred.trigger_time      = 0;
         pos->dead_track_deadline_us = 0;
     } else {
-        pos->pred_trigger_time = (dt_pred > 0) ? time_us + dt_pred : 0;
-        if (pos->pred_next_sensor != NULL && dt_pred > 0) {
+        pos->pred.trigger_time = (dt_pred > 0) ? time_us + dt_pred : 0;
+        if (pos->pred.next_sensor != NULL && dt_pred > 0) {
             uint64_t T2 = 0;
-            predict_next_sensor(pos, pos->pred_next_sensor, &T2);
+            predict_next_sensor(pos, pos->pred.next_sensor, &T2);
             pos->dead_track_deadline_us =
                 time_us + DEAD_TRACK_DEADLINE_MULTIPLIER * (dt_pred + T2);
         } else {
@@ -245,12 +243,12 @@ void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us) {
     if (!owner) return;
 
     /* If train took the alt-direction branch, correct the stored switch state */
-    if (owner->pred_alt_sensor == hit && owner->pred_branch_node != NULL) {
-        int sw_idx = track_switch_to_index(owner->pred_branch_node->num);
+    if (owner->pred.alt_sensor == hit && owner->pred.branch_node != NULL) {
+        int sw_idx = track_switch_to_index(owner->pred.branch_node->num);
         if (sw_idx >= 0) {
             char stored = track_get_switch_state()[sw_idx].state;
             char actual = (stored == 'S') ? 'C' : 'S';
-            track_update_switch(owner->pred_branch_node->num, actual);
+            track_update_switch(owner->pred.branch_node->num, actual);
             ui_mark_switches_dirty();
         }
     }
@@ -263,18 +261,18 @@ void pos_on_tick(uint64_t now_us) {
     for (int wi = 0; wi < 6; wi++) {
         train_pos_t *pos = pos_get(WAIT_REPLAN_ORDER[wi]);
         if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) continue;
-        if (pos->next_replan_us > 0 && now_us < pos->next_replan_us) continue;
+        if (pos->replan.next_us > 0 && now_us < pos->replan.next_us) continue;
 
 
-        int backoff_exp = pos->replan_retry_count;
+        int backoff_exp = pos->replan.retry_count;
         if (backoff_exp > REPLAN_MAX_BACKOFF) backoff_exp = REPLAN_MAX_BACKOFF;
         uint64_t backoff_us = REPLAN_INTERVAL_US << backoff_exp;
 
-        pos->replan_rand_state = pos->replan_rand_state * 1664525u + 1013904223u;
-        uint64_t jitter_us = (pos->replan_rand_state >> 16) % (uint32_t)REPLAN_INTERVAL_US;
+        pos->replan.rand_state = pos->replan.rand_state * 1664525u + 1013904223u;
+        uint64_t jitter_us = (pos->replan.rand_state >> 16) % (uint32_t)REPLAN_INTERVAL_US;
 
-        pos->next_replan_us = now_us + backoff_us + jitter_us;
-        pos->replan_retry_count++;
+        pos->replan.next_us = now_us + backoff_us + jitter_us;
+        pos->replan.retry_count++;
 
         if (pos->pending_target == NULL && pos->orig_user_target != NULL) {
             pos->pending_target = pos->orig_user_target;
@@ -300,9 +298,7 @@ void pos_on_tick(uint64_t now_us) {
             uint64_t brake_us = calc_brake_us(pos);
             if (now_us < pos->stopping_since_us + brake_us) continue;
 
-            if (pos->user_speed > 0 && pos->user_speed <= 14)
-                pos->cached_v[pos->user_speed] = pos->effective_v;
-            pos->effective_v = 0;
+            pos_save_ema_and_stop(pos);
 
             traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
 
@@ -335,9 +331,7 @@ void pos_on_tick(uint64_t now_us) {
          * command has been sent.  Once physically stopped, drive to loop. */
         if (pos->route_state == TRAIN_STATE_STOPPING_GOTO) {
             if (now_us >= pos->stopping_since_us + calc_brake_us(pos)) {
-                if (pos->user_speed > 0 && pos->user_speed <= 14)
-                    pos->cached_v[pos->user_speed] = pos->effective_v;
-                pos->effective_v = 0;
+                pos_save_ema_and_stop(pos);
                 if (pos->find_dir_only) {
                     pos->find_dir_only = 0;
                     pos->route_state   = TRAIN_STATE_STOPPED;
@@ -358,12 +352,10 @@ void pos_on_tick(uint64_t now_us) {
             if (pos->route_state == TRAIN_STATE_STOPPING &&
                 pos->stopping_since_us > 0) {
                 if (now_us >= pos->stopping_since_us + calc_brake_us(pos)) {
-                    if (pos->user_speed > 0 && pos->user_speed <= 14)
-                        pos->cached_v[pos->user_speed] = pos->effective_v;
-                    pos->effective_v = 0;
+                    pos_save_ema_and_stop(pos);
 
-                    if (pos->midrev_active) {
-                        pos->midrev_active = 0;
+                    if (pos->midrev.active) {
+                        pos->midrev.active = 0;
 
                         track_reverse(pos->train_num);
                         pos->going_forward = !pos->going_forward;
@@ -371,8 +363,8 @@ void pos_on_tick(uint64_t now_us) {
                             pos->cur_sensor = pos->cur_sensor->reverse;
 
                         int switch_blocked = 0;
-                        for (int j = pos->midrev_sw_count - 1; j >= 0; j--) {
-                            int owner = traffic_can_set_switch(pos->midrev_sw_nums[j],
+                        for (int j = pos->midrev.sw_count - 1; j >= 0; j--) {
+                            int owner = traffic_can_set_switch(pos->midrev.sw_nums[j],
                                                                pos->train_num);
                             if (owner >= 0) {
                                 switch_blocked = 1;
@@ -384,58 +376,51 @@ void pos_on_tick(uint64_t now_us) {
                             continue;
                         }
 
-                        for (int j = pos->midrev_sw_count - 1; j >= 0; j--) {
-                            track_set_switch(pos->midrev_sw_nums[j],
-                                             pos->midrev_sw_dirs[j]);
-                            track_update_switch(pos->midrev_sw_nums[j],
-                                                pos->midrev_sw_dirs[j]);
+                        for (int j = pos->midrev.sw_count - 1; j >= 0; j--) {
+                            track_set_switch(pos->midrev.sw_nums[j],
+                                             pos->midrev.sw_dirs[j]);
+                            track_update_switch(pos->midrev.sw_nums[j],
+                                                pos->midrev.sw_dirs[j]);
                         }
-                        resend_unreliable_switches(pos->midrev_sw_nums,
-                                                    pos->midrev_sw_dirs,
-                                                    pos->midrev_sw_count);
-                        if (pos->midrev_sw_count > 0) ui_mark_switches_dirty();
+                        resend_unreliable_switches(pos->midrev.sw_nums,
+                                                    pos->midrev.sw_dirs,
+                                                    pos->midrev.sw_count);
+                        if (pos->midrev.sw_count > 0) ui_mark_switches_dirty();
 
-                        pos->target_sensor    = pos->midrev_final_target;
-                        pos->target_offset_mm = pos->midrev_final_offset;
+                        pos->target_sensor    = pos->midrev.final_target;
+                        pos->target_offset_mm = pos->midrev.final_offset;
 
                         /* Switch active path to the stored second leg. */
-                        pos->route_path_count = pos->midrev_path2_count;
-                        for (int j = 0; j < pos->midrev_path2_count; j++)
-                            pos->route_path[j] = pos->midrev_path2[j];
+                        pos->route_path_count = pos->midrev.path2_count;
+                        for (int j = 0; j < pos->midrev.path2_count; j++)
+                            pos->route_path[j] = pos->midrev.path2[j];
                         pos->route_path_cursor = 0;
                         {
                             int32_t pd2 = route_path_dist_from(pos->route_path, 0,
                                                                 pos->route_path_count);
                             if (pd2 >= 0) {
-                                pos->route_dist_anchor_mm = pd2 + pos->midrev_final_offset;
+                                pos->route_dist_anchor_mm = pd2 + pos->midrev.final_offset;
                                 if (pos->route_dist_anchor_mm < 0) pos->route_dist_anchor_mm = 0;
                             } else {
                                 /* fallback: use pre-planned estimate */
                                 pos->route_dist_anchor_mm =
-                                    pos->midrev_dist_after + pos->midrev_final_offset;
+                                    pos->midrev.dist_after + pos->midrev.final_offset;
                                 if (pos->route_dist_anchor_mm < 0) pos->route_dist_anchor_mm = 0;
                             }
                             pos->dist_to_target_mm = pos->route_dist_anchor_mm;
                         }
 
-                        pos->user_speed = GOTO_USER_SPEED;
-                        int can_spd = 1 + (GOTO_USER_SPEED - 1) * 77;
-                        track_set_speed(pos->train_num, can_spd);
-                        int32_t cv = pos->cached_v[GOTO_USER_SPEED];
-                        pos->effective_v = (cv > 0) ? cv
-                            : speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
-                        pos->speed_warmup_mm = 400;
-                        pos->cur_sensor_time = now_us;
+                        pos_launch_at_goto_speed(pos, now_us);
                         pos->stopping_since_us = 0;
 
                         /* First sensor after reversal = the reversal sensor itself
                          * (cur_sensor was already updated to old_cur->reverse above).
-                         * Use pred_trigger_time=0 to suppress the time gate so that
+                         * Use pred.trigger_time=0 to suppress the time gate so that
                          * a WAIT_RESOURCE delay between reversal and route-start
                          * does not cause the sensor to be time-gated out. */
-                        pos->pred_next_sensor       = pos->cur_sensor;
-                        pos->pred_alt_sensor        = NULL;
-                        pos->pred_trigger_time      = 0;
+                        pos->pred.next_sensor       = pos->cur_sensor;
+                        pos->pred.alt_sensor        = NULL;
+                        pos->pred.trigger_time      = 0;
                         pos->dead_track_deadline_us = 0;
 
                         pos->route_state = TRAIN_STATE_ON_ROUTE;
@@ -514,36 +499,33 @@ void pos_on_tick(uint64_t now_us) {
             pos->target_sensor            = NULL;
             pos->target_offset_mm         = 0;
             pos->offroute_valid           = 1;
-            pos->offroute_expected_sensor = pos->pred_next_sensor;
-            pos->pred_next_sensor         = NULL;
-            pos->pred_alt_sensor          = NULL;
-            pos->pred_trigger_time        = 0;
-            pos->dead_track_deadline_us   = 0;
+            pos->offroute_expected_sensor = pos->pred.next_sensor;
+            pos_clear_prediction(pos);
             traffic_release_train(pos->train_num);
             /* orig_user_target / orig_target_offset kept for recovery */
             ui_mark_position_dirty();
             continue;
         }
 
-        if (pos->pred_trigger_time == 0) continue;
-        if (pos->pred_next_sensor == NULL) continue;
+        if (pos->pred.trigger_time == 0) continue;
+        if (pos->pred.next_sensor == NULL) continue;
 
         /* If more than 2x the expected interval has elapsed without a sensor,
          * advance the prediction to the next node (handles broken/missing
          * sensors without declaring dead track). */
         if (pos->cur_sensor_time > 0 &&
-            pos->pred_trigger_time > pos->cur_sensor_time &&
-            now_us > 2 * pos->pred_trigger_time - pos->cur_sensor_time) {
+            pos->pred.trigger_time > pos->cur_sensor_time &&
+            now_us > 2 * pos->pred.trigger_time - pos->cur_sensor_time) {
 
-            track_node *skipped = pos->pred_next_sensor;
+            track_node *skipped = pos->pred.next_sensor;
             uint64_t dt = 0;
-            pos->pred_next_sensor  = predict_next_sensor(pos, skipped, &dt);
-            pos->pred_trigger_time = now_us + dt;
+            pos->pred.next_sensor  = predict_next_sensor(pos, skipped, &dt);
+            pos->pred.trigger_time = now_us + dt;
 
             if (pos->target_sensor &&
                 pos->route_state == TRAIN_STATE_ON_ROUTE) {
                 int32_t skip_dist = follow_dist(skipped,
-                    (pos->pred_next_sensor ? pos->pred_next_sensor
+                    (pos->pred.next_sensor ? pos->pred.next_sensor
                                            : pos->target_sensor), 50);
                 if (skip_dist > 0) {
                     pos->dist_to_target_mm -= skip_dist;
