@@ -32,7 +32,7 @@
 static uint64_t calc_brake_us(train_pos_t *pos) {
     int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
     if (pos->effective_v > 0 && decel > 0)
-        return (uint64_t)pos->effective_v * 1500000ULL / (uint64_t)decel;
+        return STOP_EARLY_US[pos->train_ind] + (uint64_t)pos->effective_v * 1500000ULL / (uint64_t)decel;
     return 1000000ULL;
 }
 
