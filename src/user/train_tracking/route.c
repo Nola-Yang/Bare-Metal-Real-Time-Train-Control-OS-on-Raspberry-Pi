@@ -228,6 +228,33 @@ static int32_t dijk_reconstruct(int32_t *dist, int16_t *prev,
     return dist[tgt_idx];
 }
 
+/* ===== Path-based distance helpers ===== */
+
+int32_t route_path_dist_from(const uint16_t *path, int cursor, int count) {
+    int32_t total = 0;
+    for (int i = cursor; i < count - 1; i++) {
+        track_node *a = &g_track[path[i]];
+        track_node *b = &g_track[path[i + 1]];
+        int32_t d = -1;
+        if (a->type == NODE_BRANCH) {
+            if (a->edge[DIR_STRAIGHT].dest == b) d = (int32_t)a->edge[DIR_STRAIGHT].dist;
+            else if (a->edge[DIR_CURVED].dest == b) d = (int32_t)a->edge[DIR_CURVED].dist;
+        } else {
+            if (a->edge[DIR_AHEAD].dest == b) d = (int32_t)a->edge[DIR_AHEAD].dist;
+        }
+        if (d < 0) return -1;
+        total += d;
+    }
+    return total;
+}
+
+int route_path_find_cursor(const uint16_t *path, int from, int count, int hit_idx) {
+    for (int i = from; i < count; i++) {
+        if ((int)path[i] == hit_idx) return i;
+    }
+    return -1;
+}
+
 /* ===== Other static helpers ===== */
 
 /* Return the edge to follow from node n using current switch states. */

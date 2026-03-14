@@ -218,33 +218,6 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         }
     }
 
-    /* Stop-at logic */
-    if (pos->target_sensor &&
-        pos->route_state == TRAIN_STATE_ON_ROUTE) {
-
-        int32_t rem = follow_dist(hit, pos->target_sensor, 150);
-        if (rem >= 0) {
-            rem += pos->target_offset_mm;
-            if (rem < 0) rem = 0;
-            pos->dist_to_target_mm = rem;
-
-            int user_spd = pos->user_speed;
-            int32_t a    = speed_table_get_decel(pos->train_ind, user_spd, pos->target_sensor);
-
-            if (a > 0) {
-                int32_t d_brake = (int32_t)((int64_t)pos->effective_v
-                                            * pos->effective_v / (2LL * a));
-                /* Issue stop early to compensate overshoot. */
-                int32_t d_early = d_brake + (int32_t)(
-                    (int64_t)pos->effective_v * (int64_t)STOP_EARLY_US[pos->train_ind] / 1000000LL);
-                if (rem <= d_early) {
-                    pos->route_state       = TRAIN_STATE_STOPPING;
-                    pos->stopping_since_us = time_us;
-                    track_set_speed(pos->train_num, 0);
-                }
-            }
-        }
-    }
 
     ui_mark_position_dirty();
 }
@@ -425,19 +398,24 @@ void pos_on_tick(uint64_t now_us) {
                         pos->target_sensor    = pos->midrev_final_target;
                         pos->target_offset_mm = pos->midrev_final_offset;
 
+                        /* Switch active path to the stored second leg. */
+                        pos->route_path_count = pos->midrev_path2_count;
+                        for (int j = 0; j < pos->midrev_path2_count; j++)
+                            pos->route_path[j] = pos->midrev_path2[j];
+                        pos->route_path_cursor = 0;
                         {
-                            int32_t d2 = follow_dist(pos->cur_sensor,
-                                                      pos->midrev_final_target,
-                                                      200);
-                            if (d2 >= 0) {
-                                int32_t rem2 = d2 + pos->midrev_final_offset;
-                                pos->dist_to_target_mm = (rem2 > 0) ? rem2 : 0;
+                            int32_t pd2 = route_path_dist_from(pos->route_path, 0,
+                                                                pos->route_path_count);
+                            if (pd2 >= 0) {
+                                pos->route_dist_anchor_mm = pd2 + pos->midrev_final_offset;
+                                if (pos->route_dist_anchor_mm < 0) pos->route_dist_anchor_mm = 0;
                             } else {
                                 /* fallback: use pre-planned estimate */
-                                int32_t rem2 = pos->midrev_dist_after
-                                               + pos->midrev_final_offset;
-                                pos->dist_to_target_mm = (rem2 > 0) ? rem2 : 0;
+                                pos->route_dist_anchor_mm =
+                                    pos->midrev_dist_after + pos->midrev_final_offset;
+                                if (pos->route_dist_anchor_mm < 0) pos->route_dist_anchor_mm = 0;
                             }
+                            pos->dist_to_target_mm = pos->route_dist_anchor_mm;
                         }
 
                         pos->user_speed = GOTO_USER_SPEED;
@@ -490,14 +468,17 @@ void pos_on_tick(uint64_t now_us) {
             pos->cur_sensor    != NULL &&
             pos->effective_v   >  0) {
 
-            int32_t dist_from_cur = follow_dist(pos->cur_sensor,
-                                                pos->target_sensor, 150);
+            int32_t dist_from_cur = (pos->route_dist_anchor_mm > 0)
+                ? pos->route_dist_anchor_mm
+                : follow_dist(pos->cur_sensor, pos->target_sensor, 150)
+                  + pos->target_offset_mm;
+
             if (dist_from_cur >= 0) {
                 uint64_t elapsed  = now_us - pos->cur_sensor_time;
                 int32_t  traveled = (int32_t)((int64_t)pos->effective_v *
                                               (int64_t)elapsed / 1000000LL);
 
-                int32_t rem = dist_from_cur + pos->target_offset_mm - traveled;
+                int32_t rem = dist_from_cur - traveled;
                 if (rem < 0) rem = 0;
                 pos->dist_to_target_mm = rem;
 

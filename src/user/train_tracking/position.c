@@ -157,6 +157,10 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->midrev_sensor       = NULL;
             slot->midrev_final_target = NULL;
             slot->midrev_final_offset = 0;
+            slot->route_path_count    = 0;
+            slot->route_path_cursor   = 0;
+            slot->route_dist_anchor_mm = 0;
+            slot->midrev_path2_count  = 0;
             slot->midrev_sw_count     = 0;
             slot->midrev_dist_after   = 0;
             for (int k = 0; k < 20; k++) {
@@ -420,10 +424,26 @@ int pos_try_direct_goto(train_pos_t *pos) {
         pos->target_offset_mm = 0;
         pos->orig_user_target   = pos->midrev_final_target;
         pos->orig_target_offset = offset_mm;
+
+        pos->route_path_count = rp->path_count;
+        for (int i = 0; i < rp->path_count; i++) pos->route_path[i] = rp->path_nodes[i];
+        pos->midrev_path2_count = rp->path_count2;
+        for (int i = 0; i < rp->path_count2; i++) pos->midrev_path2[i] = rp->path_nodes2[i];
     } else {
         pos->midrev_active    = 0;
         pos->target_sensor    = chosen_target;
         pos->target_offset_mm = offset_mm;
+
+        pos->route_path_count   = rp->path_count;
+        pos->midrev_path2_count = 0;
+        for (int i = 0; i < rp->path_count; i++) pos->route_path[i] = rp->path_nodes[i];
+    }
+
+    pos->route_path_cursor = 0;
+    {
+        int32_t pd = route_path_dist_from(pos->route_path, 0, pos->route_path_count);
+        pos->route_dist_anchor_mm = (pd >= 0) ? pd + pos->target_offset_mm : 0;
+        if (pos->route_dist_anchor_mm < 0) pos->route_dist_anchor_mm = 0;
     }
 
     pos->user_speed  = GOTO_USER_SPEED;

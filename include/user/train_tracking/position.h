@@ -123,6 +123,21 @@ typedef struct {
     char        midrev_sw_dirs[20];
     int32_t     midrev_dist_after;    /* dist from reversal->reverse to final target */
 
+    /* Path-based distance tracking.
+     * route_path[0..count-1]: node indices of the current leg in forward order.
+     * route_path_cursor: index of the last confirmed sensor (cur_sensor) in route_path.
+     * route_dist_anchor_mm: sum of edge lengths from route_path[cursor] to the last
+     *   node (target_sensor), plus target_offset_mm.  Set at route start and updated
+     *   on every on-route sensor hit.  */
+    uint16_t route_path[TRACK_MAX];
+    int      route_path_count;
+    int      route_path_cursor;
+    int32_t  route_dist_anchor_mm;
+
+    /* Second-leg path stored so midrev completion can switch to it. */
+    uint16_t midrev_path2[TRACK_MAX];
+    int      midrev_path2_count;
+
     /* If 1: started via pos_start_direction_find; stop after direction confirmed
      * instead of planning a route to a target. */
     uint8_t     find_dir_only;

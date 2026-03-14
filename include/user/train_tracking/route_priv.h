@@ -28,6 +28,12 @@ void resend_unreliable_switches(const int *sw_nums, const char *sw_dirs, int sw_
 
 /* ===== Route planning ===== */
 
+/* Sum edge lengths in path[cursor..count-1].  Returns -1 on inconsistency. */
+int32_t route_path_dist_from(const uint16_t *path, int cursor, int count);
+
+/* Search path[from..count-1] for hit_idx.  Returns first matching index or -1. */
+int route_path_find_cursor(const uint16_t *path, int from, int count, int hit_idx);
+
 /* Constrained shortest-distance route from start to target; blocked[i]=1
  * forbids entering node i (except the start node itself). */
 int  bfs_find_route_constrained(track_node *start, track_node *target,
