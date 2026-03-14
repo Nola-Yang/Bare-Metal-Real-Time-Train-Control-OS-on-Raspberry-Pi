@@ -493,3 +493,68 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
     *plan = *best;
     return 1;
 }
+
+
+int bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
+                               int32_t d_brake, const uint8_t *blocked,
+                               route_plan_t *plan) {
+    if (!start_rev || !target || !plan) return 0;
+
+    int32_t threshold = (int32_t)GOTO_MIN_DIST_FACTOR * d_brake;
+
+    dijk_run_from(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir, blocked, start_rev);
+
+    track_node *tgts[2] = { target, target->reverse };
+
+    int32_t best_total = DIJK_INF;
+    int     found      = 0;
+
+    for (int si = 0; si < TRACK_MAX; si++) {
+        track_node *F = &g_track[si];
+        if (F->type != NODE_SENSOR) continue;
+        if (!F->reverse) continue;
+        if (fwd_dist[si] == DIJK_INF) continue;
+        if (fwd_dist[si] < threshold) continue;
+
+        dijk_run_from(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir, blocked, F->reverse);
+
+        for (int ti = 0; ti < 2; ti++) {
+            track_node *tgt = tgts[ti];
+            if (!tgt) continue;
+            int tgt_idx = (int)(tgt - g_track);
+            if (tgt_idx < 0 || tgt_idx >= TRACK_MAX) continue;
+            if (rev_dist[tgt_idx] == DIJK_INF) continue;
+            if (rev_dist[tgt_idx] < d_brake) continue;  
+
+            int32_t total = fwd_dist[si] + rev_dist[tgt_idx];
+            if (total >= best_total) continue;
+
+            g_opt_cand_plan.has_reversal          = 1;
+            g_opt_cand_plan.reversal_sensor        = F;
+            g_opt_cand_plan.chosen_target          = tgt;
+            g_opt_cand_plan.dist_to_reversal_mm    = fwd_dist[si];
+            g_opt_cand_plan.dist_after_reversal_mm = rev_dist[tgt_idx];
+            g_opt_cand_plan.total_dist_mm          = total;
+
+            dijk_reconstruct(fwd_dist, fwd_prev, fwd_sw_num, fwd_sw_dir,
+                              F, g_opt_cand_plan.sw_nums, g_opt_cand_plan.sw_dirs,
+                              &g_opt_cand_plan.sw_count, 20);
+            if (!dijk_reconstruct_nodes(fwd_prev, F, g_opt_cand_plan.path_nodes,
+                                        &g_opt_cand_plan.path_count, TRACK_MAX))
+                continue;
+
+            dijk_reconstruct(rev_dist, rev_prev, rev_sw_num, rev_sw_dir,
+                              tgt, g_opt_cand_plan.sw_nums2, g_opt_cand_plan.sw_dirs2,
+                              &g_opt_cand_plan.sw_count2, 20);
+            if (!dijk_reconstruct_nodes(rev_prev, tgt, g_opt_cand_plan.path_nodes2,
+                                        &g_opt_cand_plan.path_count2, TRACK_MAX))
+                continue;
+
+            best_total = total;
+            *plan      = g_opt_cand_plan;
+            found      = 1;
+        }
+    }
+
+    return found;
+}

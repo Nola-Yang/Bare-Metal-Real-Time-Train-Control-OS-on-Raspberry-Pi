@@ -365,7 +365,17 @@ int pos_try_direct_goto(train_pos_t *pos) {
             pos_enter_wait_resource(pos, read_timer());
             return 1;
         }
-        return 0;
+        /* no long-enough direct route found.
+         * Reverse immediately, drive to a far sensor, reverse again, then
+         * continue to the real target.  Covers the EXIT dead-end case where
+         * the target and current position are on the same short segment. */
+        track_node *boot_start = cur_sensor_orig->reverse;
+        if (!boot_start ||
+            !bfs_find_bootstrap_midrev(boot_start, user_target, d_brake, blocked, rp)) {
+            return 0;
+        }
+        chosen_origin        = boot_start;
+        need_initial_reverse = 1;
     }
 
     uint64_t now_us = read_timer();

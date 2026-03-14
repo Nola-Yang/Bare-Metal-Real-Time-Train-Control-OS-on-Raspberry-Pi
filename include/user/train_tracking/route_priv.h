@@ -51,5 +51,13 @@ int  bfs_find_route_optimal_constrained(track_node *start, track_node *target,
                                         int32_t d_brake, const uint8_t *blocked,
                                         route_plan_t *plan);
 
+/* Bootstrap mid-route reversal for when no long-enough direct route exists.
+ * Drives from start_rev to a far sensor F (dist >= GOTO_MIN_DIST_FACTOR*d_brake),
+ * stops, reverses, then plans from F->reverse to target (dist >= d_brake).
+ * Returns 1 and populates plan on success, 0 on failure. */
+int  bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
+                                int32_t d_brake, const uint8_t *blocked,
+                                route_plan_t *plan);
+
 
 #endif /* _route_priv_h_ */
