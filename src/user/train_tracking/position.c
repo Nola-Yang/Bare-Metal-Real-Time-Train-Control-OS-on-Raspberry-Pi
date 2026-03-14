@@ -250,9 +250,6 @@ void pos_on_speed_change(int train_num, int user_speed) {
 
     pos->user_speed = user_speed;
 
-    if (user_speed == 0 && state_is_goto_active(pos->route_state)) {
-        traffic_release_train(train_num);
-    }
 
     if (user_speed > 0 && user_speed <= 14) {
         int32_t cv = pos->cached_v[user_speed];

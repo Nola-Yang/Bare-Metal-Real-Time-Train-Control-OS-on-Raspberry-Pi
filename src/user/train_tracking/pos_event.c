@@ -465,7 +465,15 @@ void pos_on_tick(uint64_t now_us) {
                         pos->route_state        = TRAIN_STATE_STOPPED;
                         pos->orig_user_target   = NULL;
                         pos->orig_target_offset = 0;
-                        traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
+                        /*the train is physically between cur_sensor and
+                         * target_sensor, so that entire stretch must stay blocked. */
+                        if (pos->target_sensor != NULL && pos->target_sensor != pos->cur_sensor) {
+                            traffic_release_train_keep_range(pos->train_num,
+                                                             pos->cur_sensor,
+                                                             pos->target_sensor);
+                        } else {
+                            traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
+                        }
                         start_queued_goto_if_any(pos);
                     }
                     ui_mark_position_dirty();

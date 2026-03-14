@@ -31,6 +31,11 @@ void traffic_release_train(int train_num);
  * claim the track segment the stopped train physically occupies. */
 void traffic_release_train_keep_position(int train_num, track_node *cur);
 
+/* Release all reservations except the nodes along the path from `from` to `to`
+ * (inclusive, following current switch positions).  Use when the train stopped
+ * between two known sensors so the entire occupied segment stays blocked. */
+void traffic_release_train_keep_range(int train_num, track_node *from, track_node *to);
+
 /* Release reservations on traversed nodes from `from` toward `to` (exclusive). */
 void traffic_release_passed(int train_num, track_node *from, track_node *to);
 

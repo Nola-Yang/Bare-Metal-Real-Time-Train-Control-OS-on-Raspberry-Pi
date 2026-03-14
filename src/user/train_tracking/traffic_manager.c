@@ -181,6 +181,45 @@ void traffic_release_train_keep_position(int train_num, track_node *cur) {
     if (changed) ui_mark_position_dirty();
 }
 
+void traffic_release_train_keep_range(int train_num, track_node *from, track_node *to) {
+    /* Walk from→to along current switch positions and collect indices to keep. */
+    int keep[TRACK_MAX];
+    int keep_count = 0;
+
+    if (from) {
+        track_node *cur = from;
+        for (int h = 0; h < 200; h++) {
+            int idx = node_index(cur);
+            int ridx = reverse_index(idx);
+            if (idx >= 0 && keep_count < TRACK_MAX)  keep[keep_count++] = idx;
+            if (ridx >= 0 && keep_count < TRACK_MAX) keep[keep_count++] = ridx;
+            if (cur == to) break;
+            track_edge *e = tm_get_next_edge(cur);
+            if (!e || !e->dest) break;
+            cur = e->dest;
+        }
+    }
+
+    int changed = 0;
+    for (int i = 0; i < TRACK_MAX; i++) {
+        if (node_owner[i] != train_num) continue;
+        int keep_it = 0;
+        for (int k = 0; k < keep_count; k++) {
+            if (keep[k] == i) { keep_it = 1; break; }
+        }
+        if (!keep_it) { node_owner[i] = -1; changed = 1; }
+    }
+
+    /* Ensure at least from (and its reverse) is always reserved. */
+    if (from) {
+        int idx = node_index(from);
+        int ridx = reverse_index(idx);
+        if (idx >= 0 && node_owner[idx] != train_num) { node_owner[idx] = train_num; changed = 1; }
+        if (ridx >= 0 && node_owner[ridx] != train_num) { node_owner[ridx] = train_num; changed = 1; }
+    }
+    if (changed) ui_mark_position_dirty();
+}
+
 void traffic_release_passed(int train_num, track_node *from, track_node *to) {
     if (train_num < 0 || !from || !to) return;
     if (from == to) return;
