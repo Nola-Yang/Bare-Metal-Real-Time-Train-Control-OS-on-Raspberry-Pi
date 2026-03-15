@@ -21,6 +21,9 @@ extern train_pos_t g_pos[MAX_POS_TRAINS];
 /* Fixed user speed used for all goto operations. */
 #define GOTO_USER_SPEED 8
 
+/* Physical train body length (mm). */
+#define TRAIN_BODY_MM 200
+
 /* WAIT_RESOURCE exponential backoff parameters.
  * wait = BASE * 2^min(retry, MAX_BACKOFF_STEPS) + jitter
  * where jitter is in [0, BASE). Max wait ~3.2s + jitter. */

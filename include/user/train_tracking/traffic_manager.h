@@ -25,16 +25,18 @@ int traffic_reserve_plan(int train_num, track_node *start, const route_plan_t *p
 /* Release all reservations owned by train_num. */
 void traffic_release_train(int train_num);
 
-/* Release all reservations except the physical position (cur and its reverse).
- * Ensures cur and cur->reverse remain reserved for train_num.
- * Use this when entering STOPPED or WAIT_RESOURCE so other trains cannot
- * claim the track segment the stopped train physically occupies. */
-void traffic_release_train_keep_position(int train_num, track_node *cur);
-
-/* Release all reservations except the nodes along the path from `from` to `to`
- * (inclusive, following current switch positions).  Use when the train stopped
- * between two known sensors so the entire occupied segment stays blocked. */
-void traffic_release_train_keep_range(int train_num, track_node *from, track_node *to);
+/* Release all reservations, keeping the train's physical body segment.
+ * going_forward=1: body is behind front (forward travel).
+ *   - If end==NULL: keep front + body_mm upstream.
+ *   - If end!=NULL and front!=end: keep [front->end] + 100mm upstream of end.
+ *   - If end!=NULL and front==end: keep 200mm upstream + target + 100mm downstream.
+ * going_forward=0: body has already passed target (reverse travel).
+ *   - If end==NULL: keep front + body_mm upstream.
+ *   - If end!=NULL and front!=end: keep [front->end] + body_mm downstream of end.
+ *   - If end!=NULL and front==end: keep 100mm upstream + target + 200mm downstream. */
+void traffic_release_train_keep_body(int train_num, track_node *front,
+                                     int going_forward, int32_t body_mm,
+                                     track_node *end);
 
 /* Release reservations on traversed nodes from `from` toward `to` (exclusive). */
 void traffic_release_passed(int train_num, track_node *from, track_node *to);

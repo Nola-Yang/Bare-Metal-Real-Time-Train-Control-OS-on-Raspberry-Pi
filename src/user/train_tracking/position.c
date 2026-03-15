@@ -221,7 +221,8 @@ static int apply_route_switches_safe(const int *sw_nums, const char *sw_dirs,
 void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us) {
     if (!pos) return;
     track_set_speed(pos->train_num, 0);
-    traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
+    traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
+                                    pos->going_forward, TRAIN_BODY_MM, NULL);
     pos->route_state = TRAIN_STATE_WAIT_RESOURCE;
     pos->replan.retry_count = 0;
     pos->replan.next_us = now_us + REPLAN_INTERVAL_US;
