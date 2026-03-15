@@ -356,6 +356,22 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
             }
         }
 
+        /* Upstream-of-prediction fallback: fires only when trigger_time==0
+         * (just reversed, no timing yet).  
+         * Covers: overshoot-then-reverse fires target->reverse before the
+         * predicted reversal sensor. */
+        if (!has_candidate &&
+            pos->route_state == TRAIN_STATE_ON_ROUTE &&
+            pos->pred.next_sensor != NULL &&
+            pos->pred.trigger_time == 0) {
+            int32_t to_pred = follow_dist(hit, pos->pred.next_sensor, 10);
+            if (to_pred >= 0 && to_pred <= 800) {
+                score = 2600 - to_pred / 20;
+                conf = 1;
+                has_candidate = 1;
+            }
+        }
+
         if (!has_candidate || score <= 0) continue;
 
         int terr = 0x7fffffff;
