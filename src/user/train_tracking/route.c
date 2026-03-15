@@ -248,13 +248,6 @@ int32_t route_path_dist_from(const uint16_t *path, int cursor, int count) {
     return total;
 }
 
-int route_path_find_cursor(const uint16_t *path, int from, int count, int hit_idx) {
-    for (int i = from; i < count; i++) {
-        if ((int)path[i] == hit_idx) return i;
-    }
-    return -1;
-}
-
 /* ===== Other static helpers ===== */
 
 /* Return the edge to follow from node n using current switch states. */
@@ -361,39 +354,6 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
 }
 
 /* ===== Route planning (Dijkstra shortest distance) ===== */
-
-int bfs_find_route_constrained(track_node *start, track_node *target,
-                               const uint8_t *blocked, route_plan_t *plan) {
-    if (!start || !target || !plan) return 0;
-    if (start == target) {
-        plan->sw_count = 0;
-        plan->total_dist_mm = 0;
-        plan->has_reversal = 0;
-        plan->chosen_target = target;
-        plan->path_count = 1;
-        plan->path_nodes[0] = (uint16_t)(start - g_track);
-        plan->path_count2 = 0;
-        return 1;
-    }
-
-    dijk_run_from(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir, blocked, start);
-
-    int32_t d = dijk_reconstruct(fwd_dist, fwd_prev, fwd_sw_num, fwd_sw_dir,
-                                  target,
-                                  plan->sw_nums, plan->sw_dirs,
-                                  &plan->sw_count, 20);
-    if (d < 0) return 0;
-    if (!dijk_reconstruct_nodes(fwd_prev, target, plan->path_nodes,
-                                &plan->path_count, TRACK_MAX)) {
-        return 0;
-    }
-    plan->total_dist_mm = d;
-    plan->has_reversal = 0;
-    plan->chosen_target = target;
-    plan->path_count2 = 0;
-    return 1;
-}
-
 
 int bfs_find_route_optimal(track_node *start, track_node *target,
                             int32_t d_brake, route_plan_t *plan) {

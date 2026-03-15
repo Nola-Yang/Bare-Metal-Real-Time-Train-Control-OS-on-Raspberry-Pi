@@ -508,39 +508,3 @@ int traffic_is_reserved_by(track_node *node, int train_num) {
     return node_owner[idx] == train_num;
 }
 
-int traffic_get_reserved_train_list(int *out_trains, int max_trains) {
-    int owners[8];
-    int n = 0;
-    if (max_trains < 0) max_trains = 0;
-
-    for (int i = 0; i < TRACK_MAX; i++) {
-        int owner = node_owner[i];
-        if (owner < 0) continue;
-        int seen = 0;
-        for (int j = 0; j < n; j++) {
-            if (owners[j] == owner) {
-                seen = 1;
-                break;
-            }
-        }
-        if (!seen && n < (int)(sizeof(owners) / sizeof(owners[0]))) {
-            owners[n++] = owner;
-        }
-    }
-
-    for (int i = 0; i < n; i++) {
-        for (int j = i + 1; j < n; j++) {
-            if (owners[j] < owners[i]) {
-                int t = owners[i];
-                owners[i] = owners[j];
-                owners[j] = t;
-            }
-        }
-    }
-
-    if (out_trains) {
-        int m = (n < max_trains) ? n : max_trains;
-        for (int i = 0; i < m; i++) out_trains[i] = owners[i];
-    }
-    return n;
-}

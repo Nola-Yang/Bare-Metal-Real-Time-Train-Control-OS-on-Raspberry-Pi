@@ -59,10 +59,6 @@ void traffic_get_sensor_stats_ex(traffic_sensor_stats_t *out);
  * Returns total reserved node count; fills up to max_nodes entries in out. */
 int traffic_get_reserved_nodes(int train_num, uint16_t *out, int max_nodes);
 
-/* Export train numbers that currently own at least one reservation.
- * Returns total owner count; fills up to max_trains entries in out_trains. */
-int traffic_get_reserved_train_list(int *out_trains, int max_trains);
-
 /* Return 1 if node is currently reserved by train_num, 0 otherwise. */
 int traffic_is_reserved_by(track_node *node, int train_num);
 

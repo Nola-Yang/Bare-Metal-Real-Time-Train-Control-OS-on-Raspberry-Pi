@@ -2,7 +2,6 @@
 #include "train_tracking/track_data.h"
 #include "mcp2515.h"
 #include "server/can_server.h"
-#include "timer.h"
 #include "util.h"
 #include "kassert.h"
 #include <stddef.h>
@@ -120,7 +119,6 @@ void track_init(int can_server_tid, int term_server_tid) {
 
     for (int i = 0; i < MAX_SWITCHES; i++) {
         switch_state[i].state = '?';
-        switch_state[i].last_update_us = 0;
     }
 
     for (int i = 0; i < SENSOR_LOG_SIZE; i++) {
@@ -151,22 +149,8 @@ void track_update_switch(int sw_num, char state) {
     int index = track_switch_to_index(sw_num);
     if (index >= 0) {
         switch_state[index].state = state;
-        switch_state[index].last_update_us = read_timer();
     }
 }
-
-void track_update_speed(int train_num, int speed) {
-    if (!track_is_valid_train(train_num)) return;
-    train_state_t* t = find_or_create_train(train_num);
-    if (t) t->speed = speed;
-}
-
-void track_update_direction(int train_num, int direction) {
-    if (!track_is_valid_train(train_num)) return;
-    train_state_t* t = find_or_create_train(train_num);
-    if (t) t->direction = direction;
-}
-
 
 const sensor_entry_t* track_get_sensor_log(int *head) {
     if (head) *head = sensor_log_head;
@@ -175,10 +159,6 @@ const sensor_entry_t* track_get_sensor_log(int *head) {
 
 const switch_entry_t* track_get_switch_state(void) {
     return switch_state;
-}
-
-const train_state_t* track_get_trains(void) {
-    return trains;
 }
 
 void track_set_speed(int train, int speed) {

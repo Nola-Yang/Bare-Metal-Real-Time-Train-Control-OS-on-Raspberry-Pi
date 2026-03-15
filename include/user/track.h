@@ -11,7 +11,6 @@
 
 typedef struct {
     char state;           // 'S', 'C', or '?'
-    uint64_t last_update_us;  //Todo: unused, maybe deleted later
 } switch_entry_t;
 
 typedef struct {
@@ -40,11 +39,8 @@ void track_init_graph(void);
 // State management functions
 void track_log_sensor(uint16_t sensor_id, uint64_t time_us, uint8_t state);
 void track_update_switch(int sw_id, char state);
-void track_update_speed(int train, int speed);
-void track_update_direction(int train, int direction);
 const sensor_entry_t* track_get_sensor_log(int *head);
 const switch_entry_t* track_get_switch_state(void);
-const train_state_t* track_get_trains(void);
 
 // Switch number mapping (user number 1-18, 153-156 to array index 0-21)
 int track_switch_to_index(int sw_num);
