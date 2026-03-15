@@ -39,6 +39,10 @@ void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us);
 /* Zero all prediction fields (pred.* + dead_track_deadline_us). */
 void pos_clear_prediction(train_pos_t *pos);
 
+/* If pending_target is NULL but orig_user_target is set, restore it so the
+ * next replan attempt can reach the original destination. */
+void pos_restore_pending_target(train_pos_t *pos);
+
 /* Set GOTO_USER_SPEED, send CAN speed command, restore effective_v from
  * cached_v (or speed table), set 400 mm warmup, and anchor cur_sensor_time. */
 void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us);

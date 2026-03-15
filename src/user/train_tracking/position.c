@@ -193,6 +193,13 @@ void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
     pos->cur_sensor_time = now_us;
 }
 
+void pos_restore_pending_target(train_pos_t *pos) {
+    if (pos->pending_target == NULL && pos->orig_user_target != NULL) {
+        pos->pending_target    = pos->orig_user_target;
+        pos->pending_offset_mm = pos->orig_target_offset;
+    }
+}
+
 void pos_save_ema_and_stop(train_pos_t *pos) {
     if (pos->user_speed > 0 && pos->user_speed <= 14)
         pos->cached_v[pos->user_speed] = pos->effective_v;
@@ -423,6 +430,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
         pos->going_forward = !pos->going_forward;
         pos->pred.next_sensor  = cur_sensor_orig->reverse;
         pos->pred.alt_sensor   = NULL;
+        pos->pred.branch_node  = NULL;
         pos->pred.trigger_time = 0;
         pos->dead_track_deadline_us = 0;
     }
