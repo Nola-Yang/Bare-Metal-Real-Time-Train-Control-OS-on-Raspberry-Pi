@@ -102,8 +102,8 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
             return 2;
         }
         int can_speed = (speed == 0) ? 0 : 1 + (speed - 1) * 77;
-        track_set_speed(train, can_speed);
         pos_on_speed_change(train, speed);
+        track_set_speed(train, can_speed);
         return 1;
     }
 

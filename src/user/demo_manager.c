@@ -552,7 +552,7 @@ void demo_on_tick(uint64_t now_us) {
 
             int pos_confirmed = pos->cur_sensor != NULL &&
                                 pos->route_state != TRAIN_STATE_UNKNOWN      &&
-                                pos->route_state != TRAIN_STATE_LOOP_FIND_DIR &&
+                                pos->route_state != TRAIN_STATE_FIND_POS &&
                                 pos->route_state != TRAIN_STATE_STOPPING_GOTO;
             if (!pos_confirmed) return;  /* still acquiring — wait */
 

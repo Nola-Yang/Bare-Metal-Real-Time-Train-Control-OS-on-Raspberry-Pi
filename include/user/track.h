@@ -55,6 +55,8 @@ int track_is_valid_train(int train_num);
 // Control functions (send commands via CAN server)
 void track_set_speed(int train, int speed);
 void track_reverse(int train);
+/* Send direction command: 0x01=forward, 0x02=backward, 0x03=reverse */
+void track_send_direction(int train_num, uint8_t dir);
 void track_set_switch(int sw, char dir);
 void track_set_light(int train, int on);
 

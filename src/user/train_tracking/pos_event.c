@@ -12,7 +12,6 @@
  *     correct_alt_branch_switch       (switch state correction)
  *     handle_sensor
  *       update_sensor_stats           (EMA, warmup, prediction error)
- *       infer_direction               (UNKNOWN/LOOP_FIND_DIR direction detect)
  *       handle_dead_track_sensor      (dead-track recovery on sensor fire)
  *       update_next_prediction        (predict next sensor + deadline)
  *
@@ -111,19 +110,6 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
     }
 }
 
-/* Infer travel direction from two consecutive sensor hits.
- * Called only in UNKNOWN / LOOP_FIND_DIR when prev_sensor is known. */
-static void infer_direction(train_pos_t *pos, track_node *prev, track_node *hit) {
-    if (follow_dist(prev, hit, 20) >= 0) {
-        pos->going_forward = 1;
-    } else if (prev->reverse != NULL && follow_dist(prev->reverse, hit, 20) >= 0) {
-        pos->going_forward = 0;
-    } else {
-        KASSERT(0 && "Two consecutive sensors with no path between them?");
-    }
-    pos->position_known = 1;
-}
-
 /* Handle a sensor hit while in DEAD_TRACK state.
  * Clears the dead-track flag, restores pending target, and replans.
  * Returns 1 if this function handled the event (caller should return). */
@@ -135,7 +121,7 @@ static int handle_dead_track_sensor(train_pos_t *pos) {
     pos_restore_pending_target(pos);
 
     if (pos->pending_target == NULL) {
-        pos->find_dir_only = 0;
+        pos->find_pos_only = 0;
         pos->route_state   = TRAIN_STATE_STOPPED;
         ui_mark_position_dirty();
         return 1;
@@ -147,12 +133,12 @@ static int handle_dead_track_sensor(train_pos_t *pos) {
 }
 
 /* Recompute pred.next_sensor and update the dead-track deadline.
- * In LOOP_FIND_DIR, timing is suppressed (trigger_time and deadline stay 0). */
+ * In FIND_POS, timing is suppressed (trigger_time and deadline stay 0). */
 static void update_next_prediction(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     uint64_t dt_pred = 0;
     pos->pred.next_sensor = predict_next_sensor(pos, hit, &dt_pred);
 
-    if (pos->route_state == TRAIN_STATE_LOOP_FIND_DIR) {
+    if (pos->route_state == TRAIN_STATE_FIND_POS) {
         pos->pred.trigger_time      = 0;
         pos->dead_track_deadline_us = 0;
         return;
@@ -196,13 +182,7 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         }
     }
 
-    /* Direction inference for UNKNOWN / LOOP_FIND_DIR. */
-    if ((pos->route_state == TRAIN_STATE_UNKNOWN ||
-         pos->route_state == TRAIN_STATE_LOOP_FIND_DIR) && prev_sensor != NULL) {
-        infer_direction(pos, prev_sensor, hit);
-    }
-
-    if (pos->route_state == TRAIN_STATE_UNKNOWN && prev_sensor != NULL) {
+    if (pos->route_state == TRAIN_STATE_UNKNOWN) {
         pos->route_state = TRAIN_STATE_KNOWN;
         ui_mark_position_dirty();
     }
@@ -212,8 +192,8 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         return;
     }
 
-    /* LOOP_FIND_DIR: stop after direction is confirmed (second sensor). */
-    if (pos->route_state == TRAIN_STATE_LOOP_FIND_DIR && prev_sensor != NULL) {
+    /* FIND_POS: stop on first sensor to acquire position. */
+    if (pos->route_state == TRAIN_STATE_FIND_POS) {
         track_set_speed(pos->train_num, 0);
         pos->stopping_since_us = time_us;
         pos->route_state       = TRAIN_STATE_STOPPING_GOTO;
@@ -383,14 +363,14 @@ static int tick_handle_stopping_tr(train_pos_t *pos, uint64_t now_us) {
     return 1;
 }
 
-/* Handle STOPPING_GOTO -> replan (or STOPPED if find_dir_only).
+/* Handle STOPPING_GOTO -> replan (or STOPPED if find_pos_only).
  * Returns 1 when braking is complete. */
 static int tick_handle_stopping_goto(train_pos_t *pos, uint64_t now_us) {
     if (!brake_elapsed(pos, now_us)) return 0;
 
     pos_save_ema_and_stop(pos);
-    if (pos->find_dir_only) {
-        pos->find_dir_only = 0;
+    if (pos->find_pos_only) {
+        pos->find_pos_only = 0;
         pos->route_state   = TRAIN_STATE_STOPPED;
         traffic_release_train_keep_position(pos->train_num, pos->cur_sensor);
         ui_mark_position_dirty();
@@ -441,7 +421,7 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
 /* Detect dead-track: no sensor fired before the deadline.
  * Returns 1 if dead-track was declared. */
 static int tick_check_dead_track(train_pos_t *pos, uint64_t now_us) {
-    if (pos->route_state != TRAIN_STATE_LOOP_FIND_DIR &&
+    if (pos->route_state != TRAIN_STATE_FIND_POS &&
         pos->route_state != TRAIN_STATE_ON_ROUTE) return 0;
     if (pos->dead_track_deadline_us == 0) return 0;
     if (now_us <= pos->dead_track_deadline_us) return 0;

@@ -65,28 +65,15 @@ int32_t speed_table_get_decel(int32_t train_ind, int user_speed, track_node *tar
     return GOTO_DECEL_MM_S2[train_ind];
 }
 
-/* ===== Fixed loop switch settings ===== */
-
-#define LOOP_SW_COUNT 7
-
-/* Track A and Track B use the same inner loop; switch settings are identical.
- * Forward loop path:
- *   A3->BR14(S)->MR11->C13->E7->D7->MR9->BR8(S)->D9->E12->BR7(S)->D11->C16->MR6->C6->MR15->B15->A3
- * Reverse loop path (reverse sensors):
- *   A4->B16->BR15(S)->C5->BR6(S)->C15->D12->E11->D10->BR9(S)->D8->E8->C14->BR11(C)->MR14->A4
- */
-static const int  LOOP_SW_NUMS[LOOP_SW_COUNT] = { 7,   8,   14,  11,  9,   6,   15  };
-static const char LOOP_SW_DIRS[LOOP_SW_COUNT] = { 'S', 'S', 'S', 'C', 'S', 'S', 'S' };
-
-/* Start train moving at GOTO_USER_SPEED to find direction (LOOP_FIND_DIR).
+/* Start train moving at GOTO_USER_SPEED to acquire position (FIND_POS).
  * Used by pos_goto (UNKNOWN state) and pos_start_direction_find. */
-static void pos_begin_dir_find(train_pos_t *pos) {
+static void pos_begin_pos_find(train_pos_t *pos) {
     pos->user_speed      = GOTO_USER_SPEED;
     int can_spd          = 1 + (GOTO_USER_SPEED - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
     pos->effective_v     = speed_table_get_v(pos->train_ind, pos->user_speed);
     pos->cur_sensor_time = read_timer();
-    pos->route_state     = TRAIN_STATE_LOOP_FIND_DIR;
+    pos->route_state     = TRAIN_STATE_FIND_POS;
 }
 
 /* ===== Position slot management ===== */
@@ -141,7 +128,8 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->queued_offset_mm      = 0;
             slot->queued_valid          = 0;
             slot->going_forward         = 1;
-            slot->position_known        = 0;
+            slot->position_known        = 1;
+            track_send_direction(train_num, 0x01);  /* init direction: forward */
             slot->orig_user_target      = NULL;
             slot->orig_target_offset    = 0;
             slot->offroute_valid           = 0;
@@ -167,7 +155,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
                 slot->midrev.sw_nums[k] = 0;
                 slot->midrev.sw_dirs[k] = '?';
             }
-            slot->find_dir_only = 0;
+            slot->find_pos_only = 0;
             return slot;
         }
     }
@@ -208,7 +196,7 @@ void pos_save_ema_and_stop(train_pos_t *pos) {
 
 static int state_is_goto_active(train_route_state_t st) {
     return (st == TRAIN_STATE_STOPPING_GOTO     ||
-            st == TRAIN_STATE_LOOP_FIND_DIR     ||
+            st == TRAIN_STATE_FIND_POS     ||
             st == TRAIN_STATE_ON_ROUTE          ||
             st == TRAIN_STATE_STOPPING          ||
             st == TRAIN_STATE_RECOVERY_STOPPING ||
@@ -307,12 +295,6 @@ void pos_on_speed_change(int train_num, int user_speed) {
 }
 
 
-void pos_apply_loop_switches(void) {
-    for (int i = 0; i < LOOP_SW_COUNT; i++) {
-        track_set_switch(LOOP_SW_NUMS[i], LOOP_SW_DIRS[i]);
-    }
-    ui_mark_switches_dirty();
-}
 
 
 int pos_try_direct_goto(train_pos_t *pos) {
@@ -555,7 +537,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     if (pos->route_state == TRAIN_STATE_UNKNOWN) {
         /* Position unknown — start moving to trigger a sensor and acquire position.
          * handle_sensor will stop the train and transition to STOPPING_GOTO. */
-        pos_begin_dir_find(pos);
+        pos_begin_pos_find(pos);
 
     } else if (pos->route_state == TRAIN_STATE_KNOWN) {
         /* Position known, train running via tr. Stop and replan. */
@@ -593,9 +575,9 @@ int pos_start_direction_find(int train_num) {
     pos->replan.next_us           = 0;
     pos->offroute_valid           = 0;
     pos->offroute_expected_sensor = NULL;
-    pos->find_dir_only            = 1;
+    pos->find_pos_only            = 1;
 
-    pos_begin_dir_find(pos);
+    pos_begin_pos_find(pos);
 
     ui_mark_position_dirty();
     return 1;

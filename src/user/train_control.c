@@ -142,7 +142,7 @@ void train_control_task(void) {
 
     CANEnableInterrupts(can_tid);
 
-    // set all switches to straight, then override loop switches
+    // set all switches to straight
     for (int sw = 1; sw <= 18; sw++) {
         track_set_switch(sw, 'S');
     }
@@ -150,9 +150,6 @@ void train_control_task(void) {
         char state = (sw == 153 || sw == 155) ? 'C' : 'S';
         track_set_switch(sw, state);
     }
-    pos_apply_loop_switches();
-    track_set_switch(153, 'C');
-    track_set_switch(155, 'C');
     ui_mark_switches_dirty();
 
     Create(TRAIN_COURIER_PRIORITY, can_rx_courier_task);

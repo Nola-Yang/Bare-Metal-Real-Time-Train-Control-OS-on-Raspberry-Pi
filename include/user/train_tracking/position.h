@@ -8,13 +8,6 @@
 /* Maximum number of trains tracked simultaneously */
 #define MAX_POS_TRAINS 5
 
-/* Number of sensors in the fixed loop (same for Track A and Track B) */
-#define LOOP_SENSOR_COUNT 10
-
-/* Speed-stabilisation parameters for the goto loop phase */
-#define STABLE_TIME_ERR_US  600000LL  
-#define STABLE_SENSOR_MIN   3         
-
 /* ---------- Train route state ---------- */
 
 typedef enum {
@@ -24,7 +17,7 @@ typedef enum {
     TRAIN_STATE_ON_ROUTE          = 3,  /* following planned route to target */
     TRAIN_STATE_STOPPING          = 4,  /* goto braking command issued */
     TRAIN_STATE_STOPPED           = 5,  /* fully stationary; pos known */
-    TRAIN_STATE_LOOP_FIND_DIR     = 6,  /* position unknown; running until first sensor hit */
+    TRAIN_STATE_FIND_POS     = 6,  /* position unknown; running until first sensor hit */
     TRAIN_STATE_RECOVERY_STOPPING = 7,  /* off-route deviation; stopping -> replan */
     TRAIN_STATE_STOPPING_GOTO     = 8, /* goto while running; stop sent -> replan */
     TRAIN_STATE_DEAD_TRACK        = 9, /* stopped on powerless track; waiting for manual push */
@@ -97,7 +90,7 @@ typedef struct {
     int32_t     queued_offset_mm;
     int         queued_valid;
 
-    /* 1 = forward loop direction; 0 = reverse direction. */
+    /* 1 = forward direction; 0 = reverse direction. */
     int going_forward;
     uint8_t position_known;
 
@@ -149,7 +142,7 @@ typedef struct {
 
     /* If 1: started via pos_start_direction_find; stop after direction confirmed
      * instead of planning a route to a target. */
-    uint8_t  find_dir_only;
+    uint8_t  find_pos_only;
 
 } train_pos_t;
 
@@ -198,8 +191,6 @@ void pos_on_speed_change(int train_num, int user_speed);
 void pos_on_reverse(int train_num);
 
 
-/* Apply loop switch settings (SW7/8/14/9/6/15=S, SW11=C). */
-void pos_apply_loop_switches(void);
 
 
 /* Execute a goto */

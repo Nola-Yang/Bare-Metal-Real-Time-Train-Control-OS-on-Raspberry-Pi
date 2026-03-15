@@ -40,6 +40,24 @@ static train_state_t* find_train(int train_num) {
     return NULL;
 }
 
+/* Send a direction command (command=0x05) with the given dir byte.
+ * dir: 0x01=forward, 0x02=backward, 0x03=reverse */
+void track_send_direction(int train_num, uint8_t dir) {
+    can_frame_t frame;
+    frame.id = ((uint32_t)0 << 25) |
+               ((uint32_t)0x05 << 17) |
+               ((uint32_t)0 << 16) |
+               (uint32_t)0xC300;
+    frame.ext = 1;
+    frame.dlc = 5;
+    frame.data[0] = (train_num >> 24) & 0xFF;
+    frame.data[1] = (train_num >> 16) & 0xFF;
+    frame.data[2] = (train_num >>  8) & 0xFF;
+    frame.data[3] =  train_num        & 0xFF;
+    frame.data[4] = dir;
+    CANSend(can_tid, &frame);
+}
+
 // Find or create train slot, returns NULL if full
 static train_state_t* find_or_create_train(int train_num) {
     if (!track_is_valid_train(train_num)) return NULL;
@@ -211,34 +229,10 @@ void track_reverse(int train) {
     KASSERT(can_tid >= 0);
     if (!track_is_valid_train(train)) return;
 
-    can_frame_t frame;
+    track_send_direction(train, 0x03);  /* reverse */
 
-    uint8_t  priority = 0;
-    uint8_t  command  = 0x05;   // Direction
-    uint8_t  response = 0;
-    uint16_t hash     = 0xC300;
-
-    frame.id =
-        ((uint32_t)priority << 25) |
-        ((uint32_t)command  << 17) |
-        ((uint32_t)response << 16) |
-        (uint32_t)hash;
-
-    frame.ext = 1;
-    frame.dlc = 5;
-
-    frame.data[0] = (train >> 24) & 0xFF;
-    frame.data[1] = (train >> 16) & 0xFF;
-    frame.data[2] = (train >>  8) & 0xFF;
-    frame.data[3] =  train        & 0xFF;
-    frame.data[4] = 0x03;  
-
-    if (CANSend(can_tid, &frame) == 0) {
-        train_state_t* t = find_or_create_train(train);
-        if (t) t->direction = 1 - t->direction;
-    } else {
-        KASSERT(0 && "CANsend fail in track_reverse");
-    }
+    train_state_t* t = find_or_create_train(train);
+    if (t) t->direction = 1 - t->direction;
 }
 
 void track_set_switch(int sw_num, char dir) {

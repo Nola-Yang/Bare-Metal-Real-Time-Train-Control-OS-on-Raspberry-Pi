@@ -47,7 +47,7 @@ static int should_consider_for_attr(const train_pos_t *pos) {
 
 static int is_bootstrap_state(train_route_state_t st) {
     return (st == TRAIN_STATE_UNKNOWN ||
-            st == TRAIN_STATE_LOOP_FIND_DIR);
+            st == TRAIN_STATE_FIND_POS);
 }
 
 static track_edge *tm_get_next_edge(track_node *n) {

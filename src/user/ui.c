@@ -150,7 +150,7 @@ static const char *ui_state_long(train_route_state_t st) {
     case TRAIN_STATE_UNKNOWN:           return "UNKNOWN";
     case TRAIN_STATE_KNOWN:             return "KNOWN";
     case TRAIN_STATE_STOPPING_TR:       return "STOPPING_TR";
-    case TRAIN_STATE_LOOP_FIND_DIR:     return "LOOP_FIND_DIR";
+    case TRAIN_STATE_FIND_POS:     return "FIND_POS";
     case TRAIN_STATE_ON_ROUTE:          return "ON_ROUTE";
     case TRAIN_STATE_STOPPING:          return "STOPPING";
     case TRAIN_STATE_STOPPED:           return "STOPPED";
