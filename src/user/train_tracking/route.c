@@ -484,7 +484,7 @@ int bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
             int tgt_idx = (int)(tgt - g_track);
             if (tgt_idx < 0 || tgt_idx >= TRACK_MAX) continue;
             if (rev_dist[tgt_idx] == DIJK_INF) continue;
-            if (rev_dist[tgt_idx] < d_brake) continue;  
+            if (rev_dist[tgt_idx] < threshold) continue;
 
             int32_t total = fwd_dist[si] + rev_dist[tgt_idx];
             if (total >= best_total) continue;
