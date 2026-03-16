@@ -288,7 +288,7 @@ static void demo_maybe_retarget_waiting_gold(uint64_t now_us) {
         if (now_us < slot->wait_enter_us + GOLD_WAIT_RETARGET_US) continue;
 
         train_pos_t *pos = pos_get(slot->train_num);
-        if (!pos) continue;
+        if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) continue;
 
         int idx = -1;
         track_node *target = gold_pick_target(slot->train_num, g_gold_min_trip_mm, &idx);
@@ -310,6 +310,7 @@ static void demo_maybe_retarget_waiting_gold(uint64_t now_us) {
         pos->queued_valid = 0;
         slot->last_target_idx = idx;
         slot->wait_enter_us = now_us;
+        pos->replan.next_us = 0;
         ui_mark_position_dirty();
     }
 }
