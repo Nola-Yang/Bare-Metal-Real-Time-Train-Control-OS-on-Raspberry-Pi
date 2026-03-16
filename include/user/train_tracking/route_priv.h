@@ -20,7 +20,7 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
 
 /* ===== Route planning constants ===== */
 
-#define GOTO_MIN_DIST_FACTOR 6
+#define GOTO_MIN_DIST_FACTOR 4
 
 /* ===== Route planning ===== */
 

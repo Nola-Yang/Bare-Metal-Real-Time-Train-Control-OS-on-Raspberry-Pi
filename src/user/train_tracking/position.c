@@ -145,9 +145,9 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->midrev.sensor        = NULL;
             slot->midrev.final_target  = NULL;
             slot->midrev.final_offset  = 0;
-            slot->route_path_count     = 0;
-            slot->route_path_cursor    = 0;
-            slot->route_dist_anchor_mm = 0;
+            slot->route_path_count   = 0;
+            slot->route_path_cursor  = 0;
+            slot->route_rem_tick_us  = 0;
             slot->midrev.path2_count   = 0;
             slot->midrev.sw_count      = 0;
             slot->midrev.dist_after    = 0;
@@ -324,7 +324,8 @@ int pos_try_direct_goto(train_pos_t *pos) {
     int32_t tv        = GOTO_SPEED_MM_S[pos->train_ind];
     int32_t ta        = GOTO_DECEL_MM_S2[pos->train_ind];
     int32_t d_brake   = tv * tv / (2 * ta);
-    int32_t threshold = GOTO_MIN_DIST_FACTOR * d_brake;
+    int32_t d_stop    = d_brake + (int32_t)((int64_t)tv * (int64_t)STOP_EARLY_US[pos->train_ind] / 1000000LL);
+    int32_t threshold = GOTO_MIN_DIST_FACTOR * d_stop;
 
     /*
      * Two candidate origins:
@@ -349,9 +350,9 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     for (int o = 0; o < 2; o++) {
         if (!origins[o]) continue;
-        if (!bfs_find_route_optimal_constrained(origins[o], user_target, d_brake, blocked, rp_temp)) {
+        if (!bfs_find_route_optimal_constrained(origins[o], user_target, d_stop, blocked, rp_temp)) {
             if (!blocked_by_reservation &&
-                bfs_find_route_optimal(origins[o], user_target, d_brake, rp_unconstrained)) {
+                bfs_find_route_optimal(origins[o], user_target, d_stop, rp_unconstrained)) {
                 blocked_by_reservation = 1;
             }
             continue;
@@ -380,7 +381,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
          * the target and current position are on the same short segment. */
         track_node *boot_start = cur_sensor_orig->reverse;
         if (!boot_start ||
-            !bfs_find_bootstrap_midrev(boot_start, user_target, d_brake, blocked, rp)) {
+            !bfs_find_bootstrap_midrev(boot_start, user_target, d_stop, blocked, rp)) {
             return 0;
         }
         chosen_origin        = boot_start;
@@ -460,23 +461,14 @@ int pos_try_direct_goto(train_pos_t *pos) {
     }
 
     pos->route_path_cursor = 0;
-    {
-        int32_t pd = route_path_dist_from(pos->route_path, 0, pos->route_path_count);
-        pos->route_dist_anchor_mm = (pd >= 0) ? pd + pos->target_offset_mm : 0;
-        if (pos->route_dist_anchor_mm < 0) pos->route_dist_anchor_mm = 0;
-    }
 
     pos_launch_at_goto_speed(pos, now_us);
 
-    int32_t dist_first_leg = rp->has_reversal
-                             ? rp->dist_to_reversal_mm
-                             : follow_dist(eff_start, chosen_target, 200);
-    if (dist_first_leg < 0)
-        dist_first_leg = follow_dist(pos->cur_sensor, pos->target_sensor, 200);
-    pos->dist_to_target_mm = (dist_first_leg >= 0)
-                             ? ((dist_first_leg + pos->target_offset_mm > 0)
-                                ? dist_first_leg + pos->target_offset_mm : 0)
-                             : 0;
+    int32_t pd = route_path_dist_from(pos->route_path, 0, pos->route_path_count);
+    pos->dist_to_target_mm = (pd >= 0) ? pd + pos->target_offset_mm : 0;
+    if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
+    
+    pos->route_rem_tick_us = now_us;
 
     pos->pending_target    = NULL;
     pos->pending_offset_mm = 0;

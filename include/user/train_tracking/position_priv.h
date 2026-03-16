@@ -3,11 +3,15 @@
 
 #include <stdint.h>
 #include "position.h"
+#include "speed_table.h"
 
 /* ===== Shared internal state ===== */
 
 /* Defined in position.c; all position-tracking modules share this array. */
 extern train_pos_t g_pos[MAX_POS_TRAINS];
+
+/* stop-command lead time per train (microseconds). */
+extern uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS];
 
 /* ===== Shared constants ===== */
 

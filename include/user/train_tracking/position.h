@@ -132,13 +132,12 @@ typedef struct {
     /* Path-based distance tracking.
      * route_path[0..count-1]: node indices of the current leg in forward order.
      * route_path_cursor: index of the last confirmed sensor (cur_sensor) in route_path.
-     * route_dist_anchor_mm: sum of edge lengths from route_path[cursor] to the last
-     *   node (target_sensor), plus target_offset_mm.  Set at route start and updated
-     *   on every on-route sensor hit. */
+     * route_rem_tick_us: timestamp (us) of the last dist_to_target_mm decrement.
+    */
     uint16_t route_path[TRACK_MAX];
     int      route_path_count;
     int      route_path_cursor;
-    int32_t  route_dist_anchor_mm;
+    uint64_t route_rem_tick_us;
 
     /* If 1: started via pos_start_direction_find; stop after direction confirmed
      * instead of planning a route to a target. */

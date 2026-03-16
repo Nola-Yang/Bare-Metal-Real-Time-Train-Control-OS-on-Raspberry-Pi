@@ -203,6 +203,26 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         ui_mark_position_dirty();
     }
 
+    /* On every on-route sensor hit: advance route_path_cursor to hit and snap
+     * dist_to_target_mm to the exact geometric distance from here to the target
+     * along the planned path.  */
+    if (pos->route_state == TRAIN_STATE_ON_ROUTE && pos->target_sensor) {
+        int hit_idx = (int)(hit - g_track);
+        for (int k = pos->route_path_cursor; k < pos->route_path_count; k++) {
+            if (pos->route_path[k] == (uint16_t)hit_idx) {
+                pos->route_path_cursor = k;
+                int32_t pd = route_path_dist_from(pos->route_path, k,
+                                                   pos->route_path_count);
+                if (pd >= 0) {
+                    pos->dist_to_target_mm = pd + pos->target_offset_mm;
+                    if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
+                }
+                pos->route_rem_tick_us = time_us;
+                break;
+            }
+        }
+    }
+
     update_next_prediction(pos, hit, time_us);
     ui_mark_position_dirty();
 }
@@ -279,14 +299,13 @@ static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
         pos->route_path[j] = pos->midrev.path2[j];
     pos->route_path_cursor = 0;
 
+    
     int32_t pd2 = route_path_dist_from(pos->route_path, 0, pos->route_path_count);
-    if (pd2 >= 0) {
-        pos->route_dist_anchor_mm = pd2 + pos->midrev.final_offset;
-    } else {
-        pos->route_dist_anchor_mm = pos->midrev.dist_after + pos->midrev.final_offset;
-    }
-    if (pos->route_dist_anchor_mm < 0) pos->route_dist_anchor_mm = 0;
-    pos->dist_to_target_mm = pos->route_dist_anchor_mm;
+    int32_t d2 = (pd2 >= 0) ? pd2 : pos->midrev.dist_after;
+    pos->dist_to_target_mm = d2 + pos->midrev.final_offset;
+    if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
+    
+    pos->route_rem_tick_us = now_us;
 
     pos_launch_at_goto_speed(pos, now_us);
     pos->stopping_since_us = 0;
@@ -389,17 +408,15 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
     if (pos->route_state != TRAIN_STATE_ON_ROUTE) return 0;
     if (!pos->target_sensor || !pos->cur_sensor || pos->effective_v <= 0) return 0;
 
-    int32_t dist_from_cur = (pos->route_dist_anchor_mm > 0)
-        ? pos->route_dist_anchor_mm
-        : follow_dist(pos->cur_sensor, pos->target_sensor, 150) + pos->target_offset_mm;
+    if (pos->route_rem_tick_us > 0 && now_us > pos->route_rem_tick_us) {
+        uint64_t dt = now_us - pos->route_rem_tick_us;
+        int32_t delta = (int32_t)((int64_t)pos->effective_v * (int64_t)dt / 1000000LL);
+        pos->dist_to_target_mm -= delta;
+        if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
+    }
+    pos->route_rem_tick_us = now_us;
 
-    if (dist_from_cur < 0) return 0;
-
-    uint64_t elapsed = now_us - pos->cur_sensor_time;
-    int32_t traveled = (int32_t)((int64_t)pos->effective_v * (int64_t)elapsed / 1000000LL);
-    int32_t rem = dist_from_cur - traveled;
-    if (rem < 0) rem = 0;
-    pos->dist_to_target_mm = rem;
+    int32_t rem = pos->dist_to_target_mm;
 
     int32_t a = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
     if (a > 0) {
