@@ -12,6 +12,11 @@
 #define ATTR_MARGIN       120
 
 static int node_owner[TRACK_MAX];
+
+/* Crossing zone mutex: SW153-156 diamond crossing */
+static int g_crossing_idx[8];
+static int g_crossing_count = 0;
+
 static int spurious_sensor_count = 0;
 static int ambiguous_sensor_count = 0;
 static uint16_t last_spurious_sensor_id = 0;
@@ -96,6 +101,26 @@ void traffic_init(void) {
     last_ambiguous_sensor_id = 0;
     last_spurious_time_us = 0;
     last_ambiguous_time_us = 0;
+
+    /* Cache crossing node indices for SW153-156 diamond */
+    g_crossing_count = 0;
+    for (int i = 0; i < TRACK_MAX && g_crossing_count < 8; i++) {
+        track_node *n = &g_track[i];
+        if (n->type != NODE_BRANCH) continue;
+        if (n->num < 153 || n->num > 156) continue;
+        if (g_crossing_count < 8) g_crossing_idx[g_crossing_count++] = i;
+        int ridx = reverse_index(i);
+        if (ridx >= 0 && g_crossing_count < 8) g_crossing_idx[g_crossing_count++] = ridx;
+    }
+}
+
+static int crossing_is_blocked_by_other(int train_num) {
+    for (int i = 0; i < g_crossing_count; i++) {
+        int idx = g_crossing_idx[i];
+        if (node_owner[idx] >= 0 && node_owner[idx] != train_num)
+            return 1;
+    }
+    return 0;
 }
 
 void traffic_build_constraints(int requester_train, uint8_t blocked[TRACK_MAX]) {
@@ -104,11 +129,40 @@ void traffic_build_constraints(int requester_train, uint8_t blocked[TRACK_MAX]) 
         int owner = node_owner[i];
         blocked[i] = (owner >= 0 && owner != requester_train) ? 1 : 0;
     }
+
+    /* Crossing zone mutex: if any crossing node is blocked, block all of them */
+    int crossing_taken = 0;
+    for (int i = 0; i < g_crossing_count; i++) {
+        if (blocked[g_crossing_idx[i]]) { crossing_taken = 1; break; }
+    }
+    if (crossing_taken) {
+        for (int i = 0; i < g_crossing_count; i++)
+            blocked[g_crossing_idx[i]] = 1;
+    }
 }
 
 int traffic_reserve_plan(int train_num, track_node *start, const route_plan_t *plan) {
     (void)start;
     if (!plan || train_num < 0) return 0;
+
+    /* Crossing zone pre-check: if plan touches crossing and another train owns it, fail */
+    int plan_touches_crossing = 0;
+    for (int p = 0; p < plan->path_count && !plan_touches_crossing; p++) {
+        for (int ci = 0; ci < g_crossing_count; ci++) {
+            if (plan->path_nodes[p] == g_crossing_idx[ci]) {
+                plan_touches_crossing = 1; break;
+            }
+        }
+    }
+    for (int p = 0; p < plan->path_count2 && !plan_touches_crossing; p++) {
+        for (int ci = 0; ci < g_crossing_count; ci++) {
+            if (plan->path_nodes2[p] == g_crossing_idx[ci]) {
+                plan_touches_crossing = 1; break;
+            }
+        }
+    }
+    if (plan_touches_crossing && crossing_is_blocked_by_other(train_num))
+        return 0;
 
     int touched[TRACK_MAX * 2];
     int touched_count = 0;
