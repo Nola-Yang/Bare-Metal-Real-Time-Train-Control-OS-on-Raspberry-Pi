@@ -22,10 +22,16 @@ static route_plan_t g_pos_try_rp;
 static route_plan_t g_pos_try_rp_unconstrained;
 static route_plan_t g_pos_try_rp_temp;
 
+/* Time from sending the command to the train actually starting
+ * to move */
+#define GO_LATENCY_US 50000ULL
+
 #ifdef TRACK_D
     static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
         {227, 232, 242, 229, 230};
     static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
+        {153, 153, 153, 153, 153};
+    static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
         {153, 153, 153, 153, 153};
 
     static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] =
@@ -38,6 +44,8 @@ static route_plan_t g_pos_try_rp_temp;
     static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
         {226, 224, 226, 222, 236};
     static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
+        {167, 167, 167, 167, 167};
+    static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
         {167, 167, 167, 167, 167};
 
     static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] =
@@ -71,8 +79,11 @@ static void pos_begin_pos_find(train_pos_t *pos) {
     pos->user_speed      = GOTO_USER_SPEED;
     int can_spd          = 1 + (GOTO_USER_SPEED - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
-    pos->effective_v     = speed_table_get_v(pos->train_ind, pos->user_speed);
+    pos->effective_v     = 0;               /* will be ramped by tick */
+    pos->speed_warmup_mm = 800;
     pos->cur_sensor_time = read_timer();
+    pos->is_accelerating = 1;
+    pos->accel_start_us  = pos->cur_sensor_time + GO_LATENCY_US;
     pos->route_state     = TRAIN_STATE_FIND_POS;
 }
 
@@ -141,6 +152,9 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->dead_track_deadline_us   = 0;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
             slot->speed_warmup_mm      = 0;
+            slot->accel_a_eff          = GOTO_ACCEL_MM_S2[train_ind];
+            slot->is_accelerating      = 0;
+            slot->accel_start_us       = 0;
             slot->midrev.active        = 0;
             slot->midrev.sensor        = NULL;
             slot->midrev.final_target  = NULL;
@@ -175,10 +189,11 @@ void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
     pos->user_speed      = GOTO_USER_SPEED;
     int can_spd          = 1 + (GOTO_USER_SPEED - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
-    int32_t cv           = pos->cached_v[GOTO_USER_SPEED];
-    pos->effective_v     = (cv > 0) ? cv : speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
-    pos->speed_warmup_mm = 400;
+    pos->effective_v     = 0;               
+    pos->speed_warmup_mm = 800;
     pos->cur_sensor_time = now_us;
+    pos->is_accelerating = 1;
+    pos->accel_start_us  = now_us + GO_LATENCY_US;
 }
 
 void pos_restore_pending_target(train_pos_t *pos) {
@@ -273,7 +288,7 @@ void pos_on_speed_change(int train_num, int user_speed) {
     if (user_speed > 0 && user_speed <= 14) {
         int32_t cv = pos->cached_v[user_speed];
         pos->effective_v = (cv > 0) ? cv : speed_table_get_v(pos->train_ind, user_speed);
-        pos->speed_warmup_mm = 400;
+        pos->speed_warmup_mm = 800;
         /* Transition to KNOWN when the train resumes from a known-position state. */
         if (pos->cur_sensor != NULL &&
             (pos->route_state == TRAIN_STATE_STOPPED  ||

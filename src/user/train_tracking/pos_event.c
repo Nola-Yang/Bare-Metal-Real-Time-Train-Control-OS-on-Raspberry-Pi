@@ -48,6 +48,33 @@
 #endif
 
 
+/* ===== Acceleration model helper ===== */
+
+/* Compute kinematic effective_v for a train in the acceleration phase.
+ * v(t) = a * t_moving, clamped to v_goto once full speed is reached.
+ * Clears is_accelerating automatically when v_goto is reached.
+ */
+static void accel_update_v(train_pos_t *pos, uint64_t now_us) {
+    if (!pos->is_accelerating) return;
+
+    int64_t t_moving_us = (int64_t)now_us - (int64_t)pos->accel_start_us;
+    if (t_moving_us <= 0) {
+        pos->effective_v = 0;   /* still within GO_LATENCY_US window */
+        return;
+    }
+
+    int32_t v_goto    = speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
+    int64_t t_accel_us = (int64_t)v_goto * 1000000LL / (int64_t)pos->accel_a_eff;
+
+    if (t_moving_us >= t_accel_us) {
+        pos->effective_v  = v_goto;
+        pos->is_accelerating = 0;   /* reached full speed */
+    } else {
+        pos->effective_v =
+            (int32_t)((int64_t)pos->accel_a_eff * t_moving_us / 1000000LL);
+    }
+}
+
 /* ===== Shared brake-time helper ===== */
 
 /* Estimate time (us) for a braking train to reach a full stop. */
@@ -159,6 +186,8 @@ static void update_next_prediction(train_pos_t *pos, track_node *hit, uint64_t t
 /* ===== Per-train sensor FSM ===== */
 
 static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
+    accel_update_v(pos, time_us);
+
     int was_predicted, is_skip;
     update_sensor_stats(pos, hit, time_us, &was_predicted, &is_skip);
 
@@ -514,6 +543,19 @@ void pos_on_tick(uint64_t now_us) {
         if (pos->train_num < 0) continue;
         if (pos->route_state == TRAIN_STATE_WAIT_RESOURCE) continue;
         if (pos->route_state == TRAIN_STATE_DEAD_TRACK) continue;
+
+        /* Update kinematic velocity every tick for accelerating trains.
+         * For stopping/stopped states, the train is no longer accelerating —
+         * clear the flag */
+        if (pos->is_accelerating) {
+            if (pos->route_state == TRAIN_STATE_ON_ROUTE ||
+                pos->route_state == TRAIN_STATE_FIND_POS  ||
+                pos->route_state == TRAIN_STATE_KNOWN) {
+                accel_update_v(pos, now_us);
+            } else {
+                pos->is_accelerating = 0;
+            }
+        }
 
         if (pos->route_state == TRAIN_STATE_RECOVERY_STOPPING) {
             tick_handle_recovery_stopping(pos, now_us);

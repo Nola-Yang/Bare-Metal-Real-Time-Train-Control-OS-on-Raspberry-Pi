@@ -302,8 +302,11 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
         return NULL;
     }
 
+    int is_accel = pos && pos->is_accelerating && pos->accel_a_eff > 0;
+
     track_node *n = cur;
     uint64_t total_us = 0;
+    int32_t  d_total  = 0;  /* accumulated distance to next sensor */
     int hops = 0;
     int found_branch = 0;
 
@@ -323,14 +326,47 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
         track_edge *e = get_next_edge(n);
         if (!e || !e->dest) break;
 
-        /* Only accumulate timing when speed is known; dt=0 means timing unknown. */
-        if (pos->effective_v > 0) {
-            int32_t v = pos->effective_v;
-            total_us += (uint64_t)((int64_t)e->dist * 1000000LL / v);
+        d_total += (int32_t)e->dist;
+
+        /* In constant-speed mode accumulate timing per edge as before. */
+        if (!is_accel && pos->effective_v > 0) {
+            total_us += (uint64_t)((int64_t)e->dist * 1000000LL / pos->effective_v);
         }
 
         n = e->dest;
         if (n->type == NODE_SENSOR) {
+            if (is_accel) {
+                /* Kinematic timing: train accelerates from v0 to v_goto then cruises.
+                 *   d1 = (v_goto^2 - v0^2) / (2*a)  — distance remaining in accel phase
+                 * Case A (d >= d1): sensor is beyond the accel zone.
+                 *   t = (v_goto - v0)/a  +  (d - d1)/v_goto
+                 * Case B (d < d1): sensor fires while still accelerating.
+                 *   Conservative estimate: use v0 as constant speed (overestimates t,
+                 *   safe for dead-track deadline). */
+                int32_t v0    = pos->effective_v;
+                int32_t v_end = speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
+                int32_t a     = pos->accel_a_eff;
+                /* d1 = (v_end+v0)*(v_end-v0) / (2*a), computed to avoid overflow */
+                int32_t d1 = (v_end > v0)
+                             ? (int32_t)((int64_t)(v_end + v0) * (v_end - v0) / (2LL * a))
+                             : 0;
+                if (d_total >= d1) {
+                    int64_t t1_us = (int64_t)(v_end - v0) * 1000000LL / (int64_t)a;
+                    int64_t t2_us = (d_total > d1)
+                                    ? (int64_t)(d_total - d1) * 1000000LL / (int64_t)v_end
+                                    : 0LL;
+                    total_us = (uint64_t)(t1_us + t2_us);
+                } else {
+                    /* Sensor is within accel zone. */
+                    if (v0 > 0) {
+                        total_us = (uint64_t)((int64_t)d_total * 1000000LL / v0);
+                    } else {
+                        /* v0==0: train is still in GO_LATENCY_US window.
+                         * Use half of v_end as rough average. */
+                        total_us = (uint64_t)((int64_t)d_total * 2000000LL / v_end);
+                    }
+                }
+            }
             if (out_dt_us) *out_dt_us = total_us;
             return n;
         }

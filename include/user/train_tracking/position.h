@@ -126,6 +126,16 @@ typedef struct {
      * Decremented by the measured edge distance on each sensor trigger. */
     int32_t     speed_warmup_mm;
 
+    /* Acceleration model (0 → GOTO_USER_SPEED).
+     * accel_a_eff : fixed mm/s² constant seeded from GOTO_ACCEL_MM_S2.
+     * is_accelerating : 1 while the train is in the ramp-up phase;
+     *                   cleared automatically when full speed is reached.
+     * accel_start_us  : wall-clock time when the train actually begins
+     *                   moving (= CAN command time + GO_LATENCY_US). */
+    int32_t     accel_a_eff;
+    uint8_t     is_accelerating;
+    uint64_t    accel_start_us;
+
     /* Mid-route reversal */
     pos_midrev_t midrev;
 
