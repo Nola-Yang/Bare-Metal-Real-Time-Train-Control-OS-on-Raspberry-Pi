@@ -271,6 +271,9 @@ void traffic_release_train_keep_body(int train_num, track_node *front,
             keep_walk_to(keep, &keep_count, front, end);
             if (end->reverse)
                 keep_walk_dist(keep, &keep_count, end->reverse, 100);
+            /* Keep train body behind the head */
+            if (front->reverse)
+                keep_walk_dist(keep, &keep_count, front->reverse, body_mm);
         }
 
     } else {

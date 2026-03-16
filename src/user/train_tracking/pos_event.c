@@ -167,7 +167,9 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     pos->cur_sensor_time = time_us;
 
     if (prev_sensor && prev_sensor != hit)
-        traffic_release_passed(pos->train_num, prev_sensor, hit);
+        traffic_release_train_keep_body(pos->train_num, hit,
+                                        pos->going_forward, TRAIN_BODY_MM,
+                                        pos->target_sensor);
 
     /* Off-route: ON_ROUTE hit outside our reservation -> stop and replan. */
     if (pos->route_state == TRAIN_STATE_ON_ROUTE && pos->target_sensor != NULL) {
