@@ -63,6 +63,23 @@ static void can_rx_courier_task(void) {
     }
 }
 
+void demo_tick_task(void) {
+    int parent = MyParentTid();
+    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
+
+    KASSERT(clock_tid >= 0);
+
+    TrainControlMsg_t msg;
+    TrainControlReply_t reply;
+    msg.type = TRAIN_MSG_DEMO_TICK;
+
+    for (;;) {
+        Delay(clock_tid, 100);  // 100 * 10ms = 1s
+        Send(parent, (const char *)&msg, sizeof(msg),
+             (char *)&reply, sizeof(reply));
+    }
+}
+
 void ui_tick_task(void) {
     int parent = MyParentTid();
     int clock_tid = WhoIs(CLOCK_SERVER_NAME);
@@ -155,6 +172,7 @@ void train_control_task(void) {
     Create(TRAIN_COURIER_PRIORITY, can_rx_courier_task);
     Create(TRAIN_COURIER_PRIORITY, keyboard_courier_task);
     Create(TRAIN_COURIER_PRIORITY, ui_tick_task);
+    Create(TRAIN_COURIER_PRIORITY, demo_tick_task);
 
     char cmdline[80];
     int cmdlen = 0;
@@ -230,7 +248,6 @@ void train_control_task(void) {
                 ui_update_idle(idle_percent);
 
                 pos_on_tick(tick_now);
-                demo_on_tick(tick_now);
 
                 if (ui_is_switches_dirty()) {
                     ui_puts("\033[s");
@@ -277,6 +294,12 @@ void train_control_task(void) {
                 pos_on_reverse(msg.train);
                 if (rv_pending_count > 0) rv_pending_count--;
                 Reply(tid, (const char *)&reply, sizeof(reply));
+                break;
+            }
+
+            case TRAIN_MSG_DEMO_TICK: {
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                demo_on_tick(read_timer());
                 break;
             }
 

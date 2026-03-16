@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 #define DEMO_MAX_TRAINS 4
-#define GOLD_WAIT_RETARGET_US 8000000ULL
+#define GOLD_WAIT_RETARGET_US 30000000ULL
 
 typedef enum {
     DEMO_MODE_OFF = 0,

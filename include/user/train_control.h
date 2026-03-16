@@ -9,7 +9,8 @@
 #define TRAIN_MSG_CAN_FRAME 1   // CAN frame received
 #define TRAIN_MSG_TICK      2   // Periodic UI tick
 #define TRAIN_MSG_RV_REQUEST  3   // Reverse delay task requests parameters
-#define TRAIN_MSG_RV_COMPLETE 4   
+#define TRAIN_MSG_RV_COMPLETE 4
+#define TRAIN_MSG_DEMO_TICK   5   // 1s periodic demo tick
 
 
 typedef struct {
@@ -33,6 +34,9 @@ void keyboard_courier_task(void);
 
 // UI tick task
 void ui_tick_task(void);
+
+// Demo tick task (1s interval)
+void demo_tick_task(void);
 
 // Reverse delay courier task
 void rv_delay_task(void);
