@@ -268,7 +268,6 @@ static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
         track_set_switch(pos->midrev.sw_nums[j], pos->midrev.sw_dirs[j]);
         track_update_switch(pos->midrev.sw_nums[j], pos->midrev.sw_dirs[j]);
     }
-    resend_unreliable_switches(pos->midrev.sw_nums, pos->midrev.sw_dirs, pos->midrev.sw_count);
     if (pos->midrev.sw_count > 0) ui_mark_switches_dirty();
 
     pos->target_sensor    = pos->midrev.final_target;

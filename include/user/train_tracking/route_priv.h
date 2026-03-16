@@ -18,10 +18,6 @@ int32_t follow_dist(track_node *cur, track_node *to, int max_hops);
 track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
                                 uint64_t *out_dt_us);
 
-/* Re-send switch commands for known unreliable switches that appear in plan.
- * Current retry list: SW1, SW153, SW155, SW15. */
-void resend_unreliable_switches(const int *sw_nums, const char *sw_dirs, int sw_count);
-
 /* ===== Route planning constants ===== */
 
 #define GOTO_MIN_DIST_FACTOR 6

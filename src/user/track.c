@@ -220,19 +220,13 @@ void track_set_switch(int sw_num, char dir) {
     KASSERT(track_is_valid_switch(sw_num));
     KASSERT(dir == 'S' || dir == 'C');
 
-    /* 153/154 and 155/156 cannot both be C. */
-    if (dir == 'C') {
+    if (sw_num == 153 || sw_num == 154 || sw_num == 155 || sw_num == 156) {
+        if (dir == 'S') return;   /* never send S to a 3-way turnout */
+        /* dir == 'C': update partner local state */
         int partner = (sw_num == 153) ? 154 :
                       (sw_num == 154) ? 153 :
-                      (sw_num == 155) ? 156 :
-                      (sw_num == 156) ? 155 : -1;
-        if (partner > 0) {
-            int pidx = track_switch_to_index(partner);
-            if (pidx >= 0 && switch_state[pidx].state == 'C') {
-                track_set_switch(partner, 'S');
-                track_update_switch(partner, 'S');
-            }
-        }
+                      (sw_num == 155) ? 156 : 155;
+        track_update_switch(partner, 'S');
     }
 
     can_frame_t frame;

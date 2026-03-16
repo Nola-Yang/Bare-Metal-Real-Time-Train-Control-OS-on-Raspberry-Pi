@@ -16,17 +16,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* ===== Unreliable switch reliability helper ===== */
-
-void resend_unreliable_switches(const int *sw_nums, const char *sw_dirs, int sw_count) {
-    for (int i = 0; i < sw_count; i++) {
-        if (sw_nums[i] == 1 || sw_nums[i] == 153 || sw_nums[i] == 155 || sw_nums[i] == 15) {
-            track_set_switch(sw_nums[i], sw_dirs[i]);
-        }
-    }
-}
-
-
 /* ===== Branch node index cache ===== */
 
 /* Indices of all NODE_BRANCH nodes in g_track[]. */
