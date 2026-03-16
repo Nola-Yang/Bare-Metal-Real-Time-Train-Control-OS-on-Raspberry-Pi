@@ -225,7 +225,7 @@ static int apply_route_switches_safe(const int *sw_nums, const char *sw_dirs,
         int owner = traffic_can_set_switch(sw_nums[i], requester_train);
         if (owner >= 0) return 0;
     }
-    for (int i = 0; i < sw_count; i++) {
+    for (int i = sw_count - 1; i >= 0; i--) {
         track_set_switch(sw_nums[i], sw_dirs[i]);
         track_update_switch(sw_nums[i], sw_dirs[i]);
     }

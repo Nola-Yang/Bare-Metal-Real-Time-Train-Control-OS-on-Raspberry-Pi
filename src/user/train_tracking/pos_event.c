@@ -313,7 +313,7 @@ static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
         }
     }
 
-    for (int j = 0; j < pos->midrev.sw_count; j++) {
+    for (int j = pos->midrev.sw_count - 1; j >= 0; j--) {
         track_set_switch(pos->midrev.sw_nums[j], pos->midrev.sw_dirs[j]);
         track_update_switch(pos->midrev.sw_nums[j], pos->midrev.sw_dirs[j]);
     }
