@@ -9,9 +9,8 @@
 /* Global track graph */
 track_node g_track[TRACK_MAX];
 
-// Server TIDs for communication
+// Server TID for communication
 static int can_tid = -1;
-static int term_tid = -1;
 
 // Track state storage
 static switch_entry_t switch_state[MAX_SWITCHES];
@@ -100,7 +99,7 @@ int track_is_valid_switch(int sw_num) {
     return (sw_num >= 1 && sw_num <= 18) || (sw_num >= 153 && sw_num <= 156);
 }
 
-void track_init_graph(void) {
+static void track_init_graph(void) {
 #ifdef TRACK_D
     init_trackb(g_track);
 #else
@@ -108,12 +107,10 @@ void track_init_graph(void) {
 #endif
 }
 
-void track_init(int can_server_tid, int term_server_tid) {
+void track_init(int can_server_tid) {
     KASSERT(can_server_tid >= 0);
-    KASSERT(term_server_tid >= 0);
 
     can_tid = can_server_tid;
-    term_tid = term_server_tid;
 
     track_init_graph();
 

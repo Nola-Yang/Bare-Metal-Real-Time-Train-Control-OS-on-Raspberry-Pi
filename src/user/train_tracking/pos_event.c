@@ -198,14 +198,15 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     pos->cur_sensor      = hit;
     pos->cur_sensor_time = time_us;
 
-    if (prev_sensor && prev_sensor != hit)
-        traffic_release_train_keep_body(pos->train_num, hit,
-                                        pos->going_forward, TRAIN_BODY_MM,
-                                        pos->target_sensor);
+    if (prev_sensor && prev_sensor != hit) {
+        traffic_release_passed(pos->train_num, prev_sensor, hit);
+    }
 
     /* Off-route: ON_ROUTE hit outside our reservation -> stop and replan. */
     if (pos->route_state == TRAIN_STATE_ON_ROUTE && pos->target_sensor != NULL) {
         if (!traffic_is_reserved_by(hit, pos->train_num)) {
+            traffic_release_train_keep_body(pos->train_num, hit,
+                                            pos->going_forward, TRAIN_BODY_MM, NULL);
             pos->offroute_valid           = 1;
             pos->offroute_expected_sensor = pos->pred.next_sensor;
             pos_clear_prediction(pos);
@@ -215,6 +216,12 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
             ui_mark_position_dirty();
             return;
         }
+    }
+
+    if (prev_sensor && prev_sensor != hit) {
+        traffic_release_train_keep_body(pos->train_num, hit,
+                                        pos->going_forward, TRAIN_BODY_MM,
+                                        pos->target_sensor);
     }
 
     if (pos->route_state == TRAIN_STATE_UNKNOWN) {

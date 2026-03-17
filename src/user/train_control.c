@@ -131,7 +131,6 @@ static void process_can_frame(const can_frame_t *frame, uint64_t now) {
         if (track_is_valid_switch(sw_num)) {
             track_update_switch(sw_num, dir);
             pos_mark_routes_dirty();
-            ui_notify_switch_change(sw_num, dir);
             ui_mark_switches_dirty();
         }
     }
@@ -145,13 +144,10 @@ void train_control_task(void) {
 
     int term_tid = WhoIs(TERMINAL_SERVER_NAME);
     int can_tid = WhoIs(CAN_SERVER_NAME);
-    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
-
     KASSERT(term_tid >= 0);
     KASSERT(can_tid >= 0);
-    KASSERT(clock_tid >= 0);
 
-    track_init(can_tid, term_tid);
+    track_init(can_tid);
     pos_init();
     demo_init();
     ui_init(term_tid);

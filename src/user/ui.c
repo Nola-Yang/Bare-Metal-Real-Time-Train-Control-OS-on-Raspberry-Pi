@@ -43,7 +43,6 @@ void ui_init(int terminal_tid) {
     ui_puts("\r\n");
 
     ui_switches();
-    ui_draw_switch_log();
     ui_draw_sensors(0);
     ui_draw_position();
     ui_draw_prediction_error();

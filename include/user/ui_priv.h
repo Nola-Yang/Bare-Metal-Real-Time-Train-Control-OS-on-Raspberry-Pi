@@ -16,7 +16,4 @@ enum {
     UI_CMD_SCROLL_BOTTOM       = 120,
 };
 
-/* Row 10 switch-change log is drawn during init and on every switch update. */
-void ui_draw_switch_log(void);
-
 #endif /* _ui_priv_h_ */
