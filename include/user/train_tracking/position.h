@@ -20,7 +20,7 @@ typedef enum {
     TRAIN_STATE_FIND_POS     = 6,  /* position unknown; running until first sensor hit */
     TRAIN_STATE_RECOVERY_STOPPING = 7,  /* off-route deviation; stopping -> replan */
     TRAIN_STATE_STOPPING_GOTO     = 8, /* goto while running; stop sent -> replan */
-    TRAIN_STATE_DEAD_TRACK        = 9, /* stopped on powerless track; waiting for manual push */
+    TRAIN_STATE_DEAD_TRACK        = 9, /* terminal: stuck on dead track, reservation held in place */
     TRAIN_STATE_WAIT_RESOURCE     = 10, /* route blocked by reservation; stopped and waiting */
 } train_route_state_t;
 

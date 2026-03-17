@@ -526,6 +526,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     train_pos_t *pos = find_or_create_pos(train_num);
     KASSERT(pos != NULL);
     if (!pos) return 0;
+    if (pos->route_state == TRAIN_STATE_DEAD_TRACK) return 0;
 
     if (state_is_goto_active(pos->route_state)) {
         pos->queued_target = target;
@@ -623,6 +624,7 @@ train_pos_t *pos_get_by_index(int i) {
 int pos_queue_goto(int train_num, track_node *target, int32_t offset_mm) {
     train_pos_t *pos = find_or_create_pos(train_num);
     if (!pos || !target) return 0;
+    if (pos->route_state == TRAIN_STATE_DEAD_TRACK) return 0;
     pos->queued_target = target;
     pos->queued_offset_mm = offset_mm;
     pos->queued_valid = 1;

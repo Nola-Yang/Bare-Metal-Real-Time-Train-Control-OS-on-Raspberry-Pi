@@ -12,7 +12,7 @@
  *     correct_alt_branch_switch       (switch state correction)
  *     handle_sensor
  *       update_sensor_stats           (EMA, warmup, prediction error)
- *       handle_dead_track_sensor      (dead-track recovery on sensor fire)
+ *       handle_dead_track_sensor      (ignore sensor while terminal dead-track)
  *       update_next_prediction        (predict next sensor + deadline)
  *
  *   pos_on_tick
@@ -151,27 +151,50 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
     }
 }
 
-/* Handle a sensor hit while in DEAD_TRACK state.
- * Clears the dead-track flag, restores pending target, and replans.
- * Returns 1 if this function handled the event (caller should return). */
+/* DEAD_TRACK is terminal: ignore any later attributed sensor and keep the train
+ * parked in place. Returns 1 if this function handled the event. */
 static int handle_dead_track_sensor(train_pos_t *pos) {
-    pos->offroute_valid = 0;
-    pos->effective_v    = 0;
-    traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
-                                    pos->going_forward, TRAIN_BODY_MM, NULL);
-
-    pos_restore_pending_target(pos);
-
-    if (pos->pending_target == NULL) {
-        pos->find_pos_only = 0;
-        pos->route_state   = TRAIN_STATE_STOPPED;
-        ui_mark_position_dirty();
-        return 1;
-    }
-    int ok = pos_try_direct_goto(pos);
-    KASSERT(ok);
+    if (!pos) return 1;
+    track_set_speed(pos->train_num, 0);
+    pos->effective_v = 0;
+    pos->is_accelerating = 0;
     ui_mark_position_dirty();
     return 1;
+}
+
+static void enter_terminal_dead_track(train_pos_t *pos) {
+    if (!pos) return;
+
+    track_node *guessed_end = pos->offroute_expected_sensor
+                              ? pos->offroute_expected_sensor
+                              : pos->pred.next_sensor;
+
+    track_set_speed(pos->train_num, 0);
+    traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
+                                    pos->going_forward, TRAIN_BODY_MM,
+                                    guessed_end);
+
+    pos->effective_v              = 0;
+    pos->user_speed               = 0;
+    pos->is_accelerating          = 0;
+    pos->route_state              = TRAIN_STATE_DEAD_TRACK;
+    pos->target_sensor            = NULL;
+    pos->target_offset_mm         = 0;
+    pos->dist_to_target_mm        = 0;
+    pos->pending_target           = NULL;
+    pos->pending_offset_mm        = 0;
+    pos->queued_target            = NULL;
+    pos->queued_offset_mm         = 0;
+    pos->queued_valid             = 0;
+    pos->orig_user_target         = NULL;
+    pos->orig_target_offset       = 0;
+    pos->find_pos_only            = 0;
+    pos->midrev.active            = 0;
+    pos->replan.next_us           = 0;
+    pos->replan.retry_count       = 0;
+    pos->offroute_valid           = 1;
+    pos->offroute_expected_sensor = guessed_end;
+    pos_clear_prediction(pos);
 }
 
 /* Recompute pred.next_sensor and update the dead-track deadline.
@@ -274,6 +297,9 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         }
     }
 
+    if (!pos->offroute_valid) {
+        pos->offroute_expected_sensor = NULL;
+    }
     update_next_prediction(pos, hit, time_us);
     ui_mark_position_dirty();
 }
@@ -511,14 +537,8 @@ static int tick_check_dead_track(train_pos_t *pos, uint64_t now_us) {
     if (pos->dead_track_deadline_us == 0) return 0;
     if (now_us <= pos->dead_track_deadline_us) return 0;
 
-    pos->effective_v              = 0;
-    pos->route_state              = TRAIN_STATE_DEAD_TRACK;
-    pos->target_sensor            = NULL;
-    pos->target_offset_mm         = 0;
-    pos->offroute_valid           = 1;
-    pos->offroute_expected_sensor = pos->pred.next_sensor;
-    pos_clear_prediction(pos);
-    traffic_release_train(pos->train_num);
+    (void)now_us;
+    enter_terminal_dead_track(pos);
     ui_mark_position_dirty();
     return 1;
 }
@@ -532,6 +552,9 @@ static void tick_advance_prediction(train_pos_t *pos, uint64_t now_us) {
     if (now_us <= 2 * pos->pred.trigger_time - pos->cur_sensor_time) return;
 
     track_node *skipped = pos->pred.next_sensor;
+    if (pos->offroute_valid == 0 && pos->offroute_expected_sensor == NULL) {
+        pos->offroute_expected_sensor = skipped;
+    }
     uint64_t dt = 0;
     pos->pred.next_sensor  = predict_next_sensor(pos, skipped, &dt);
     pos->pred.trigger_time = now_us + dt;

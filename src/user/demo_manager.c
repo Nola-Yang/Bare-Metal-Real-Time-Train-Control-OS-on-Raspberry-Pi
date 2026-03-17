@@ -113,9 +113,16 @@ static demo_train_slot_t *demo_alloc_slot(int train_num) {
     return NULL;
 }
 
+static int demo_slot_is_dead_track(const demo_train_slot_t *slot) {
+    if (!slot || !slot->enabled) return 0;
+    train_pos_t *pos = pos_get(slot->train_num);
+    return pos && pos->route_state == TRAIN_STATE_DEAD_TRACK;
+}
+
 static int demo_any_active_goto(void) {
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         if (!g_slots[i].enabled) continue;
+        if (demo_slot_is_dead_track(&g_slots[i])) continue;
         if (pos_is_train_goto_active(g_slots[i].train_num)) return 1;
     }
     return 0;
@@ -214,6 +221,7 @@ static void demo_update_state_counters(uint64_t now_us) {
             }
             if (st == TRAIN_STATE_DEAD_TRACK) {
                 slot->dead_track_count++;
+                slot->wait_enter_us = 0;
             }
             if (g_demo_state == DEMO_RUN_RUNNING &&
                 st == TRAIN_STATE_STOPPED &&
@@ -259,6 +267,7 @@ static int demo_start_next_unstarted_gold(void) {
 static void demo_force_stop(void) {
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         if (!g_slots[i].enabled) continue;
+        if (demo_slot_is_dead_track(&g_slots[i])) continue;
         traffic_release_train(g_slots[i].train_num);
     }
     g_demo_mode = DEMO_MODE_OFF;
@@ -284,6 +293,7 @@ static void demo_maybe_retarget_waiting_gold(uint64_t now_us) {
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         demo_train_slot_t *slot = &g_slots[i];
         if (!slot->enabled) continue;
+        if (demo_slot_is_dead_track(slot)) continue;
         if (slot->wait_enter_us == 0) continue;
         if (now_us < slot->wait_enter_us + GOLD_WAIT_RETARGET_US) continue;
 
@@ -547,6 +557,7 @@ void demo_on_tick(uint64_t now_us) {
         for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
             demo_train_slot_t *slot = &g_slots[i];
             if (!slot->enabled) continue;
+            if (demo_slot_is_dead_track(slot)) continue;
             if (!slot->started) { any_unstarted = 1; all_stopped = 0; continue; }
             train_pos_t *pos = pos_get(slot->train_num);
             if (!pos) { all_stopped = 0; continue; }
@@ -580,6 +591,7 @@ void demo_on_tick(uint64_t now_us) {
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         demo_train_slot_t *slot = &g_slots[i];
         if (!slot->enabled) continue;
+        if (demo_slot_is_dead_track(slot)) continue;
         train_pos_t *pos = pos_get(slot->train_num);
         if (!pos) continue;
         if (!pos_is_train_goto_active(slot->train_num) &&
