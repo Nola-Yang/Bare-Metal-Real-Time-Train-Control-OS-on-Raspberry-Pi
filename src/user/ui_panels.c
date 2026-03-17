@@ -261,6 +261,10 @@ static int ui_node_index(const track_node *node) {
     }
 }
 
+static int ui_is_sensor_node_idx(int idx) {
+    return 0 <= idx && idx < TRACK_MAX && g_track[idx].type == NODE_SENSOR;
+}
+
 static int ui_append_reserved_path_nodes(
     int train_num,
     const uint16_t *path,
@@ -274,6 +278,7 @@ static int ui_append_reserved_path_nodes(
     for (int i = 0; i < path_count; i++) {
         int idx = (int)path[i];
         if (idx < 0 || idx >= TRACK_MAX) continue;
+        if (!ui_is_sensor_node_idx(idx)) continue;
         if (!traffic_is_reserved_by(&g_track[idx], train_num)) continue;
         count = ui_append_reservation_node(out, count, max_nodes, (uint16_t)idx);
     }
@@ -303,6 +308,7 @@ static int ui_collect_reservation_display_nodes(int train_num, uint16_t *out, in
             int rev_idx;
 
             if (idx < 0 || idx >= TRACK_MAX) continue;
+            if (!ui_is_sensor_node_idx(idx)) continue;
 
             rev_idx = ui_node_index(g_track[idx].reverse);
             if (rev_idx >= 0 && ui_contains_reservation_node(out, count, (uint16_t)rev_idx)) {
