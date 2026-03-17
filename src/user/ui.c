@@ -33,7 +33,7 @@ void ui_puts(const char *str) {
 void ui_init(int terminal_tid) {
     term_tid = terminal_tid;
 
-    ui_puts("\033[2J\033[H");
+    ui_puts("\033[2J\033[H\033[?25l");
     ui_puts("=== Train Control System CS652 K4 ===\r\n");
     ui_puts("Version: " __DATE__ " / " __TIME__ "\r\n");
     ui_puts("Cmds: tr|sw|rv|li|goto <t> <node> [+mm]|q\r\n");
