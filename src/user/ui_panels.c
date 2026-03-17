@@ -16,11 +16,11 @@ static const char *ui_state_long(train_route_state_t st) {
     case TRAIN_STATE_ON_ROUTE:          return "ON_ROUTE";
     case TRAIN_STATE_STOPPING:          return "STOPPING";
     case TRAIN_STATE_STOPPED:           return "STOPPED";
-    case TRAIN_STATE_RECOVERY_STOPPING: return "RECOVERY_STOPPING";
-    case TRAIN_STATE_STOPPING_GOTO:     return "STOPPING_GOTO";
+    case TRAIN_STATE_RECOVERY_STOPPING: return "STOP_RECOVER";
+    case TRAIN_STATE_STOPPING_GOTO:     return "GOTO_STOP";
     case TRAIN_STATE_DEAD_TRACK:        return "DEAD_TRACK";
-    case TRAIN_STATE_WAIT_RESOURCE:     return "WAIT_RESOURCE";
-    default:                            return "UNKNOWN_STATE";
+    case TRAIN_STATE_WAIT_RESOURCE:     return "WAIT";
+    default:                            return "UNK_STATE";
     }
 }
 
@@ -192,10 +192,10 @@ static char *ui_append_position_row(char *p, int row, int train, const train_pos
     if (train > 0) p = buf_append_int(p, train);
     else p = buf_append(p, "-");
     p = ui_append_field(p, "", (train > 0) ? 1 : 2);
-    p = ui_append_field(p, cur_name, 8);
-    p = ui_append_field(p, next_name, 8);
+    p = ui_append_field(p, cur_name, 7);
+    p = ui_append_field(p, next_name, 7);
     p = ui_append_field(p, dest_buf, 24);
-    p = ui_append_field(p, pos ? ui_state_long(pos->route_state) : "-", 20);
+    p = ui_append_field(p, pos ? ui_state_long(pos->route_state) : "-", 15);
     p = ui_append_field(p, rem_buf, 12);
     p = ui_append_field(p, queued_name, 24);
     p = buf_append(p, "\033[K");
