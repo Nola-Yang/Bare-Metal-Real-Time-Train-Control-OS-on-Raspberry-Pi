@@ -128,6 +128,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->pred.alt_sensor       = NULL;
             slot->pred.branch_node      = NULL;
             slot->pred.trigger_time     = 0;
+            slot->pred.skipped_sensor_count = 0;
             slot->pred.last_time_err_us = 0;
             slot->pred.last_dist_err_mm = 0;
             slot->route_state           = TRAIN_STATE_UNKNOWN;
@@ -183,6 +184,7 @@ void pos_clear_prediction(train_pos_t *pos) {
     pos->pred.alt_sensor   = NULL;
     pos->pred.branch_node  = NULL;
     pos->pred.trigger_time = 0;
+    pos->pred.skipped_sensor_count = 0;
     pos->dead_track_deadline_us = 0;
 }
 
@@ -439,6 +441,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
         pos->pred.alt_sensor   = NULL;
         pos->pred.branch_node  = NULL;
         pos->pred.trigger_time = 0;
+        pos->pred.skipped_sensor_count = 0;
         pos->dead_track_deadline_us = 0;
     }
 
@@ -503,6 +506,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
         uint64_t dt = 0;
         pos->pred.next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
         pos->pred.trigger_time = now_us + dt;
+        pos->pred.skipped_sensor_count = 0;
     }
 
     if (pos->pred.next_sensor != NULL && pos->pred.trigger_time > now_us) {

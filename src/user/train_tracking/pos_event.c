@@ -202,6 +202,7 @@ static void enter_terminal_dead_track(train_pos_t *pos) {
 static void update_next_prediction(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     uint64_t dt_pred = 0;
     pos->pred.next_sensor = predict_next_sensor(pos, hit, &dt_pred);
+    pos->pred.skipped_sensor_count = 0;
 
     if (pos->route_state == TRAIN_STATE_FIND_POS) {
         pos->pred.trigger_time      = 0;
@@ -404,6 +405,7 @@ static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     pos->pred.alt_sensor        = NULL;
     pos->pred.branch_node       = NULL;
     pos->pred.trigger_time      = 0;
+    pos->pred.skipped_sensor_count = 0;
     pos->dead_track_deadline_us = 0;
 
     pos->route_state = TRAIN_STATE_ON_ROUTE;
@@ -550,6 +552,7 @@ static void tick_advance_prediction(train_pos_t *pos, uint64_t now_us) {
     if (pos->cur_sensor_time == 0) return;
     if (pos->pred.trigger_time <= pos->cur_sensor_time) return;
     if (now_us <= 2 * pos->pred.trigger_time - pos->cur_sensor_time) return;
+    if (pos->pred.skipped_sensor_count >= 1) return;
 
     track_node *skipped = pos->pred.next_sensor;
     if (pos->offroute_valid == 0 && pos->offroute_expected_sensor == NULL) {
@@ -558,6 +561,7 @@ static void tick_advance_prediction(train_pos_t *pos, uint64_t now_us) {
     uint64_t dt = 0;
     pos->pred.next_sensor  = predict_next_sensor(pos, skipped, &dt);
     pos->pred.trigger_time = now_us + dt;
+    pos->pred.skipped_sensor_count = 1;
 
     if (pos->target_sensor && pos->route_state == TRAIN_STATE_ON_ROUTE) {
         int32_t skip_dist = follow_dist(skipped,

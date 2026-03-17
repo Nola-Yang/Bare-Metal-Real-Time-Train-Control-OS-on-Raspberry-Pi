@@ -31,6 +31,7 @@ typedef struct {
     track_node *alt_sensor;        /* first sensor in OTHER branch direction at next switch */
     track_node *branch_node;       /* first BRANCH on path from cur_sensor; paired with alt_sensor */
     uint64_t    trigger_time;      
+    uint8_t     skipped_sensor_count; /* consecutive predicted sensors skipped since last real hit */
     int64_t     last_time_err_us;  /* t_actual - t_predicted (us) */
     int32_t     last_dist_err_mm;  /* effective_v * last_time_err_us / 1e6 */
 } pos_pred_t;
