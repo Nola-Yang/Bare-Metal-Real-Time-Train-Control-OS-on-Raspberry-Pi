@@ -320,9 +320,6 @@ static void ui_build_reservation_token(int idx, char *out, int cap) {
     const char *name = (idx >= 0 && idx < TRACK_MAX && g_track[idx].name)
                        ? g_track[idx].name : "?";
     n = ui_limited_append_str(out, n, cap, name);
-    n = ui_limited_append_char(out, n, cap, '(');
-    n = ui_limited_append_int(out, n, cap, idx);
-    n = ui_limited_append_char(out, n, cap, ')');
     ui_limited_finish(out, n, cap);
 }
 
