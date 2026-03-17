@@ -298,7 +298,10 @@ void traffic_release_train(int train_num) {
             changed = 1;
         }
     }
-    if (changed) ui_mark_position_dirty();
+    if (changed) {
+        pos_mark_routes_dirty();
+        ui_mark_position_dirty();
+    }
 }
 
 void traffic_release_train_keep_body(int train_num, track_node *front,
@@ -355,7 +358,10 @@ void traffic_release_train_keep_body(int train_num, track_node *front,
         if (idx  >= 0 && node_owner[idx]  != train_num) { node_owner[idx]  = train_num; changed = 1; }
         if (ridx >= 0 && node_owner[ridx] != train_num) { node_owner[ridx] = train_num; changed = 1; }
     }
-    if (changed) ui_mark_position_dirty();
+    if (changed) {
+        pos_mark_routes_dirty();
+        ui_mark_position_dirty();
+    }
 }
 
 void traffic_release_passed(int train_num, track_node *from, track_node *to) {
@@ -378,16 +384,25 @@ void traffic_release_passed(int train_num, track_node *from, track_node *to) {
 
         track_edge *e = tm_get_next_edge(cur);
         if (!e || !e->dest) {
-            if (changed) ui_mark_position_dirty();
+            if (changed) {
+                pos_mark_routes_dirty();
+                ui_mark_position_dirty();
+            }
             return;
         }
         cur = e->dest;
         if (cur == to || cur->type == NODE_EXIT) {
-            if (changed) ui_mark_position_dirty();
+            if (changed) {
+                pos_mark_routes_dirty();
+                ui_mark_position_dirty();
+            }
             return;
         }
     }
-    if (changed) ui_mark_position_dirty();
+    if (changed) {
+        pos_mark_routes_dirty();
+        ui_mark_position_dirty();
+    }
 }
 
 int traffic_can_set_switch(int sw_num, int requester_train) {
