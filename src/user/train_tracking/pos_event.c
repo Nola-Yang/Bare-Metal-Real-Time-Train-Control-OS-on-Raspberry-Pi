@@ -42,13 +42,14 @@
 
 /* Stop command lead time for overshoot compensation (microseconds). */
 #ifdef TRACK_D
-    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {930000ULL, 930000ULL, 930000ULL, 930000ULL, 930000ULL};
+    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {930000ULL, 1200000ULL, 1300000ULL, 930000ULL, 930000ULL};
 #else
     uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1500000ULL, 1400000ULL, 1200000ULL, 1400000ULL, 1400000ULL};
 #endif
 
-static uint32_t Train_Forward_Stop_Offset = 64;
-static uint32_t Train_Reverse_Stop_Offset = 176;
+// Offsets at end of train with undershoot of 2.5cm
+static uint32_t Train_Forward_Stop_Offset = 69;
+static uint32_t Train_Reverse_Stop_Offset = 181;
 
 
 /* ===== Acceleration model helper ===== */

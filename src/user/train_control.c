@@ -21,6 +21,8 @@
 RING_BUFFER_DECLARE(RVQueue_t, int, RV_QUEUE_MAX);
 static RVQueue_t rv_queue;
 
+static int Train_Nums[MAX_ACTIVE_TRAINS] = {13, 14, 15, 17, 18};
+
 void rv_delay_task(void) {
     int parent = MyParentTid();
     int clock_tid = WhoIs(CLOCK_SERVER_NAME);
@@ -136,6 +138,13 @@ static void process_can_frame(const can_frame_t *frame, uint64_t now) {
     }
 }
 
+static void init_train_speed() {
+    int train_num;
+    for (int i = 0; i < MAX_ACTIVE_TRAINS; ++i) {
+        train_num = Train_Nums[i];
+        track_set_speed(train_num, 0);
+    }
+}
 
 void train_control_task(void) {
     int tid;
@@ -163,7 +172,8 @@ void train_control_task(void) {
         char state = (sw == 153 || sw == 155) ? 'C' : 'S';
         track_set_switch(sw, state);
     }
-    ui_mark_switches_dirty();
+    ui_mark_switches_dirty(); 
+    init_train_speed();
 
     Create(TRAIN_COURIER_PRIORITY, can_rx_courier_task);
     Create(TRAIN_COURIER_PRIORITY, keyboard_courier_task);
