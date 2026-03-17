@@ -10,12 +10,16 @@
 #define ATTR_TIME_GATE_US 2500000ULL
 #define ATTR_MAX_SKIP     2
 #define ATTR_MARGIN       120
+#define MAX_MUTEX_ZONES   32
+#define MAX_ZONE_NODES    16
 
 static int node_owner[TRACK_MAX];
 
-/* Crossing zone mutex: SW153-156 diamond crossing */
-static int g_crossing_idx[8];
-static int g_crossing_count = 0;
+/* Crossing + merge safety envelopes are modeled as mutex zones. */
+static int g_zone_nodes[MAX_MUTEX_ZONES][MAX_ZONE_NODES];
+static int g_zone_counts[MAX_MUTEX_ZONES];
+static int g_zone_count = 0;
+static uint32_t g_node_zone_mask[TRACK_MAX];
 
 static int spurious_sensor_count = 0;
 static int ambiguous_sensor_count = 0;
@@ -23,6 +27,8 @@ static uint16_t last_spurious_sensor_id = 0;
 static uint16_t last_ambiguous_sensor_id = 0;
 static uint64_t last_spurious_time_us = 0;
 static uint64_t last_ambiguous_time_us = 0;
+
+static track_edge *tm_get_next_edge(track_node *n);
 
 static int node_index(track_node *n) {
     if (!n) return -1;
@@ -34,6 +40,106 @@ static int reverse_index(int idx) {
     if (idx < 0 || idx >= TRACK_MAX) return -1;
     track_node *r = g_track[idx].reverse;
     return r ? node_index(r) : -1;
+}
+
+static void zone_add_idx(int zone, int idx) {
+    if (zone < 0 || zone >= g_zone_count) return;
+    if (idx < 0 || idx >= TRACK_MAX) return;
+
+    for (int i = 0; i < g_zone_counts[zone]; i++) {
+        if (g_zone_nodes[zone][i] == idx) return;
+    }
+    if (g_zone_counts[zone] >= MAX_ZONE_NODES) return;
+
+    g_zone_nodes[zone][g_zone_counts[zone]++] = idx;
+}
+
+static void zone_add_node_pair(int zone, int idx) {
+    zone_add_idx(zone, idx);
+    zone_add_idx(zone, reverse_index(idx));
+}
+
+static int zone_begin(void) {
+    if (g_zone_count >= MAX_MUTEX_ZONES) return -1;
+    g_zone_counts[g_zone_count] = 0;
+    return g_zone_count++;
+}
+
+static void zone_commit(int zone) {
+    if (zone < 0 || zone >= g_zone_count) return;
+    uint32_t bit = 1u << zone;
+    for (int i = 0; i < g_zone_counts[zone]; i++) {
+        int idx = g_zone_nodes[zone][i];
+        if (idx >= 0 && idx < TRACK_MAX) g_node_zone_mask[idx] |= bit;
+    }
+}
+
+static void expand_marks_with_zones(uint8_t marks[TRACK_MAX]) {
+    int changed;
+    do {
+        changed = 0;
+        uint32_t active_zones = 0;
+        for (int i = 0; i < TRACK_MAX; i++) {
+            if (marks[i]) active_zones |= g_node_zone_mask[i];
+        }
+        if (active_zones == 0) break;
+
+        for (int zone = 0; zone < g_zone_count; zone++) {
+            uint32_t bit = 1u << zone;
+            if ((active_zones & bit) == 0) continue;
+            int touched = 0;
+            for (int i = 0; i < g_zone_counts[zone]; i++) {
+                if (marks[g_zone_nodes[zone][i]]) {
+                    touched = 1;
+                    break;
+                }
+            }
+            if (!touched) continue;
+            for (int i = 0; i < g_zone_counts[zone]; i++) {
+                int idx = g_zone_nodes[zone][i];
+                if (!marks[idx]) {
+                    marks[idx] = 1;
+                    changed = 1;
+                }
+            }
+        }
+    } while (changed);
+}
+
+static void keep_mark_node(uint8_t keep[TRACK_MAX], track_node *n) {
+    if (!n) return;
+    int idx = node_index(n);
+    int ridx = reverse_index(idx);
+    if (idx >= 0) keep[idx] = 1;
+    if (ridx >= 0) keep[ridx] = 1;
+}
+
+/* Walk from 'start' along forward edges for up to dist_mm, keeping every node. */
+static void keep_mark_walk_dist(uint8_t keep[TRACK_MAX], track_node *start, int32_t dist_mm) {
+    if (!start) return;
+    track_node *cur = start;
+    int32_t dist = 0;
+    for (int h = 0; h < 200; h++) {
+        keep_mark_node(keep, cur);
+        if (dist >= dist_mm) break;
+        track_edge *e = tm_get_next_edge(cur);
+        if (!e || !e->dest) break;
+        dist += e->dist;
+        cur = e->dest;
+    }
+}
+
+/* Walk from 'start' to 'end' along forward edges, keeping every node. */
+static void keep_mark_walk_to(uint8_t keep[TRACK_MAX], track_node *start, track_node *end) {
+    if (!start || !end) return;
+    track_node *cur = start;
+    for (int h = 0; h < 200; h++) {
+        keep_mark_node(keep, cur);
+        if (cur == end) break;
+        track_edge *e = tm_get_next_edge(cur);
+        if (!e || !e->dest) break;
+        cur = e->dest;
+    }
 }
 
 static int abs64(int64_t x) {
@@ -102,25 +208,37 @@ void traffic_init(void) {
     last_spurious_time_us = 0;
     last_ambiguous_time_us = 0;
 
-    /* Cache crossing node indices for SW153-156 diamond */
-    g_crossing_count = 0;
-    for (int i = 0; i < TRACK_MAX && g_crossing_count < 8; i++) {
-        track_node *n = &g_track[i];
-        if (n->type != NODE_BRANCH) continue;
-        if (n->num < 153 || n->num > 156) continue;
-        if (g_crossing_count < 8) g_crossing_idx[g_crossing_count++] = i;
-        int ridx = reverse_index(i);
-        if (ridx >= 0 && g_crossing_count < 8) g_crossing_idx[g_crossing_count++] = ridx;
-    }
-}
+    g_zone_count = 0;
+    for (int i = 0; i < TRACK_MAX; i++) g_node_zone_mask[i] = 0;
 
-static int crossing_is_blocked_by_other(int train_num) {
-    for (int i = 0; i < g_crossing_count; i++) {
-        int idx = g_crossing_idx[i];
-        if (node_owner[idx] >= 0 && node_owner[idx] != train_num)
-            return 1;
+    /* Diamond crossing: all four paired turnouts share one mutex zone. */
+    int crossing_zone = zone_begin();
+    for (int i = 0; i < TRACK_MAX; i++) {
+        track_node *n = &g_track[i];
+        if (n->type == NODE_BRANCH && 153 <= n->num && n->num <= 156) {
+            zone_add_node_pair(crossing_zone, i);
+        }
     }
-    return 0;
+    zone_commit(crossing_zone);
+
+    /* Each merge owns its two approach legs plus the paired branch node. */
+    for (int merge_idx = 0; merge_idx < TRACK_MAX; merge_idx++) {
+        if (g_track[merge_idx].type != NODE_MERGE) continue;
+
+        int zone = zone_begin();
+        if (zone < 0) break;
+
+        zone_add_node_pair(zone, merge_idx);
+        for (int src_idx = 0; src_idx < TRACK_MAX; src_idx++) {
+            track_node *src = &g_track[src_idx];
+            for (int dir = 0; dir < 2; dir++) {
+                if (src->edge[dir].dest == &g_track[merge_idx]) {
+                    zone_add_node_pair(zone, src_idx);
+                }
+            }
+        }
+        zone_commit(zone);
+    }
 }
 
 void traffic_build_constraints(int requester_train, uint8_t blocked[TRACK_MAX]) {
@@ -129,43 +247,16 @@ void traffic_build_constraints(int requester_train, uint8_t blocked[TRACK_MAX]) 
         int owner = node_owner[i];
         blocked[i] = (owner >= 0 && owner != requester_train) ? 1 : 0;
     }
-
-    /* Crossing zone mutex: if any crossing node is blocked, block all of them */
-    int crossing_taken = 0;
-    for (int i = 0; i < g_crossing_count; i++) {
-        if (blocked[g_crossing_idx[i]]) { crossing_taken = 1; break; }
-    }
-    if (crossing_taken) {
-        for (int i = 0; i < g_crossing_count; i++)
-            blocked[g_crossing_idx[i]] = 1;
-    }
+    expand_marks_with_zones(blocked);
 }
 
 int traffic_reserve_plan(int train_num, track_node *start, const route_plan_t *plan) {
     (void)start;
     if (!plan || train_num < 0) return 0;
+    uint8_t want[TRACK_MAX];
+    int changed = 0;
 
-    /* Crossing zone pre-check: if plan touches crossing and another train owns it, fail */
-    int plan_touches_crossing = 0;
-    for (int p = 0; p < plan->path_count && !plan_touches_crossing; p++) {
-        for (int ci = 0; ci < g_crossing_count; ci++) {
-            if (plan->path_nodes[p] == g_crossing_idx[ci]) {
-                plan_touches_crossing = 1; break;
-            }
-        }
-    }
-    for (int p = 0; p < plan->path_count2 && !plan_touches_crossing; p++) {
-        for (int ci = 0; ci < g_crossing_count; ci++) {
-            if (plan->path_nodes2[p] == g_crossing_idx[ci]) {
-                plan_touches_crossing = 1; break;
-            }
-        }
-    }
-    if (plan_touches_crossing && crossing_is_blocked_by_other(train_num))
-        return 0;
-
-    int touched[TRACK_MAX * 2];
-    int touched_count = 0;
+    for (int i = 0; i < TRACK_MAX; i++) want[i] = 0;
 
     for (int leg = 0; leg < 2; leg++) {
         const uint16_t *path = (leg == 0) ? plan->path_nodes : plan->path_nodes2;
@@ -174,30 +265,27 @@ int traffic_reserve_plan(int train_num, track_node *start, const route_plan_t *p
 
         for (int i = 0; i < path_count; i++) {
             int idx = (int)path[i];
-            int pair = reverse_index(idx);
-            int to_check[2] = { idx, pair };
-
-            for (int k = 0; k < 2; k++) {
-                int nidx = to_check[k];
-                if (nidx < 0 || nidx >= TRACK_MAX) continue;
-                int owner = node_owner[nidx];
-                if (owner >= 0 && owner != train_num) {
-                    for (int r = 0; r < touched_count; r++) {
-                        if (node_owner[touched[r]] == train_num) {
-                            node_owner[touched[r]] = -1;
-                        }
-                    }
-                    return 0;
-                }
-                if (owner < 0) {
-                    node_owner[nidx] = train_num;
-                    touched[touched_count++] = nidx;
-                }
-            }
+            int ridx = reverse_index(idx);
+            if (idx >= 0 && idx < TRACK_MAX) want[idx] = 1;
+            if (ridx >= 0 && ridx < TRACK_MAX) want[ridx] = 1;
         }
     }
 
-    ui_mark_position_dirty();
+    expand_marks_with_zones(want);
+
+    for (int i = 0; i < TRACK_MAX; i++) {
+        if (!want[i]) continue;
+        if (node_owner[i] >= 0 && node_owner[i] != train_num) return 0;
+    }
+    for (int i = 0; i < TRACK_MAX; i++) {
+        if (!want[i]) continue;
+        if (node_owner[i] != train_num) {
+            node_owner[i] = train_num;
+            changed = 1;
+        }
+    }
+
+    if (changed) ui_mark_position_dirty();
     return 1;
 }
 
@@ -212,90 +300,52 @@ void traffic_release_train(int train_num) {
     if (changed) ui_mark_position_dirty();
 }
 
-/* Keep a node and its reverse pair in the keep-set. */
-static void keep_add(int keep[], int *kc, track_node *n) {
-    if (!n) return;
-    int idx  = node_index(n);
-    int ridx = reverse_index(idx);
-    if (idx  >= 0 && *kc < TRACK_MAX * 2) keep[(*kc)++] = idx;
-    if (ridx >= 0 && *kc < TRACK_MAX * 2) keep[(*kc)++] = ridx;
-}
-
-/* Walk from 'start' along forward edges for up to dist_mm, keeping every node. */
-static void keep_walk_dist(int keep[], int *kc, track_node *start, int32_t dist_mm) {
-    if (!start) return;
-    track_node *cur = start;
-    int32_t dist = 0;
-    for (int h = 0; h < 200; h++) {
-        keep_add(keep, kc, cur);
-        if (dist >= dist_mm) break;
-        track_edge *e = tm_get_next_edge(cur);
-        if (!e || !e->dest) break;
-        dist += e->dist;
-        cur = e->dest;
-    }
-}
-
-/* Walk from 'start' to 'end' along forward edges, keeping every node. */
-static void keep_walk_to(int keep[], int *kc, track_node *start, track_node *end) {
-    if (!start || !end) return;
-    track_node *cur = start;
-    for (int h = 0; h < 200; h++) {
-        keep_add(keep, kc, cur);
-        if (cur == end) break;
-        track_edge *e = tm_get_next_edge(cur);
-        if (!e || !e->dest) break;
-        cur = e->dest;
-    }
-}
-
 void traffic_release_train_keep_body(int train_num, track_node *front,
                                      int going_forward, int32_t body_mm,
                                      track_node *end) {
-    int keep[TRACK_MAX * 2];
-    int keep_count = 0;
+    uint8_t keep[TRACK_MAX];
+
+    for (int i = 0; i < TRACK_MAX; i++) keep[i] = 0;
 
     if (end == NULL) {
-        keep_add(keep, &keep_count, front);
-        keep_walk_dist(keep, &keep_count, front, body_mm);
+        keep_mark_node(keep, front);
+        keep_mark_walk_dist(keep, front, body_mm);
         if (front && front->reverse)
-            keep_walk_dist(keep, &keep_count, front->reverse, body_mm);
+            keep_mark_walk_dist(keep, front->reverse, body_mm);
 
     } else if (going_forward) {
         if (front == end) {
-            keep_add(keep, &keep_count, front);
+            keep_mark_node(keep, front);
             if (end->reverse)
-                keep_walk_dist(keep, &keep_count, end->reverse, body_mm); /* 200mm before */
-            keep_walk_dist(keep, &keep_count, end, 100);                   /* 100mm after */
+                keep_mark_walk_dist(keep, end->reverse, body_mm); /* 200mm before */
+            keep_mark_walk_dist(keep, end, 100);                  /* 100mm after */
         } else {
-            keep_walk_to(keep, &keep_count, front, end);
+            keep_mark_walk_to(keep, front, end);
             if (end->reverse)
-                keep_walk_dist(keep, &keep_count, end->reverse, 100);
+                keep_mark_walk_dist(keep, end->reverse, 100);
             /* Keep train body behind the head */
             if (front->reverse)
-                keep_walk_dist(keep, &keep_count, front->reverse, body_mm);
+                keep_mark_walk_dist(keep, front->reverse, body_mm);
         }
 
     } else {
         if (front == end) {
-            keep_add(keep, &keep_count, front);
+            keep_mark_node(keep, front);
             if (end->reverse)
-                keep_walk_dist(keep, &keep_count, end->reverse, 100);  /* 100mm before */
-            keep_walk_dist(keep, &keep_count, end, body_mm);            /* 200mm after */
+                keep_mark_walk_dist(keep, end->reverse, 100); /* 100mm before */
+            keep_mark_walk_dist(keep, end, body_mm);          /* 200mm after */
         } else {
-            keep_walk_to(keep, &keep_count, front, end);
-            keep_walk_dist(keep, &keep_count, end, body_mm);
+            keep_mark_walk_to(keep, front, end);
+            keep_mark_walk_dist(keep, end, body_mm);
         }
     }
+
+    expand_marks_with_zones(keep);
 
     int changed = 0;
     for (int i = 0; i < TRACK_MAX; i++) {
         if (node_owner[i] != train_num) continue;
-        int keep_it = 0;
-        for (int k = 0; k < keep_count; k++) {
-            if (keep[k] == i) { keep_it = 1; break; }
-        }
-        if (!keep_it) { node_owner[i] = -1; changed = 1; }
+        if (!keep[i]) { node_owner[i] = -1; changed = 1; }
     }
 
     if (front) {
@@ -564,4 +614,3 @@ int traffic_is_reserved_by(track_node *node, int train_num) {
     if (idx < 0) return 0;
     return node_owner[idx] == train_num;
 }
-
