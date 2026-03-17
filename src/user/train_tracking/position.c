@@ -45,9 +45,9 @@ static uint32_t Speed_Warmup_Distance = 1000;
     static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
         {226, 224, 226, 222, 236};
     static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {167, 167, 167, 167, 167};
+        {158, 156, 167, 165, 153};
     static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {106, 109, 109, 109, 109};
+        {105, 109, 108, 109, 110};
 
     static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] =
     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,

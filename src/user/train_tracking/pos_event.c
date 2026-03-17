@@ -44,11 +44,11 @@
 #ifdef TRACK_D
     uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {930000ULL, 930000ULL, 930000ULL, 930000ULL, 930000ULL};
 #else
-    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1000000ULL, 1000000ULL, 1000000ULL, 1000000ULL, 1000000ULL};
+    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1500000ULL, 1400000ULL, 1200000ULL, 1400000ULL, 1400000ULL};
 #endif
 
-static uint32_t Train_Forward_Stop_Offset = 44;
-static uint32_t Train_Reverse_Stop_Offset = 156;
+static uint32_t Train_Forward_Stop_Offset = 64;
+static uint32_t Train_Reverse_Stop_Offset = 176;
 
 
 /* ===== Acceleration model helper ===== */
