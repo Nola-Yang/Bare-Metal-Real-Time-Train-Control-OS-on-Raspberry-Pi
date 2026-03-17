@@ -47,6 +47,9 @@
     uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1000000ULL, 1000000ULL, 1000000ULL, 1000000ULL, 1000000ULL};
 #endif
 
+static uint32_t Train_Forward_Stop_Offset = 44;
+static uint32_t Train_Reverse_Stop_Offset = 156;
+
 
 /* ===== Acceleration model helper ===== */
 
@@ -450,8 +453,14 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
     int32_t a = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
     if (a > 0) {
         int32_t d_brake = (int32_t)((int64_t)pos->effective_v * pos->effective_v / (2LL * a));
-        int32_t d_early = d_brake + (int32_t)(
-            (int64_t)pos->effective_v * (int64_t)STOP_EARLY_US[pos->train_ind] / 1000000LL);
+        int32_t d_early = d_brake + (int32_t)((int64_t)pos->effective_v * (int64_t)STOP_EARLY_US[pos->train_ind] / 1000000LL);
+
+        if (pos->going_forward) {
+            d_early += Train_Forward_Stop_Offset;
+        } else {
+            d_early += Train_Reverse_Stop_Offset;
+        }
+
         if (rem <= d_early) {
             pos->route_state       = TRAIN_STATE_STOPPING;
             pos->stopping_since_us = now_us;

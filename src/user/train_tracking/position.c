@@ -21,6 +21,7 @@ static uint8_t      g_pos_try_blocked[TRACK_MAX];
 static route_plan_t g_pos_try_rp;
 static route_plan_t g_pos_try_rp_unconstrained;
 static route_plan_t g_pos_try_rp_temp;
+static uint32_t Speed_Warmup_Distance = 1000;
 
 /* Time from sending the command to the train actually starting
  * to move */
@@ -32,28 +33,28 @@ static route_plan_t g_pos_try_rp_temp;
     static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
         {153, 153, 153, 153, 153};
     static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {153, 153, 153, 153, 153};
-
-    static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] =
-    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 120, -1, -1, -1, -1, 101,
-     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-     130, -1, 140  , -1, -1, -1, 120, -1, -1, -1, -1, -1, -1, 200, -1, -1,
-     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 270, -1,
-     -1, -1, 200, -1, -1, -1, 270, -1, -1, -1, -1, -1, -1, -1, -1, -1};
-#else
-    static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
-        {226, 224, 226, 222, 236};
-    static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {167, 167, 167, 167, 167};
-    static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {167, 167, 167, 167, 167};
+        {106, 109, 109, 109, 109};
 
     static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] =
     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
      -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
      -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
      -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-     -1, -1, 200, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+#else
+    static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
+        {226, 224, 226, 222, 236};
+    static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
+        {167, 167, 167, 167, 167};
+    static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
+        {106, 109, 109, 109, 109};
+
+    static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] =
+    {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 #endif
 
 int32_t speed_table_get_v(int32_t train_ind, int user_speed) {
@@ -80,7 +81,7 @@ static void pos_begin_pos_find(train_pos_t *pos) {
     int can_spd          = 1 + (GOTO_USER_SPEED - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
     pos->effective_v     = 0;               /* will be ramped by tick */
-    pos->speed_warmup_mm = 800;
+    pos->speed_warmup_mm = Speed_Warmup_Distance;
     pos->cur_sensor_time = read_timer();
     pos->is_accelerating = 1;
     pos->accel_start_us  = pos->cur_sensor_time + GO_LATENCY_US;
@@ -190,7 +191,7 @@ void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
     int can_spd          = 1 + (GOTO_USER_SPEED - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
     pos->effective_v     = 0;               
-    pos->speed_warmup_mm = 800;
+    pos->speed_warmup_mm = Speed_Warmup_Distance;
     pos->cur_sensor_time = now_us;
     pos->is_accelerating = 1;
     pos->accel_start_us  = now_us + GO_LATENCY_US;
@@ -288,7 +289,7 @@ void pos_on_speed_change(int train_num, int user_speed) {
     if (user_speed > 0 && user_speed <= 14) {
         int32_t cv = pos->cached_v[user_speed];
         pos->effective_v = (cv > 0) ? cv : speed_table_get_v(pos->train_ind, user_speed);
-        pos->speed_warmup_mm = 800;
+        pos->speed_warmup_mm = Speed_Warmup_Distance;
         /* Transition to KNOWN when the train resumes from a known-position state. */
         if (pos->cur_sensor != NULL &&
             (pos->route_state == TRAIN_STATE_STOPPED  ||
