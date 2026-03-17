@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #define ATTR_TIME_GATE_US 2500000ULL
+#define ATTR_ALT_TIME_GATE_US 6000000ULL
 #define ATTR_MAX_SKIP     2
 #define ATTR_MARGIN       120
 #define MAX_MUTEX_ZONES   32
@@ -432,6 +433,7 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
         int32_t score = 0;
         int32_t conf = 0;
         int has_candidate = 0;
+        int uses_alt_path = 0;
 
         if (pos->pred.next_sensor == hit) {
             score = 10000;
@@ -441,7 +443,26 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
             score = 8500;
             conf = 2;
             has_candidate = 1;
-        } else if (pos->pred.next_sensor) {
+            uses_alt_path = 1;
+        } else if (pos->pred.alt_sensor != NULL) {
+            int32_t alt_dist = follow_dist(pos->pred.alt_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS);
+            int32_t pred_dist = -1;
+            if (pos->pred.next_sensor != NULL) {
+                pred_dist = follow_dist(pos->pred.next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS);
+            }
+            if (alt_dist >= 0 && pred_dist < 0) {
+                int hops = sensor_hops_between(pos->pred.alt_sensor, hit, 120);
+                int skip = (hops >= 0) ? (hops - 1) : 99;
+                if (skip <= ATTR_MAX_SKIP) {
+                    score = 7900 - skip * 550 - alt_dist / 20;
+                    conf = 2;
+                    has_candidate = 1;
+                    uses_alt_path = 1;
+                }
+            }
+        }
+
+        if (!has_candidate && pos->pred.next_sensor) {
             int32_t pred_dist = follow_dist(pos->pred.next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS);
             if (pred_dist >= 0) {
                 int hops = sensor_hops_between(pos->pred.next_sensor, hit, 120);
@@ -484,10 +505,18 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
         int terr = 0x7fffffff;
         if (pos->pred.trigger_time > 0) {
             terr = abs64((int64_t)time_us - (int64_t)pos->pred.trigger_time);
-            if ((uint64_t)terr > ATTR_TIME_GATE_US && pos->pred.next_sensor != hit) {
+            if (!uses_alt_path &&
+                (uint64_t)terr > ATTR_TIME_GATE_US &&
+                pos->pred.next_sensor != hit) {
                 continue;
             }
-            if ((uint64_t)terr <= ATTR_TIME_GATE_US) {
+            if (uses_alt_path) {
+                if ((uint64_t)terr <= ATTR_ALT_TIME_GATE_US) {
+                    score += (int32_t)((ATTR_ALT_TIME_GATE_US - (uint64_t)terr) / 40000ULL);
+                } else {
+                    score -= 100;
+                }
+            } else if ((uint64_t)terr <= ATTR_TIME_GATE_US) {
                 score += (int32_t)((ATTR_TIME_GATE_US - (uint64_t)terr) / 20000ULL);
             } else {
                 score -= 200;

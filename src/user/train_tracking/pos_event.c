@@ -92,20 +92,30 @@ static int brake_elapsed(train_pos_t *pos, uint64_t now_us) {
     return now_us >= pos->stopping_since_us + calc_brake_us(pos);
 }
 
+/* Return 1 when `hit` definitively lies on the alternate leg of the next branch.
+ * This covers both the first alternate sensor and a short run beyond it when the
+ * train missed that first sensor but still took the wrong turnout. */
+static int hit_matches_alt_branch(const train_pos_t *pos, track_node *hit) {
+    if (!pos || !hit) return 0;
+    if (pos->pred.branch_node == NULL || pos->pred.alt_sensor == NULL) return 0;
+    if (pos->pred.alt_sensor == hit) return 1;
+
+    int32_t alt_dist = follow_dist(pos->pred.alt_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS);
+    if (alt_dist < 0) return 0;
+
+    if (pos->pred.next_sensor == NULL) return 1;
+    return follow_dist(pos->pred.next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS) < 0;
+}
+
 
 /* ===== handle_sensor sub-functions ===== */
 
 /* Update EMA speed, warmup, and prediction-error stats on a sensor hit.
- * Sets *was_predicted and *is_skip for use by the FSM. */
+ * Sets *was_predicted for use by the FSM. */
 static void update_sensor_stats(train_pos_t *pos, track_node *hit,
                                 uint64_t time_us,
-                                int *was_predicted, int *is_skip) {
+                                int *was_predicted) {
     *was_predicted = (pos->pred.next_sensor == hit);
-    *is_skip = 0;
-    if (pos->pred.next_sensor && !*was_predicted) {
-        if (follow_dist(pos->pred.next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS) >= 0)
-            *is_skip = 1;
-    }
 
     /* Warmup: suppress EMA calibration for the first 400 mm after a speed change. */
     if (pos->speed_warmup_mm > 0 && pos->cur_sensor != NULL) {
@@ -190,9 +200,10 @@ static void update_next_prediction(train_pos_t *pos, track_node *hit, uint64_t t
 
 static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     accel_update_v(pos, time_us);
+    int took_alt_branch = hit_matches_alt_branch(pos, hit);
 
-    int was_predicted, is_skip;
-    update_sensor_stats(pos, hit, time_us, &was_predicted, &is_skip);
+    int was_predicted;
+    update_sensor_stats(pos, hit, time_us, &was_predicted);
 
     track_node *prev_sensor = pos->cur_sensor;
     pos->cur_sensor      = hit;
@@ -204,7 +215,7 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
 
     /* Off-route: ON_ROUTE hit outside our reservation -> stop and replan. */
     if (pos->route_state == TRAIN_STATE_ON_ROUTE && pos->target_sensor != NULL) {
-        if (!traffic_is_reserved_by(hit, pos->train_num)) {
+        if (took_alt_branch || !traffic_is_reserved_by(hit, pos->train_num)) {
             traffic_release_train_keep_body(pos->train_num, hit,
                                             pos->going_forward, TRAIN_BODY_MM, NULL);
             pos->offroute_valid           = 1;
@@ -538,7 +549,7 @@ void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us) {
     if (!owner) return;
 
     /* If the train took the alt-direction branch, correct the stored switch state. */
-    if (owner->pred.alt_sensor == hit && owner->pred.branch_node != NULL) {
+    if (hit_matches_alt_branch(owner, hit) && owner->pred.branch_node != NULL) {
         int sw_idx = track_switch_to_index(owner->pred.branch_node->num);
         if (sw_idx >= 0) {
             char stored = track_get_switch_state()[sw_idx].state;
