@@ -321,6 +321,7 @@ static void tick_replan_waiting_trains(uint64_t now_us) {
  * second-leg switches, restore the second-leg path, and restart at GOTO speed.
  * Returns 0 if a switch was blocked (enters WAIT_RESOURCE); 1 on success. */
 static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
+    route_plan_t second_leg_plan = {0};
     pos->midrev.active = 0;
 
     track_reverse(pos->train_num);
@@ -333,6 +334,15 @@ static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
             pos_enter_wait_resource(pos, now_us);
             return 0;
         }
+    }
+
+    second_leg_plan.path_count = pos->midrev.path2_count;
+    for (int j = 0; j < pos->midrev.path2_count; j++) {
+        second_leg_plan.path_nodes[j] = pos->midrev.path2[j];
+    }
+    if (!traffic_reserve_plan(pos->train_num, pos->cur_sensor, &second_leg_plan)) {
+        pos_enter_wait_resource(pos, now_us);
+        return 0;
     }
 
     for (int j = pos->midrev.sw_count - 1; j >= 0; j--) {

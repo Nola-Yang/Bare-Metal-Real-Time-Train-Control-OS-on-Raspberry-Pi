@@ -408,6 +408,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
     track_node *eff_start = chosen_origin;
     track_node *chosen_target = rp->has_reversal ? rp->reversal_sensor
                                                   : rp->chosen_target;
+    route_plan_t reserve_plan = *rp;
 
     for (int i = rp->sw_count - 1; i >= 0; i--) {
         int owner = traffic_can_set_switch(rp->sw_nums[i], pos->train_num);
@@ -418,7 +419,12 @@ int pos_try_direct_goto(train_pos_t *pos) {
     }
 
     traffic_release_train(pos->train_num);
-    if (!traffic_reserve_plan(pos->train_num, eff_start, rp)) {
+    if (reserve_plan.has_reversal) {
+        /* Reserve only the first leg up to the reversal point.
+         * The second leg is reserved when the train actually reaches the midpoint. */
+        reserve_plan.path_count2 = 0;
+    }
+    if (!traffic_reserve_plan(pos->train_num, eff_start, &reserve_plan)) {
         pos_enter_wait_resource(pos, now_us);
         return 1;
     }
