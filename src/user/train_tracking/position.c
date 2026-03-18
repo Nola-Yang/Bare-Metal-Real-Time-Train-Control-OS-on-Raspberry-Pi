@@ -20,6 +20,7 @@ train_pos_t g_pos[MAX_POS_TRAINS];
 
 
 static uint8_t      g_pos_try_blocked[TRACK_MAX];
+static char         g_pos_try_fixed_sw_dirs[TRACK_MAX];
 static route_plan_t g_pos_try_rp;
 static route_plan_t g_pos_try_rp_unconstrained;
 static route_plan_t g_pos_try_rp_temp;
@@ -234,13 +235,49 @@ static int state_is_goto_active(train_route_state_t st) {
             st == TRAIN_STATE_WAIT_RESOURCE);
 }
 
+static int route_switch_needs_change(int sw_num, char desired_dir) {
+    int sw_idx = track_switch_to_index(sw_num);
+    if (sw_idx < 0) return 1;
+    char current_dir = track_get_switch_state()[sw_idx].state;
+    return current_dir != desired_dir;
+}
+
+static void pos_build_fixed_switch_dirs(int requester_train, char fixed_sw_dirs[TRACK_MAX]) {
+    for (int i = 0; i < TRACK_MAX; i++) fixed_sw_dirs[i] = '?';
+
+    for (int i = 0; i < TRACK_MAX; i++) {
+        track_node *n = &g_track[i];
+        if (n->type != NODE_BRANCH) continue;
+
+        int sw_idx = track_switch_to_index(n->num);
+        if (sw_idx < 0) continue;
+
+        char current_dir = track_get_switch_state()[sw_idx].state;
+        if (current_dir != 'S' && current_dir != 'C') continue;
+
+        if (traffic_can_set_switch(n->num, requester_train) == requester_train) {
+            fixed_sw_dirs[i] = current_dir;
+        }
+    }
+}
+
+int pos_route_switch_blocker(const int *sw_nums, const char *sw_dirs,
+                             int sw_count, int requester_train) {
+    for (int i = sw_count - 1; i >= 0; i--) {
+        if (!route_switch_needs_change(sw_nums[i], sw_dirs[i])) continue;
+        int owner = traffic_can_set_switch(sw_nums[i], requester_train);
+        if (owner >= 0) return owner;
+    }
+    return -1;
+}
+
 int pos_apply_route_switches_safe(const int *sw_nums, const char *sw_dirs,
                                   int sw_count, int requester_train) {
-    for (int i = sw_count - 1; i >= 0; i--) {
-        int owner = traffic_can_set_switch(sw_nums[i], requester_train);
-        if (owner >= 0) return 0;
+    if (pos_route_switch_blocker(sw_nums, sw_dirs, sw_count, requester_train) >= 0) {
+        return 0;
     }
     for (int i = sw_count - 1; i >= 0; i--) {
+        if (!route_switch_needs_change(sw_nums[i], sw_dirs[i])) continue;
         track_set_switch(sw_nums[i], sw_dirs[i]);
         track_update_switch(sw_nums[i], sw_dirs[i]);
     }
@@ -346,19 +383,16 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     /* Plan from pred.next_sensor if available.
      * Never use cur_sensor directly — the train has already passed it.
-     * Fallback: walk the graph for the real next sensor; if the path leads
-     * to an EXIT (dead end), use cur_sensor->reverse instead (needs reversal). */
+     * Reverse planning starts from prediction->reverse, except at a dead-end
+     * where no forward prediction exists and we must fall back to cur->reverse. */
     track_node *plan_start = pos->pred.next_sensor;
-    int plan_start_needs_reverse = 0;
     if (!plan_start) {
         uint64_t dt_ignored = 0;
         plan_start = predict_next_sensor(pos, pos->cur_sensor, &dt_ignored);
     }
-    if (!plan_start) {
-        /* Dead-end forward path — must reverse; treat like origins[1]. */
-        plan_start = cur_sensor_orig->reverse;
-        plan_start_needs_reverse = 1;
-    }
+    track_node *reverse_plan_start = plan_start
+                                     ? plan_start->reverse
+                                     : cur_sensor_orig->reverse;
 
     int32_t tv        = GOTO_SPEED_MM_S[pos->train_ind];
     int32_t ta        = GOTO_DECEL_MM_S2[pos->train_ind];
@@ -368,19 +402,18 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     /*
      * Two candidate origins:
-     *   origins[0] = plan_start  (pred.next_sensor or graph-walk next) — forward direction
-     *   origins[1] = cur_sensor->reverse                               — reversed direction
-     * When plan_start_needs_reverse, origins[0] IS the reverse node;
-     * skip origins[1] to avoid duplicate planning.
+     *   origins[0] = plan_start           (prediction)          — forward direction
+     *   origins[1] = reverse_plan_start   (prediction->reverse, or cur->reverse
+     *                                     when forward prediction is unavailable)
      */
-    track_node *origins[2] = { plan_start,
-                                (!plan_start_needs_reverse && cur_sensor_orig->reverse)
-                                    ? cur_sensor_orig->reverse : NULL };
+    track_node *origins[2] = { plan_start, reverse_plan_start };
     uint8_t *blocked = g_pos_try_blocked;
+    char *fixed_sw_dirs = g_pos_try_fixed_sw_dirs;
     route_plan_t *rp = &g_pos_try_rp;
     route_plan_t *rp_unconstrained = &g_pos_try_rp_unconstrained;
     route_plan_t *rp_temp = &g_pos_try_rp_temp;
     traffic_build_constraints(pos->train_num, blocked);
+    pos_build_fixed_switch_dirs(pos->train_num, fixed_sw_dirs);
 
     track_node  *chosen_origin = NULL;
     int32_t      best_total    = 0;
@@ -389,9 +422,11 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     for (int o = 0; o < 2; o++) {
         if (!origins[o]) continue;
-        if (!bfs_find_route_optimal_constrained(origins[o], user_target, d_stop, blocked, rp_temp)) {
+        if (!bfs_find_route_optimal_constrained(origins[o], user_target, d_stop,
+                                                blocked, fixed_sw_dirs, rp_temp)) {
             if (!blocked_by_reservation &&
-                bfs_find_route_optimal(origins[o], user_target, d_stop, rp_unconstrained)) {
+                bfs_find_route_optimal_constrained(origins[o], user_target, d_stop,
+                                                   NULL, fixed_sw_dirs, rp_unconstrained)) {
                 blocked_by_reservation = 1;
             }
             continue;
@@ -405,7 +440,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
             *rp                   = *rp_temp;
             chosen_origin         = origins[o];
             best_total            = rp_temp->total_dist_mm;
-            need_initial_reverse  = (o == 1) || (o == 0 && plan_start_needs_reverse);
+            need_initial_reverse  = (o == 1);
         }
     }
 
@@ -414,11 +449,12 @@ int pos_try_direct_goto(train_pos_t *pos) {
          * Reverse immediately, drive to a far sensor, reverse again, then
          * continue to the real target.  Covers the EXIT dead-end case where
          * the target and current position are on the same short segment. */
-        track_node *boot_start = cur_sensor_orig->reverse;
+        track_node *boot_start = reverse_plan_start;
         int allow_bootstrap = !blocked_by_reservation ||
                               pos->route_state == TRAIN_STATE_WAIT_RESOURCE;
         if (!boot_start || !allow_bootstrap ||
-            !bfs_find_bootstrap_midrev(boot_start, user_target, d_stop, blocked, rp)) {
+            !bfs_find_bootstrap_midrev(boot_start, user_target, d_stop,
+                                       blocked, fixed_sw_dirs, rp)) {
             if (blocked_by_reservation) {
                 pos_enter_wait_resource(pos, read_timer());
                 return 1;

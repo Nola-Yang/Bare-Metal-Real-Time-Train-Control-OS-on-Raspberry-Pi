@@ -37,6 +37,7 @@ int  bfs_find_route_optimal(track_node *start, track_node *target,
 /* Constrained optimal route (direct + one reversal) under blocked-node map. */
 int  bfs_find_route_optimal_constrained(track_node *start, track_node *target,
                                         int32_t d_brake, const uint8_t *blocked,
+                                        const char *fixed_sw_dirs,
                                         route_plan_t *plan);
 
 /* Bootstrap mid-route reversal for when no long-enough direct route exists.
@@ -45,6 +46,7 @@ int  bfs_find_route_optimal_constrained(track_node *start, track_node *target,
  * Returns 1 and populates plan on success, 0 on failure. */
 int  bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
                                 int32_t d_brake, const uint8_t *blocked,
+                                const char *fixed_sw_dirs,
                                 route_plan_t *plan);
 
 

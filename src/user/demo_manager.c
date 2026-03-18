@@ -10,6 +10,7 @@
 
 #define DEMO_MAX_TRAINS 4
 #define GOLD_WAIT_RETARGET_US 30000000ULL
+#define GOLD_DISPATCH_DELAY_US 1000000ULL
 
 typedef enum {
     DEMO_MODE_OFF = 0,
@@ -29,6 +30,7 @@ typedef struct {
     int train_num;
     int started;
     int last_target_idx;
+    uint64_t next_dispatch_us;
     uint32_t missions_completed;
     uint32_t wait_resource_count;
     uint32_t dead_track_count;
@@ -86,6 +88,7 @@ static const char *demo_state_str(demo_run_state_t s) {
 static void demo_clear_slot(demo_train_slot_t *slot) {
     slot->started = 0;
     slot->last_target_idx = -1;
+    slot->next_dispatch_us = 0;
     slot->missions_completed = 0;
     slot->wait_resource_count = 0;
     slot->dead_track_count = 0;
@@ -148,6 +151,7 @@ static int demo_dispatch_to_target(demo_train_slot_t *slot, track_node *target, 
     if (!pos_goto(slot->train_num, target, offset_mm)) return 0;
     slot->started = 1;
     slot->last_target_idx = (int)(target - g_track);
+    slot->next_dispatch_us = 0;
     return 1;
 }
 
@@ -227,6 +231,11 @@ static void demo_update_state_counters(uint64_t now_us) {
                 st == TRAIN_STATE_STOPPED &&
                 slot->last_seen_state == TRAIN_STATE_STOPPING) {
                 slot->missions_completed++;
+            }
+            if (st == TRAIN_STATE_STOPPED) {
+                slot->next_dispatch_us = now_us + GOLD_DISPATCH_DELAY_US;
+            } else if (slot->last_seen_state == TRAIN_STATE_STOPPED) {
+                slot->next_dispatch_us = 0;
             }
             slot->last_seen_state = st;
             ui_mark_position_dirty();
@@ -597,6 +606,9 @@ void demo_on_tick(uint64_t now_us) {
         if (!pos_is_train_goto_active(slot->train_num) &&
             pos->route_state == TRAIN_STATE_STOPPED &&
             !(pos->queued_valid && pos->queued_target)) {
+            if (slot->next_dispatch_us > 0 && now_us < slot->next_dispatch_us) {
+                continue;
+            }
             (void)gold_dispatch_next(slot);
         }
     }

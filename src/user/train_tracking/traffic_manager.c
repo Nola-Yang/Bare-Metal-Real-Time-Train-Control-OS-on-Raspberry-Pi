@@ -394,6 +394,63 @@ int traffic_can_set_switch(int sw_num, int requester_train) {
     return -1;
 }
 
+static int path_edge_dist(track_node *a, track_node *b) {
+    if (!a || !b) return -1;
+    if (a->type == NODE_BRANCH) {
+        if (a->edge[DIR_STRAIGHT].dest == b) return (int)a->edge[DIR_STRAIGHT].dist;
+        if (a->edge[DIR_CURVED].dest == b) return (int)a->edge[DIR_CURVED].dist;
+        return -1;
+    }
+    if (a->edge[DIR_AHEAD].dest == b) return (int)a->edge[DIR_AHEAD].dist;
+    return -1;
+}
+
+/* Match a sensor hit against the remaining planned route.
+ * Returns skip count relative to the first unconfirmed sensor on the path:
+ *   0 = first expected sensor or its immediate successor after one missed sensor,
+ *   1 = one more missed sensor, etc.
+ * Returns -1 if the hit is not on the remaining path. */
+static int route_path_skip_to_hit(const train_pos_t *pos, track_node *hit,
+                                  int32_t *out_dist_mm) {
+    if (out_dist_mm) *out_dist_mm = -1;
+    if (!pos || !hit || pos->route_path_count <= 0) return -1;
+
+    int start = pos->route_path_cursor;
+    if (start < 0) start = 0;
+    if (start >= pos->route_path_count) return -1;
+
+    while (start < pos->route_path_count) {
+        int idx = (int)pos->route_path[start];
+        if (idx >= 0 && idx < TRACK_MAX && g_track[idx].type == NODE_SENSOR) break;
+        start++;
+    }
+    if (start >= pos->route_path_count) return -1;
+
+    int32_t dist_mm = 0;
+    int sensor_hops = 0;
+    for (int i = start; i < pos->route_path_count; i++) {
+        int idx = (int)pos->route_path[i];
+        if (idx < 0 || idx >= TRACK_MAX) return -1;
+
+        if (i > start) {
+            int prev_idx = (int)pos->route_path[i - 1];
+            if (prev_idx < 0 || prev_idx >= TRACK_MAX) return -1;
+            int edge_mm = path_edge_dist(&g_track[prev_idx], &g_track[idx]);
+            if (edge_mm < 0) return -1;
+            dist_mm += edge_mm;
+        }
+
+        track_node *node = &g_track[idx];
+        if (node->type == NODE_SENSOR && i > start) sensor_hops++;
+        if (node != hit) continue;
+        if (node->type != NODE_SENSOR) return -1;
+        if (out_dist_mm) *out_dist_mm = dist_mm;
+        return (sensor_hops > 0) ? (sensor_hops - 1) : 0;
+    }
+
+    return -1;
+}
+
 train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
     if (!hit || hit->type != NODE_SENSOR) return NULL;
 
@@ -439,6 +496,16 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
                     has_candidate = 1;
                     uses_alt_path = 1;
                 }
+            }
+        }
+
+        if (!has_candidate && pos->route_state == TRAIN_STATE_ON_ROUTE) {
+            int32_t path_dist = -1;
+            int skip = route_path_skip_to_hit(pos, hit, &path_dist);
+            if (skip >= 0 && skip <= ATTR_MAX_SKIP) {
+                score = 7600 - skip * 600 - ((path_dist > 0) ? (path_dist / 20) : 0);
+                conf = 2;
+                has_candidate = 1;
             }
         }
 

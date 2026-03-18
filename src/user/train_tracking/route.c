@@ -62,7 +62,8 @@ static route_plan_t g_opt_cand_plan;
 
 static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
                      int16_t *sw_num, char *sw_dir,
-                     const uint8_t *blocked, int start_idx);
+                     const uint8_t *blocked, const char *fixed_sw_dirs,
+                     int start_idx);
 
 static void dijk_init(int32_t *dist, int8_t *done, int16_t *prev,
                        int16_t *sw_num, char *sw_dir, track_node *start) {
@@ -80,9 +81,11 @@ static void dijk_init(int32_t *dist, int8_t *done, int16_t *prev,
 /* Init and run Dijkstra from start in one call. */
 static void dijk_run_from(int32_t *dist, int8_t *done, int16_t *prev,
                           int16_t *sw_num, char *sw_dir,
-                          const uint8_t *blocked, track_node *start) {
+                          const uint8_t *blocked, const char *fixed_sw_dirs,
+                          track_node *start) {
     dijk_init(dist, done, prev, sw_num, sw_dir, start);
-    dijk_run(dist, done, prev, sw_num, sw_dir, blocked, (int)(start - g_track));
+    dijk_run(dist, done, prev, sw_num, sw_dir, blocked, fixed_sw_dirs,
+             (int)(start - g_track));
 }
 
 /*
@@ -93,7 +96,8 @@ static void dijk_run_from(int32_t *dist, int8_t *done, int16_t *prev,
  */
 static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
                      int16_t *sw_num, char *sw_dir,
-                     const uint8_t *blocked, int start_idx) {
+                     const uint8_t *blocked, const char *fixed_sw_dirs,
+                     int start_idx) {
     for (;;) {
         int u = -1;
         int32_t min_d = DIJK_INF;
@@ -115,9 +119,22 @@ static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
         track_node *n = &g_track[u];
         if (n->type == NODE_EXIT || n->type == NODE_NONE) continue;
 
-        int num_dirs = (n->type == NODE_BRANCH) ? 2 : 1;
+        int dirs[2] = {DIR_AHEAD, DIR_AHEAD};
+        int num_dirs = 1;
+        if (n->type == NODE_BRANCH) {
+            char fixed_dir = fixed_sw_dirs ? fixed_sw_dirs[u] : '?';
+            if (fixed_dir == 'S') {
+                dirs[0] = DIR_STRAIGHT;
+            } else if (fixed_dir == 'C') {
+                dirs[0] = DIR_CURVED;
+            } else {
+                dirs[0] = DIR_STRAIGHT;
+                dirs[1] = DIR_CURVED;
+                num_dirs = 2;
+            }
+        }
         for (int d = 0; d < num_dirs; d++) {
-            int dir = (n->type == NODE_BRANCH) ? d : DIR_AHEAD;
+            int dir = (n->type == NODE_BRANCH) ? dirs[d] : DIR_AHEAD;
             track_edge *e = &n->edge[dir];
             if (!e->dest) continue;
 
@@ -382,11 +399,12 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
 
 int bfs_find_route_optimal(track_node *start, track_node *target,
                             int32_t d_brake, route_plan_t *plan) {
-    return bfs_find_route_optimal_constrained(start, target, d_brake, NULL, plan);
+    return bfs_find_route_optimal_constrained(start, target, d_brake, NULL, NULL, plan);
 }
 
 int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
                                        int32_t d_brake, const uint8_t *blocked,
+                                       const char *fixed_sw_dirs,
                                        route_plan_t *plan) {
     if (!start || !target || !plan) return 0;
 
@@ -406,7 +424,8 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
         if (tgt_idx < 0 || tgt_idx >= TRACK_MAX) continue;
 
         /* Forward Dijkstra from start — fills fwd_* tables. */
-        dijk_run_from(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir, blocked, start);
+        dijk_run_from(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir,
+                      blocked, fixed_sw_dirs, start);
 
         if (fwd_dist[tgt_idx] < DIJK_INF) {
             int32_t d = fwd_dist[tgt_idx];
@@ -437,7 +456,8 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
             if (fwd_dist[si] < GOTO_MIN_DIST_FACTOR * d_brake) continue;
 
             /* Dijkstra from s->reverse — fills rev_* tables. */
-            dijk_run_from(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir, blocked, s->reverse);
+            dijk_run_from(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir,
+                          blocked, fixed_sw_dirs, s->reverse);
 
             if (rev_dist[tgt_idx] == DIJK_INF) continue;
             if (rev_dist[tgt_idx] < GOTO_MIN_DIST_FACTOR * d_brake) continue;
@@ -482,12 +502,14 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
 
 int bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
                                int32_t d_brake, const uint8_t *blocked,
+                               const char *fixed_sw_dirs,
                                route_plan_t *plan) {
     if (!start_rev || !target || !plan) return 0;
 
     int32_t threshold = (int32_t)GOTO_MIN_DIST_FACTOR * d_brake;
 
-    dijk_run_from(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir, blocked, start_rev);
+    dijk_run_from(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir,
+                  blocked, fixed_sw_dirs, start_rev);
 
     track_node *tgts[2] = { target, target->reverse };
 
@@ -501,7 +523,8 @@ int bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
         if (fwd_dist[si] == DIJK_INF) continue;
         if (fwd_dist[si] < threshold) continue;
 
-        dijk_run_from(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir, blocked, F->reverse);
+        dijk_run_from(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir,
+                      blocked, fixed_sw_dirs, F->reverse);
 
         for (int ti = 0; ti < 2; ti++) {
             track_node *tgt = tgts[ti];

@@ -295,10 +295,9 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         pos->offroute_expected_sensor = NULL;
     }
     update_next_prediction(pos, hit, time_us);
-    if (prev_sensor && prev_sensor != hit) {
-        traffic_release_train_keep_body(pos->train_num, hit,
-                                        TRAIN_BODY_MM, pos->pred.next_sensor);
-    }
+    /* Temporarily keep the full running reservation after sensor hits.
+     * Only non-running states shrink the window. */
+    (void)prev_sensor;
     ui_mark_position_dirty();
 }
 
@@ -343,8 +342,8 @@ static void tick_replan_waiting_trains(uint64_t now_us) {
 
 /* Resume the second leg of a mid-route reversal: preflight the second leg,
  * set switches before they become reserved, then reverse and restart.
- * Returns 0 if a switch or reservation was blocked (enters WAIT_RESOURCE);
- * 1 on success. */
+ * If the stored second leg now needs changing a self-reserved switch,
+ * discard it and replan from the current stopped position instead. */
 static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     route_plan_t second_leg_plan = {0};
 
@@ -356,8 +355,24 @@ static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
         pos_enter_wait_resource(pos, now_us);
         return 0;
     }
-    if (!pos_apply_route_switches_safe(pos->midrev.sw_nums, pos->midrev.sw_dirs,
-                                       pos->midrev.sw_count, pos->train_num)) {
+    int sw_owner = pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
+                                            pos->midrev.sw_count, pos->train_num);
+    if (sw_owner == pos->train_num) {
+        track_node *final_target = pos->midrev.final_target;
+        int32_t final_offset = pos->midrev.final_offset;
+
+        traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
+                                        TRAIN_BODY_MM,
+                                        pos_release_keep_end(pos->cur_sensor,
+                                                             pos->pred.next_sensor));
+        pos->midrev.active = 0;
+        pos->pending_target = final_target;
+        pos->pending_offset_mm = final_offset;
+        pos->orig_user_target = final_target;
+        pos->orig_target_offset = final_offset;
+        return pos_try_direct_goto(pos);
+    }
+    if (sw_owner >= 0) {
         pos_enter_wait_resource(pos, now_us);
         return 0;
     }

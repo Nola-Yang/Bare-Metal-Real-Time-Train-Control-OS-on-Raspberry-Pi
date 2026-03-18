@@ -57,6 +57,10 @@ void pos_restore_pending_target(train_pos_t *pos);
 track_node *pos_release_keep_end(track_node *last_hit, track_node *hint);
 
 /* Apply a route's switch commands only if every touched switch envelope is free. */
+int pos_route_switch_blocker(const int *sw_nums, const char *sw_dirs,
+                             int sw_count, int requester_train);
+
+/* Apply a route's switch commands only if every touched switch envelope is free. */
 int pos_apply_route_switches_safe(const int *sw_nums, const char *sw_dirs,
                                   int sw_count, int requester_train);
 
