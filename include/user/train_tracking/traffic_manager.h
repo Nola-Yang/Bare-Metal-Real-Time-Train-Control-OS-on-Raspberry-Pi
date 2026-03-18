@@ -41,10 +41,6 @@ void traffic_refresh_route_reservation(int train_num, track_node *cur_sensor,
                                        const uint16_t *path, int path_cursor,
                                        int path_count);
 
-/* Release all nodes before prev_sensor owned by train_num.
- * Walks backward from prev_sensor; nodes at prev_sensor and ahead are untouched. */
-void traffic_release_before_sensor(int train_num, track_node *prev_sensor);
-
 /* Check if it is safe to set a switch.
  * Any reservation on the switch envelope blocks the change, including self-owned
  * reservations. Returns -1 when safe; otherwise returns the blocking train number. */
