@@ -55,35 +55,36 @@ static void zone_commit(int zone) {
 }
 
 static void expand_marks_with_zones(uint8_t marks[TRACK_MAX]) {
-    int changed;
-    do {
-        changed = 0;
-        uint32_t active_zones = 0;
-        for (int i = 0; i < TRACK_MAX; i++) {
-            if (marks[i]) active_zones |= g_node_zone_mask[i];
-        }
-        if (active_zones == 0) break;
+    uint8_t base[TRACK_MAX];
+    uint32_t active_zones = 0;
 
-        for (int zone = 0; zone < g_zone_count; zone++) {
-            uint32_t bit = 1u << zone;
-            if ((active_zones & bit) == 0) continue;
-            int touched = 0;
-            for (int i = 0; i < g_zone_counts[zone]; i++) {
-                if (marks[g_zone_nodes[zone][i]]) {
-                    touched = 1;
-                    break;
-                }
-            }
-            if (!touched) continue;
-            for (int i = 0; i < g_zone_counts[zone]; i++) {
-                int idx = g_zone_nodes[zone][i];
-                if (!marks[idx]) {
-                    marks[idx] = 1;
-                    changed = 1;
-                }
+    /* Mutex zones are a one-hop safety envelope around the actual path.
+     * Do not recurse through newly added nodes, or adjacent merge zones
+     * will snowball into unrelated upstream reservations. */
+    for (int i = 0; i < TRACK_MAX; i++) {
+        base[i] = marks[i];
+        if (base[i]) active_zones |= g_node_zone_mask[i];
+    }
+    if (active_zones == 0) return;
+
+    for (int zone = 0; zone < g_zone_count; zone++) {
+        uint32_t bit = 1u << zone;
+        if ((active_zones & bit) == 0) continue;
+
+        int touched = 0;
+        for (int i = 0; i < g_zone_counts[zone]; i++) {
+            if (base[g_zone_nodes[zone][i]]) {
+                touched = 1;
+                break;
             }
         }
-    } while (changed);
+        if (!touched) continue;
+
+        for (int i = 0; i < g_zone_counts[zone]; i++) {
+            int idx = g_zone_nodes[zone][i];
+            marks[idx] = 1;
+        }
+    }
 }
 
 static void keep_mark_node(uint8_t keep[TRACK_MAX], track_node *n) {

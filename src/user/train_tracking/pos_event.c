@@ -674,8 +674,8 @@ void pos_on_tick(uint64_t now_us) {
             continue;
         }
 
-        if (tick_check_brake_point(pos, now_us)) continue;
         if (tick_check_dead_track(pos, now_us))  continue;
+        if (tick_check_brake_point(pos, now_us)) continue;
         tick_advance_prediction(pos, now_us);
     }
 }
