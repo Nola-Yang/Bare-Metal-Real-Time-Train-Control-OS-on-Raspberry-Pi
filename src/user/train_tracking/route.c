@@ -2,7 +2,7 @@
  * route.c — BFS route planning and speed
  *            prediction for the train position module.
  *
- * All functions here are called exclusively from position.c.
+ * All functions here are called from the position-tracking modules.
  */
 
 #include "train_tracking/route_priv.h"
