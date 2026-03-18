@@ -337,7 +337,7 @@ void traffic_release_train_keep_body(int train_num, track_node *last_hit,
         keep_mark_node(keep, last_hit);
         /* Keep one train length behind the last confirmed sensor. */
         if (last_hit->reverse) {
-            keep_mark_walk_dist(keep, last_hit->reverse, body_mm);
+            keep_mark_walk_dist(keep, last_hit->reverse, 0);
         }
         if (keep_to_next) {
             if (last_hit != next_hit) {
@@ -345,7 +345,7 @@ void traffic_release_train_keep_body(int train_num, track_node *last_hit,
             }
             /* Keep one train length ahead of the predicted next sensor,
              * measured in the train's travel direction. */
-            keep_mark_walk_dist(keep, next_hit, body_mm);
+            keep_mark_walk_dist(keep, next_hit, 0);
         }
     }
 

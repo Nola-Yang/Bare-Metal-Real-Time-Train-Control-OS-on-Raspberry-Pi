@@ -15,7 +15,7 @@
 #define MAX_RECV_WAITERS 8
 
 // server-side, receives frames from MCP2515
-#define RX_QUEUE_SIZE 16
+#define RX_QUEUE_SIZE 32
 #define TX_QUEUE_SIZE 64
 
 RING_BUFFER_DECLARE(CANRxQueue_t, can_frame_t, RX_QUEUE_SIZE);

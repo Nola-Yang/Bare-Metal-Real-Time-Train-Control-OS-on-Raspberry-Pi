@@ -455,9 +455,12 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
           
             if (fwd_dist[si] < GOTO_MIN_DIST_FACTOR * d_brake) continue;
 
-            /* Dijkstra from s->reverse — fills rev_* tables. */
+            /* The continuation leg executes only after stopping at `s` and
+             * reversing, so current self-owned fixed switch directions may no
+             * longer apply by then. Revalidate the actual switch blockers when
+             * the train reaches the midpoint. */
             dijk_run_from(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir,
-                          blocked, fixed_sw_dirs, s->reverse);
+                          blocked, NULL, s->reverse);
 
             if (rev_dist[tgt_idx] == DIJK_INF) continue;
             if (rev_dist[tgt_idx] < GOTO_MIN_DIST_FACTOR * d_brake) continue;
@@ -523,8 +526,12 @@ int bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
         if (fwd_dist[si] == DIJK_INF) continue;
         if (fwd_dist[si] < threshold) continue;
 
+        /* Bootstrap continuation runs only after the train retreats to `F`,
+         * stops, and reverses, so do not pin it to the switch directions that
+         * were fixed by the original stopped reservation. The midpoint resume
+         * path still rechecks blockers before launch. */
         dijk_run_from(rev_dist, rev_done, rev_prev, rev_sw_num, rev_sw_dir,
-                      blocked, fixed_sw_dirs, F->reverse);
+                      blocked, NULL, F->reverse);
 
         for (int ti = 0; ti < 2; ti++) {
             track_node *tgt = tgts[ti];

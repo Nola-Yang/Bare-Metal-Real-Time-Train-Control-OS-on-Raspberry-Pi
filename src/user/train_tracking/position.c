@@ -633,6 +633,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
 
     } else if (pos->route_state == TRAIN_STATE_STOPPED) {
         int ok = pos_try_direct_goto(pos);
+        //Todo
         KASSERT(ok);
     }
 
