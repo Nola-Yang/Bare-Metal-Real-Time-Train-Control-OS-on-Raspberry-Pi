@@ -11,6 +11,7 @@
 #define TRAIN_MSG_RV_REQUEST  3   // Reverse delay task requests parameters
 #define TRAIN_MSG_RV_COMPLETE 4
 #define TRAIN_MSG_DEMO_TICK   5   // 1s periodic demo tick
+#define TRAIN_POS_TICK        6   // Update the position of the train
 
 
 typedef struct {
