@@ -1,18 +1,6 @@
-/*
- * route.c — BFS route planning and speed
- *            prediction for the train position module.
- *
- * All functions here are called from the position-tracking modules.
- */
-
 #include "train_tracking/route_priv.h"
-#include "train_tracking/position_priv.h"
-#include "train_tracking/traffic_manager.h"
 #include "track.h"
 #include "train_tracking/track_data.h"
-#include "timer.h"
-#include "ui.h"
-#include "kassert.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -45,9 +33,9 @@ void route_init(void) {
  */
 static int32_t fwd_dist[TRACK_MAX];
 static int8_t  fwd_done[TRACK_MAX];
-static int16_t fwd_prev[TRACK_MAX];   
+static int16_t fwd_prev[TRACK_MAX];
 static int16_t fwd_sw_num[TRACK_MAX];
-static char    fwd_sw_dir[TRACK_MAX]; 
+static char    fwd_sw_dir[TRACK_MAX];
 
 static int32_t rev_dist[TRACK_MAX];
 static int8_t  rev_done[TRACK_MAX];
@@ -66,7 +54,7 @@ static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
                      int start_idx);
 
 static void dijk_init(int32_t *dist, int8_t *done, int16_t *prev,
-                       int16_t *sw_num, char *sw_dir, track_node *start) {
+                      int16_t *sw_num, char *sw_dir, track_node *start) {
     for (int i = 0; i < TRACK_MAX; i++) {
         dist[i]   = DIJK_INF;
         done[i]   = 0;
@@ -90,7 +78,7 @@ static void dijk_run_from(int32_t *dist, int8_t *done, int16_t *prev,
 
 /*
  * Dijkstra: only branch nodes (and the non-branch start) are ever
- * extracted as expansion candidates.  When a branch is expanded, we chain-walk
+ * extracted as expansion candidates. When a branch is expanded, we chain-walk
  * forward through every non-branch node until the next branch, setting dist[]
  * and prev[] for all intermediate nodes along the way.
  */
@@ -204,10 +192,10 @@ static int dijk_reconstruct_nodes(int16_t *prev, track_node *target,
  * Returns total distance to target, or -1 if unreachable.
  */
 static int32_t dijk_reconstruct(int32_t *dist, int16_t *prev,
-                                 int16_t *sw_num, char *sw_dir,
-                                 track_node *target,
-                                 int *out_sw_nums, char *out_sw_dirs,
-                                 int *out_sw_count, int max_sw) {
+                                int16_t *sw_num, char *sw_dir,
+                                track_node *target,
+                                int *out_sw_nums, char *out_sw_dirs,
+                                int *out_sw_count, int max_sw) {
     int tgt_idx = (int)(target - g_track);
     if (tgt_idx < 0 || tgt_idx >= TRACK_MAX) return -1;
     if (dist[tgt_idx] == DIJK_INF) return -1;
@@ -234,171 +222,10 @@ static int32_t dijk_reconstruct(int32_t *dist, int16_t *prev,
     return dist[tgt_idx];
 }
 
-/* ===== Path-based distance helpers ===== */
-
-int32_t route_path_dist_from(const uint16_t *path, int cursor, int count) {
-    int32_t total = 0;
-    for (int i = cursor; i < count - 1; i++) {
-        track_node *a = &g_track[path[i]];
-        track_node *b = &g_track[path[i + 1]];
-        int32_t d = -1;
-        if (a->type == NODE_BRANCH) {
-            if (a->edge[DIR_STRAIGHT].dest == b) d = (int32_t)a->edge[DIR_STRAIGHT].dist;
-            else if (a->edge[DIR_CURVED].dest == b) d = (int32_t)a->edge[DIR_CURVED].dist;
-        } else {
-            if (a->edge[DIR_AHEAD].dest == b) d = (int32_t)a->edge[DIR_AHEAD].dist;
-        }
-        if (d < 0) return -1;
-        total += d;
-    }
-    return total;
-}
-
-/* ===== Other static helpers ===== */
-
-/* Return the edge to follow from node n using current switch states. */
-static track_edge *get_next_edge(track_node *n) {
-    if (!n) return NULL;
-    switch (n->type) {
-    case NODE_SENSOR:
-    case NODE_MERGE:
-    case NODE_ENTER:
-        return &n->edge[DIR_AHEAD];
-    case NODE_BRANCH: {
-        int idx = track_switch_to_index(n->num);
-        char state = '?';
-        if (idx >= 0) {
-            state = track_get_switch_state()[idx].state;
-        }
-        KASSERT(state == 'C' || state == 'S');
-        int dir = (state == 'C') ? DIR_CURVED : DIR_STRAIGHT;
-        return &n->edge[dir];
-    }
-    default:
-        return NULL;
-    }
-}
-
-/* ===== Distance / prediction ===== */
-
-int32_t follow_dist(track_node *cur, track_node *to, int max_hops) {
-    if (!cur || !to) return -1;
-    if (cur == to) return 0;
-    int32_t dist = 0;
-    for (int h = 0; h < max_hops; h++) {
-        track_edge *e = get_next_edge(cur);
-        if (!e || !e->dest) return -1;
-        dist += (int32_t)e->dist;
-        cur = e->dest;
-        if (cur == to) return dist;
-        if (cur->type == NODE_EXIT) return -1;
-    }
-    return -1;
-}
-
-
-/* Walk forward from start and return the first SENSOR node, or NULL. */
-static track_node *first_sensor_forward(track_node *start, int max_hops) {
-    if (!start) return NULL;
-    track_node *n = start;
-    for (int h = 0; h < max_hops; h++) {
-        if (n->type == NODE_SENSOR) return n;
-        if (n->type == NODE_EXIT)   return NULL;
-        track_edge *e = get_next_edge(n);
-        if (!e || !e->dest) return NULL;
-        n = e->dest;
-    }
-    return (n->type == NODE_SENSOR) ? n : NULL;
-}
-
-track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
-                                uint64_t *out_dt_us) {
-    if (!cur) {
-        if (out_dt_us) *out_dt_us = 0;
-        if (pos) { pos->pred.alt_sensor = NULL; pos->pred.branch_node = NULL; }
-        return NULL;
-    }
-
-    int is_accel = pos && pos->is_accelerating && pos->accel_a_eff > 0;
-
-    track_node *n = cur;
-    uint64_t total_us = 0;
-    int32_t  d_total  = 0;  /* accumulated distance to next sensor */
-    int hops = 0;
-    int found_branch = 0;
-
-    for (;;) {
-        /* At the first branch: record the alternate-direction sensor. */
-        if (!found_branch && n->type == NODE_BRANCH) {
-            found_branch = 1;
-            if (pos) {
-                int sw_idx = track_switch_to_index(n->num);
-                char st = (sw_idx >= 0) ? track_get_switch_state()[sw_idx].state : '?';
-                int alt_dir = (st == 'S') ? DIR_CURVED : DIR_STRAIGHT;
-                pos->pred.alt_sensor  = first_sensor_forward(n->edge[alt_dir].dest, 20);
-                pos->pred.branch_node = n;
-            }
-        }
-
-        track_edge *e = get_next_edge(n);
-        if (!e || !e->dest) break;
-
-        d_total += (int32_t)e->dist;
-
-        /* In constant-speed mode accumulate timing per edge as before. */
-        if (!is_accel && pos->effective_v > 0) {
-            total_us += (uint64_t)((int64_t)e->dist * 1000000LL / pos->effective_v);
-        }
-
-        n = e->dest;
-        if (n->type == NODE_SENSOR) {
-            if (is_accel) {
-                /* Kinematic timing: train accelerates from v0 to v_goto then cruises.
-                 *   d1 = (v_goto^2 - v0^2) / (2*a)  — distance remaining in accel phase
-                 * Case A (d >= d1): sensor is beyond the accel zone.
-                 *   t = (v_goto - v0)/a  +  (d - d1)/v_goto
-                 * Case B (d < d1): sensor fires while still accelerating.
-                 *   Conservative estimate: use v0 as constant speed (overestimates t,
-                 *   safe for dead-track deadline). */
-                int32_t v0    = pos->effective_v;
-                int32_t v_end = speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
-                int32_t a     = pos->accel_a_eff;
-                /* d1 = (v_end+v0)*(v_end-v0) / (2*a), computed to avoid overflow */
-                int32_t d1 = (v_end > v0)
-                             ? (int32_t)((int64_t)(v_end + v0) * (v_end - v0) / (2LL * a))
-                             : 0;
-                if (d_total >= d1) {
-                    int64_t t1_us = (int64_t)(v_end - v0) * 1000000LL / (int64_t)a;
-                    int64_t t2_us = (d_total > d1)
-                                    ? (int64_t)(d_total - d1) * 1000000LL / (int64_t)v_end
-                                    : 0LL;
-                    total_us = (uint64_t)(t1_us + t2_us);
-                } else {
-                    /* Sensor is within accel zone. */
-                    if (v0 > 0) {
-                        total_us = (uint64_t)((int64_t)d_total * 1000000LL / v0);
-                    } else {
-                        /* v0==0: train is still in GO_LATENCY_US window.
-                         * Use half of v_end as rough average. */
-                        total_us = (uint64_t)((int64_t)d_total * 2000000LL / v_end);
-                    }
-                }
-            }
-            if (out_dt_us) *out_dt_us = total_us;
-            return n;
-        }
-        if (n->type == NODE_EXIT || ++hops > 80) break;
-    }
-
-    if (out_dt_us) *out_dt_us = 0;
-    if (!found_branch && pos) { pos->pred.alt_sensor = NULL; pos->pred.branch_node = NULL; }
-    return NULL;
-}
-
 /* ===== Route planning (Dijkstra shortest distance) ===== */
 
 int bfs_find_route_optimal(track_node *start, track_node *target,
-                            int32_t d_brake, route_plan_t *plan) {
+                           int32_t d_brake, route_plan_t *plan) {
     return bfs_find_route_optimal_constrained(start, target, d_brake, NULL, NULL, plan);
 }
 
@@ -410,7 +237,7 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
 
     track_node *tgts[2] = { target, target->reverse };
 
-    int32_t    best_total = DIJK_INF;
+    int32_t best_total = DIJK_INF;
     route_plan_t *best = &g_opt_best_plan;
     route_plan_t *cand = &g_opt_cand_plan;
     best->sw_count     = 0;
@@ -434,7 +261,7 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
                 cand->total_dist_mm    = d;
                 cand->chosen_target    = tgt;
                 dijk_reconstruct(fwd_dist, fwd_prev, fwd_sw_num, fwd_sw_dir,
-                                  tgt, cand->sw_nums, cand->sw_dirs, &cand->sw_count, 20);
+                                 tgt, cand->sw_nums, cand->sw_dirs, &cand->sw_count, 20);
                 if (!dijk_reconstruct_nodes(fwd_prev, tgt, cand->path_nodes,
                                             &cand->path_count, TRACK_MAX)) {
                     continue;
@@ -452,7 +279,7 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
             if (s->type != NODE_SENSOR) continue;
             if (!s->reverse) continue;
             if (fwd_dist[si] == DIJK_INF) continue;
-          
+
             if (fwd_dist[si] < GOTO_MIN_DIST_FACTOR * d_brake) continue;
 
             /* The continuation leg executes only after stopping at `s` and
@@ -477,7 +304,7 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
 
             /* First-leg switches (fwd_* still valid — not overwritten by rev_*). */
             dijk_reconstruct(fwd_dist, fwd_prev, fwd_sw_num, fwd_sw_dir,
-                              s, cand->sw_nums, cand->sw_dirs, &cand->sw_count, 20);
+                             s, cand->sw_nums, cand->sw_dirs, &cand->sw_count, 20);
             if (!dijk_reconstruct_nodes(fwd_prev, s, cand->path_nodes,
                                         &cand->path_count, TRACK_MAX)) {
                 continue;
@@ -485,7 +312,7 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
 
             /* Second-leg switches. */
             dijk_reconstruct(rev_dist, rev_prev, rev_sw_num, rev_sw_dir,
-                              tgt, cand->sw_nums2, cand->sw_dirs2, &cand->sw_count2, 20);
+                             tgt, cand->sw_nums2, cand->sw_dirs2, &cand->sw_count2, 20);
             if (!dijk_reconstruct_nodes(rev_prev, tgt, cand->path_nodes2,
                                         &cand->path_count2, TRACK_MAX)) {
                 continue;
@@ -502,11 +329,10 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
     return 1;
 }
 
-
 int bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
-                               int32_t d_brake, const uint8_t *blocked,
-                               const char *fixed_sw_dirs,
-                               route_plan_t *plan) {
+                              int32_t d_brake, const uint8_t *blocked,
+                              const char *fixed_sw_dirs,
+                              route_plan_t *plan) {
     if (!start_rev || !target || !plan) return 0;
 
     int32_t threshold = (int32_t)GOTO_MIN_DIST_FACTOR * d_brake;
@@ -544,7 +370,7 @@ int bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
             int32_t total = fwd_dist[si] + rev_dist[tgt_idx];
             if (total >= best_total) continue;
 
-            g_opt_cand_plan.has_reversal          = 1;
+            g_opt_cand_plan.has_reversal           = 1;
             g_opt_cand_plan.reversal_sensor        = F;
             g_opt_cand_plan.chosen_target          = tgt;
             g_opt_cand_plan.dist_to_reversal_mm    = fwd_dist[si];
@@ -552,15 +378,15 @@ int bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
             g_opt_cand_plan.total_dist_mm          = total;
 
             dijk_reconstruct(fwd_dist, fwd_prev, fwd_sw_num, fwd_sw_dir,
-                              F, g_opt_cand_plan.sw_nums, g_opt_cand_plan.sw_dirs,
-                              &g_opt_cand_plan.sw_count, 20);
+                             F, g_opt_cand_plan.sw_nums, g_opt_cand_plan.sw_dirs,
+                             &g_opt_cand_plan.sw_count, 20);
             if (!dijk_reconstruct_nodes(fwd_prev, F, g_opt_cand_plan.path_nodes,
                                         &g_opt_cand_plan.path_count, TRACK_MAX))
                 continue;
 
             dijk_reconstruct(rev_dist, rev_prev, rev_sw_num, rev_sw_dir,
-                              tgt, g_opt_cand_plan.sw_nums2, g_opt_cand_plan.sw_dirs2,
-                              &g_opt_cand_plan.sw_count2, 20);
+                             tgt, g_opt_cand_plan.sw_nums2, g_opt_cand_plan.sw_dirs2,
+                             &g_opt_cand_plan.sw_count2, 20);
             if (!dijk_reconstruct_nodes(rev_prev, tgt, g_opt_cand_plan.path_nodes2,
                                         &g_opt_cand_plan.path_count2, TRACK_MAX))
                 continue;
