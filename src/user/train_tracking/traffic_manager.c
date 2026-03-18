@@ -369,6 +369,32 @@ void traffic_release_train_keep_body(int train_num, track_node *last_hit,
     }
 }
 
+
+void traffic_release_before_sensor(int train_num, track_node *prev_sensor) {
+    if (!prev_sensor || train_num < 0) return;
+
+    track_node *cur = prev_sensor->reverse;
+    int changed = 0;
+
+    for (int h = 0; h < 200 && cur != NULL; h++) {
+        int idx  = node_index(cur);
+        int ridx = reverse_index(idx);
+        if ((idx  < 0 || node_owner[idx]  != train_num) &&
+            (ridx < 0 || node_owner[ridx] != train_num)) break;
+        if (idx  >= 0 && node_owner[idx]  == train_num) { node_owner[idx]  = -1; changed = 1; }
+        if (ridx >= 0 && node_owner[ridx] == train_num) { node_owner[ridx] = -1; changed = 1; }
+
+        track_edge *e = tm_get_next_edge(cur);
+        if (!e || !e->dest) break;
+        cur = e->dest;
+    }
+
+    if (changed) {
+        pos_mark_routes_dirty();
+        ui_mark_position_dirty();
+    }
+}
+
 int traffic_can_set_switch(int sw_num, int requester_train) {
     (void)requester_train;
     for (int i = 0; i < TRACK_MAX; i++) {

@@ -35,6 +35,10 @@ void traffic_release_train(int train_num);
 void traffic_release_train_keep_body(int train_num, track_node *last_hit,
                                      int32_t body_mm, track_node *next_hit);
 
+/* Release all nodes before prev_sensor owned by train_num.
+ * Walks backward from prev_sensor; nodes at prev_sensor and ahead are untouched. */
+void traffic_release_before_sensor(int train_num, track_node *prev_sensor);
+
 /* Check if it is safe to set a switch.
  * Any reservation on the switch envelope blocks the change, including self-owned
  * reservations. Returns -1 when safe; otherwise returns the blocking train number. */

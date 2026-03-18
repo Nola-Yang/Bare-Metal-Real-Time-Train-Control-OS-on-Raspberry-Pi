@@ -295,9 +295,11 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         pos->offroute_expected_sensor = NULL;
     }
     update_next_prediction(pos, hit, time_us);
-    /* Temporarily keep the full running reservation after sensor hits.
-     * Only non-running states shrink the window. */
-    (void)prev_sensor;
+    /* Release nodes before prev_sensor: train has passed them. */
+    if (prev_sensor) {
+        traffic_release_before_sensor(pos->train_num, prev_sensor);
+    }
+
     ui_mark_position_dirty();
 }
 
