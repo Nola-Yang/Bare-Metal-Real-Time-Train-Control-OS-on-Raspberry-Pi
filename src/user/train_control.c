@@ -101,6 +101,25 @@ void ui_tick_task(void) {
     }
 }
 
+void pos_tick_task() {
+    int parent = MyParentTid();
+    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
+
+    KASSERT(clock_tid >= 0);
+
+    TrainControlMsg_t msg;
+    TrainControlReply_t reply;
+    msg.type = TRAIN_POS_TICK;
+
+    const int tick_interval = 10;
+
+    for (;;) {
+        Delay(clock_tid, tick_interval);
+        Send(parent, (const char *)&msg, sizeof(msg),
+             (char *)&reply, sizeof(reply));
+    }
+}
+
 // Parse CAN frame for sensor data
 static void process_can_frame(const can_frame_t *frame, uint64_t now) {
     uint8_t command     = (uint8_t)((frame->id >> 17) & 0xFF);
@@ -179,6 +198,7 @@ void train_control_task(void) {
     Create(TRAIN_COURIER_PRIORITY, keyboard_courier_task);
     Create(TRAIN_COURIER_PRIORITY, ui_tick_task);
     Create(TRAIN_COURIER_PRIORITY, demo_tick_task);
+    Create(TRAIN_CONTROL_PRIORITY, pos_tick_task);
 
     char cmdline[80];
     int cmdlen = 0;
@@ -243,6 +263,14 @@ void train_control_task(void) {
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
             }
+
+            case TRAIN_POS_TICK: {
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                uint64_t tick_now = read_timer();
+                pos_on_tick(tick_now);
+                break;
+            }
+
             case TRAIN_MSG_TICK: {
                 // Periodic UI updates
                 Reply(tid, (const char *)&reply, sizeof(reply));
@@ -252,8 +280,6 @@ void train_control_task(void) {
 
                 int idle_percent = get_idle_percentage();
                 ui_update_idle(idle_percent);
-
-                pos_on_tick(tick_now);
 
                 if (ui_is_switches_dirty()) {
                     ui_puts("\033[s");
