@@ -92,7 +92,7 @@ void ui_tick_task(void) {
     TrainControlReply_t reply;
     msg.type = TRAIN_MSG_TICK;
 
-    const int tick_interval = 2;  // 2 ticks * 10ms = 20ms
+    const int tick_interval = 4;  // 4 ticks * 10ms = 40ms
 
     for (;;) {
         Delay(clock_tid, tick_interval);

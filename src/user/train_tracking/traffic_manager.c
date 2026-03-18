@@ -15,6 +15,7 @@
 #define MAX_ZONE_NODES    16
 
 static int node_owner[TRACK_MAX];
+static uint32_t g_change_generation = 0;
 
 /* Crossing + merge safety envelopes are modeled as mutex zones. */
 static int g_zone_nodes[MAX_MUTEX_ZONES][MAX_ZONE_NODES];
@@ -30,6 +31,12 @@ static uint64_t last_spurious_time_us = 0;
 static uint64_t last_ambiguous_time_us = 0;
 
 static track_edge *tm_get_next_edge(track_node *n);
+
+static void traffic_note_change(int routes_dirty) {
+    g_change_generation++;
+    if (routes_dirty) pos_mark_routes_dirty();
+    ui_mark_position_dirty();
+}
 
 static int node_index(track_node *n) {
     if (!n) return -1;
@@ -230,6 +237,7 @@ static int sensor_hops_between(track_node *from_sensor, track_node *hit_sensor, 
 
 void traffic_init(void) {
     for (int i = 0; i < TRACK_MAX; i++) node_owner[i] = -1;
+    g_change_generation = 0;
     spurious_sensor_count = 0;
     ambiguous_sensor_count = 0;
     last_spurious_sensor_id = 0;
@@ -296,7 +304,7 @@ int traffic_reserve_plan(int train_num, track_node *start, const route_plan_t *p
         }
     }
 
-    if (changed) ui_mark_position_dirty();
+    if (changed) traffic_note_change(0);
     return 1;
 }
 
@@ -315,14 +323,12 @@ void traffic_release_train(int train_num) {
             changed = 1;
         }
     }
-    if (changed) {
-        pos_mark_routes_dirty();
-        ui_mark_position_dirty();
-    }
+    if (changed) traffic_note_change(1);
 }
 
 void traffic_release_train_keep_body(int train_num, track_node *last_hit,
                                      int32_t body_mm, track_node *next_hit) {
+    (void)body_mm;
     uint8_t keep[TRACK_MAX];
     int keep_to_next = 0;
 
@@ -363,10 +369,61 @@ void traffic_release_train_keep_body(int train_num, track_node *last_hit,
         if (idx  >= 0 && node_owner[idx]  != train_num) { node_owner[idx]  = train_num; changed = 1; }
         if (ridx >= 0 && node_owner[ridx] != train_num) { node_owner[ridx] = train_num; changed = 1; }
     }
-    if (changed) {
-        pos_mark_routes_dirty();
-        ui_mark_position_dirty();
+    if (changed) traffic_note_change(1);
+}
+
+void traffic_refresh_route_reservation(int train_num, track_node *cur_sensor,
+                                       track_node *next_hit,
+                                       const uint16_t *path, int path_cursor,
+                                       int path_count) {
+    if (train_num < 0 || !cur_sensor) return;
+
+    uint8_t keep[TRACK_MAX];
+    for (int i = 0; i < TRACK_MAX; i++) keep[i] = 0;
+
+    keep_mark_node(keep, cur_sensor);
+
+    if (next_hit) {
+        int keep_to_next = (cur_sensor == next_hit) ||
+                           (follow_dist(cur_sensor, next_hit, 120) >= 0);
+        if (keep_to_next) keep_mark_walk_to(keep, cur_sensor, next_hit);
     }
+
+    if (path && path_count > 0) {
+        if (path_cursor < 0) path_cursor = 0;
+        if (path_cursor > path_count) path_cursor = path_count;
+        for (int i = path_cursor; i < path_count; i++) {
+            int idx = (int)path[i];
+            if (idx < 0 || idx >= TRACK_MAX) continue;
+            keep[idx] = 1;
+            int ridx = reverse_index(idx);
+            if (ridx >= 0) keep[ridx] = 1;
+        }
+    }
+
+    expand_marks_with_zones(keep);
+
+    int changed = 0;
+    for (int i = 0; i < TRACK_MAX; i++) {
+        if (node_owner[i] != train_num) continue;
+        if (!keep[i]) {
+            node_owner[i] = -1;
+            changed = 1;
+        }
+    }
+
+    int idx = node_index(cur_sensor);
+    int ridx = reverse_index(idx);
+    if (idx >= 0 && node_owner[idx] != train_num) {
+        node_owner[idx] = train_num;
+        changed = 1;
+    }
+    if (ridx >= 0 && node_owner[ridx] != train_num) {
+        node_owner[ridx] = train_num;
+        changed = 1;
+    }
+
+    if (changed) traffic_note_change(1);
 }
 
 
@@ -389,10 +446,7 @@ void traffic_release_before_sensor(int train_num, track_node *prev_sensor) {
         cur = e->dest;
     }
 
-    if (changed) {
-        pos_mark_routes_dirty();
-        ui_mark_position_dirty();
-    }
+    if (changed) traffic_note_change(1);
 }
 
 int traffic_can_set_switch(int sw_num, int requester_train) {
@@ -715,4 +769,8 @@ int traffic_is_reserved_by(track_node *node, int train_num) {
     int idx = node_index(node);
     if (idx < 0) return 0;
     return node_owner[idx] == train_num;
+}
+
+uint32_t traffic_get_change_generation(void) {
+    return g_change_generation;
 }

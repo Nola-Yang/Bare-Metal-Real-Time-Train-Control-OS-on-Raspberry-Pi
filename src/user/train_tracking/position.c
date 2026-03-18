@@ -155,6 +155,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->replan.next_us           = 0;
             slot->replan.retry_count       = 0;
             slot->replan.rand_state        = (uint32_t)(slot->train_num * 1234567u + 1u);
+            slot->replan.seen_generation   = traffic_get_change_generation();
             slot->dead_track_deadline_us   = 0;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
             slot->speed_warmup_mm      = 0;
@@ -299,6 +300,7 @@ void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us) {
     pos->route_state = TRAIN_STATE_WAIT_RESOURCE;
     pos->replan.retry_count = 0;
     pos->replan.next_us = now_us + REPLAN_INTERVAL_US;
+    pos->replan.seen_generation = traffic_get_change_generation();
     pos->stopping_since_us = now_us;
     pos->effective_v = 0;
     pos_clear_prediction(pos);
@@ -310,6 +312,7 @@ void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us) {
 void pos_init(void) {
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         g_pos[i].train_num = -1;
+        g_pos[i].replan.seen_generation = 0;
     }
     traffic_init();
     route_init();
@@ -554,6 +557,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
     pos->pending_offset_mm = 0;
     pos->route_state = TRAIN_STATE_ON_ROUTE;
     pos->replan.next_us = 0;
+    pos->replan.seen_generation = traffic_get_change_generation();
 
     if (!need_initial_reverse) {
         uint64_t dt = 0;

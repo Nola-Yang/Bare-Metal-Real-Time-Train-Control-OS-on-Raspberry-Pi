@@ -35,6 +35,12 @@ void traffic_release_train(int train_num);
 void traffic_release_train_keep_body(int train_num, track_node *last_hit,
                                      int32_t body_mm, track_node *next_hit);
 
+/* Refresh an active route reservation from the remaining planned path. */
+void traffic_refresh_route_reservation(int train_num, track_node *cur_sensor,
+                                       track_node *next_hit,
+                                       const uint16_t *path, int path_cursor,
+                                       int path_count);
+
 /* Release all nodes before prev_sensor owned by train_num.
  * Walks backward from prev_sensor; nodes at prev_sensor and ahead are untouched. */
 void traffic_release_before_sensor(int train_num, track_node *prev_sensor);
@@ -60,5 +66,8 @@ int traffic_get_reserved_nodes(int train_num, uint16_t *out, int max_nodes);
 
 /* Return 1 if node is currently reserved by train_num, 0 otherwise. */
 int traffic_is_reserved_by(track_node *node, int train_num);
+
+/* Monotonic generation counter for reservation ownership changes. */
+uint32_t traffic_get_change_generation(void);
 
 #endif /* _traffic_manager_h_ */

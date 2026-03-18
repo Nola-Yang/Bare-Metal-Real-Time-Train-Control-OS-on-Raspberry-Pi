@@ -57,6 +57,7 @@ typedef struct {
     uint64_t next_us;       
     int      retry_count;    /* exponential backoff retry counter */
     uint32_t rand_state;     /* LCG state for jitter randomization */
+    uint32_t seen_generation; /* last reservation-change generation observed */
 } pos_replan_t;
 
 /* ---------- Per-train position state ---------- */

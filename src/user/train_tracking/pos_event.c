@@ -231,7 +231,6 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     int was_predicted;
     update_sensor_stats(pos, hit, time_us, &was_predicted);
 
-    track_node *prev_sensor = pos->cur_sensor;
     pos->cur_sensor      = hit;
     pos->cur_sensor_time = time_us;
     track_node *keep_end = pos_release_keep_end(hit, NULL);
@@ -295,9 +294,12 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         pos->offroute_expected_sensor = NULL;
     }
     update_next_prediction(pos, hit, time_us);
-    /* Release nodes before prev_sensor: train has passed them. */
-    if (prev_sensor) {
-        traffic_release_before_sensor(pos->train_num, prev_sensor);
+    if (pos->route_state == TRAIN_STATE_ON_ROUTE) {
+        traffic_refresh_route_reservation(pos->train_num, hit,
+                                          pos->pred.next_sensor,
+                                          pos->route_path,
+                                          pos->route_path_cursor,
+                                          pos->route_path_count);
     }
 
     ui_mark_position_dirty();
@@ -323,7 +325,18 @@ static void tick_replan_waiting_trains(uint64_t now_us) {
     for (int wi = 0; wi < 6; wi++) {
         train_pos_t *pos = pos_get(ORDER[wi]);
         if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) continue;
-        if (pos->replan.next_us > 0 && now_us < pos->replan.next_us) continue;
+
+        uint32_t generation = traffic_get_change_generation();
+        int woke_on_change = 0;
+        if (generation != pos->replan.seen_generation) {
+            pos->replan.seen_generation = generation;
+            pos->replan.retry_count = 0;
+            woke_on_change = 1;
+        }
+        if (!woke_on_change &&
+            pos->replan.next_us > 0 && now_us < pos->replan.next_us) {
+            continue;
+        }
 
         int backoff_exp = pos->replan.retry_count;
         if (backoff_exp > REPLAN_MAX_BACKOFF) backoff_exp = REPLAN_MAX_BACKOFF;
