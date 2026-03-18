@@ -234,8 +234,8 @@ static int state_is_goto_active(train_route_state_t st) {
             st == TRAIN_STATE_WAIT_RESOURCE);
 }
 
-static int apply_route_switches_safe(const int *sw_nums, const char *sw_dirs,
-                                     int sw_count, int requester_train) {
+int pos_apply_route_switches_safe(const int *sw_nums, const char *sw_dirs,
+                                  int sw_count, int requester_train) {
     for (int i = sw_count - 1; i >= 0; i--) {
         int owner = traffic_can_set_switch(sw_nums[i], requester_train);
         if (owner >= 0) return 0;
@@ -434,28 +434,27 @@ int pos_try_direct_goto(train_pos_t *pos) {
     track_node *chosen_target = rp->has_reversal ? rp->reversal_sensor
                                                   : rp->chosen_target;
     route_plan_t reserve_plan = *rp;
-
-    for (int i = rp->sw_count - 1; i >= 0; i--) {
-        int owner = traffic_can_set_switch(rp->sw_nums[i], pos->train_num);
-        if (owner >= 0) {
-            pos_enter_wait_resource(pos, now_us);
-            return 1;
-        }
-    }
-
-    traffic_release_train_keep_body(pos->train_num, cur_sensor_orig,
-                                    TRAIN_BODY_MM,
-                                    pos_release_keep_end(cur_sensor_orig,
-                                                         pos->pred.next_sensor));
     if (reserve_plan.has_reversal) {
         /* Reserve only the first leg up to the reversal point.
          * The second leg is reserved when the train actually reaches the midpoint. */
         reserve_plan.path_count2 = 0;
     }
+    /* Keep the parked sensor window until the next real hit.
+     * The new route is added on top of the existing stopped reservation. */
+    if (!traffic_can_reserve_plan(pos->train_num, &reserve_plan)) {
+        pos_enter_wait_resource(pos, now_us);
+        return 1;
+    }
+    if (!pos_apply_route_switches_safe(rp->sw_nums, rp->sw_dirs, rp->sw_count,
+                                       pos->train_num)) {
+        pos_enter_wait_resource(pos, now_us);
+        return 1;
+    }
     if (!traffic_reserve_plan(pos->train_num, eff_start, &reserve_plan)) {
         pos_enter_wait_resource(pos, now_us);
         return 1;
     }
+    if (rp->sw_count > 0) ui_mark_switches_dirty();
 
     if (need_initial_reverse) {
         track_reverse(pos->train_num);
@@ -468,12 +467,6 @@ int pos_try_direct_goto(train_pos_t *pos) {
         pos->pred.skipped_sensor_count = 0;
         pos->dead_track_deadline_us = 0;
     }
-
-    if (!apply_route_switches_safe(rp->sw_nums, rp->sw_dirs, rp->sw_count, pos->train_num)) {
-        pos_enter_wait_resource(pos, now_us);
-        return 1;
-    }
-    if (rp->sw_count > 0) ui_mark_switches_dirty();
     pos_wait_switch_settle(rp->sw_count);
 
 

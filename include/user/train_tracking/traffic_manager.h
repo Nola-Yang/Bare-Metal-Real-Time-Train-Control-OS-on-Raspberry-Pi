@@ -22,22 +22,22 @@ void traffic_build_constraints(int requester_train, uint8_t blocked[TRACK_MAX]);
 /* Reserve a plan's node path for a train. Returns 1 on success, 0 on conflict. */
 int traffic_reserve_plan(int train_num, track_node *start, const route_plan_t *plan);
 
+/* Return 1 if the plan can be reserved by train_num without conflict. */
+int traffic_can_reserve_plan(int train_num, const route_plan_t *plan);
+
 /* Release all reservations owned by train_num. */
 void traffic_release_train(int train_num);
 
-/* Release all reservations except the current sensor window:
- * keep `body_mm` before `last_hit`, the track from `last_hit` to `next_hit`
- * (if reachable), and `body_mm` after `next_hit` (or after `last_hit` if NULL). */
+/* Release all reservations except the current travel window:
+ * keep `body_mm` behind `last_hit`, the track from `last_hit` to `next_hit`
+ * (if reachable), and `body_mm` ahead of `next_hit`, all relative to the
+ * train's travel direction. */
 void traffic_release_train_keep_body(int train_num, track_node *last_hit,
                                      int32_t body_mm, track_node *next_hit);
 
-/* Release only the traversed segment from `from` toward `to`, while keeping
- * the train body (`body_mm`) behind `to`. */
-void traffic_release_passed(int train_num, track_node *from, track_node *to,
-                            int32_t body_mm);
-
 /* Check if it is safe to set a switch.
- * Returns -1 when safe; otherwise returns the conflicting train number. */
+ * Any reservation on the switch envelope blocks the change, including self-owned
+ * reservations. Returns -1 when safe; otherwise returns the blocking train number. */
 int traffic_can_set_switch(int sw_num, int requester_train);
 
 /* Attribute a sensor hit to the best train, or NULL if spurious/ambiguous.

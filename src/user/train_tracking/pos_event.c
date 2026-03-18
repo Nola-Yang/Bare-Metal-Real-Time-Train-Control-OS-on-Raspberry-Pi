@@ -236,10 +236,6 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     pos->cur_sensor_time = time_us;
     track_node *keep_end = pos_release_keep_end(hit, NULL);
 
-    if (prev_sensor && prev_sensor != hit) {
-        traffic_release_passed(pos->train_num, prev_sensor, hit, TRAIN_BODY_MM);
-    }
-
     /* Off-route: ON_ROUTE hit outside our reservation -> stop and replan. */
     if (pos->route_state == TRAIN_STATE_ON_ROUTE && pos->target_sensor != NULL) {
         if (took_alt_branch || !traffic_is_reserved_by(hit, pos->train_num)) {
@@ -299,6 +295,10 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
         pos->offroute_expected_sensor = NULL;
     }
     update_next_prediction(pos, hit, time_us);
+    if (prev_sensor && prev_sensor != hit) {
+        traffic_release_train_keep_body(pos->train_num, hit,
+                                        TRAIN_BODY_MM, pos->pred.next_sensor);
+    }
     ui_mark_position_dirty();
 }
 
@@ -341,11 +341,32 @@ static void tick_replan_waiting_trains(uint64_t now_us) {
     }
 }
 
-/* Resume the second leg of a mid-route reversal: reverse the train, apply
- * second-leg switches, restore the second-leg path, and restart at GOTO speed.
- * Returns 0 if a switch was blocked (enters WAIT_RESOURCE); 1 on success. */
+/* Resume the second leg of a mid-route reversal: preflight the second leg,
+ * set switches before they become reserved, then reverse and restart.
+ * Returns 0 if a switch or reservation was blocked (enters WAIT_RESOURCE);
+ * 1 on success. */
 static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     route_plan_t second_leg_plan = {0};
+
+    second_leg_plan.path_count = pos->midrev.path2_count;
+    for (int j = 0; j < pos->midrev.path2_count; j++) {
+        second_leg_plan.path_nodes[j] = pos->midrev.path2[j];
+    }
+    if (!traffic_can_reserve_plan(pos->train_num, &second_leg_plan)) {
+        pos_enter_wait_resource(pos, now_us);
+        return 0;
+    }
+    if (!pos_apply_route_switches_safe(pos->midrev.sw_nums, pos->midrev.sw_dirs,
+                                       pos->midrev.sw_count, pos->train_num)) {
+        pos_enter_wait_resource(pos, now_us);
+        return 0;
+    }
+    if (!traffic_reserve_plan(pos->train_num, pos->cur_sensor, &second_leg_plan)) {
+        pos_enter_wait_resource(pos, now_us);
+        return 0;
+    }
+    if (pos->midrev.sw_count > 0) ui_mark_switches_dirty();
+
     pos->midrev.active = 0;
 
     track_reverse(pos->train_num);
@@ -353,27 +374,6 @@ static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     if (pos->cur_sensor && pos->cur_sensor->reverse)
         pos->cur_sensor = pos->cur_sensor->reverse;
 
-    for (int j = pos->midrev.sw_count - 1; j >= 0; j--) {
-        if (traffic_can_set_switch(pos->midrev.sw_nums[j], pos->train_num) >= 0) {
-            pos_enter_wait_resource(pos, now_us);
-            return 0;
-        }
-    }
-
-    second_leg_plan.path_count = pos->midrev.path2_count;
-    for (int j = 0; j < pos->midrev.path2_count; j++) {
-        second_leg_plan.path_nodes[j] = pos->midrev.path2[j];
-    }
-    if (!traffic_reserve_plan(pos->train_num, pos->cur_sensor, &second_leg_plan)) {
-        pos_enter_wait_resource(pos, now_us);
-        return 0;
-    }
-
-    for (int j = pos->midrev.sw_count - 1; j >= 0; j--) {
-        track_set_switch(pos->midrev.sw_nums[j], pos->midrev.sw_dirs[j]);
-        track_update_switch(pos->midrev.sw_nums[j], pos->midrev.sw_dirs[j]);
-    }
-    if (pos->midrev.sw_count > 0) ui_mark_switches_dirty();
     pos_wait_switch_settle(pos->midrev.sw_count);
 
     pos->target_sensor    = pos->midrev.final_target;

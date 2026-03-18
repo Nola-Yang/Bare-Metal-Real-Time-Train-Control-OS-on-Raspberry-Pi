@@ -56,6 +56,10 @@ void pos_restore_pending_target(train_pos_t *pos);
  * prefer `hint`, otherwise predict the next sensor after `last_hit`. */
 track_node *pos_release_keep_end(track_node *last_hit, track_node *hint);
 
+/* Apply a route's switch commands only if every touched switch envelope is free. */
+int pos_apply_route_switches_safe(const int *sw_nums, const char *sw_dirs,
+                                  int sw_count, int requester_train);
+
 /* Set GOTO_USER_SPEED, send CAN speed command, restore effective_v from
  * cached_v (or speed table), set 400 mm warmup, and anchor cur_sensor_time. */
 void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us);
