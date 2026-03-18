@@ -196,7 +196,7 @@ static char *ui_append_position_row(char *p, int row, int train, const train_pos
     p = ui_append_field(p, next_name, 7);
     p = ui_append_field(p, dest_buf, 24);
     p = ui_append_field(p, pos ? ui_state_long(pos->route_state) : "-", 15);
-    p = ui_append_field(p, rem_buf, 12);
+    p = ui_append_field(p, rem_buf, 9);
     p = ui_append_field(p, queued_name, 24);
     p = buf_append(p, "\033[K");
     return p;
@@ -439,11 +439,11 @@ void ui_draw_position(void) {
     p = ui_append_section_bar(p, 22, "Position");
     p = ui_move_to_row(p, 23);
     p = ui_append_field(p, "TR", 3);
-    p = ui_append_field(p, "CUR", 8);
-    p = ui_append_field(p, "NEXT", 8);
+    p = ui_append_field(p, "CUR", 7);
+    p = ui_append_field(p, "NEXT", 7);
     p = ui_append_field(p, "TARGET", 24);
-    p = ui_append_field(p, "STATE", 20);
-    p = ui_append_field(p, "REMAIN", 12);
+    p = ui_append_field(p, "STATE", 15);
+    p = ui_append_field(p, "REMAIN", 9);
     p = buf_append(p, "QUEUED\033[K");
 
     for (int i = 0; i < 5; i++) {
