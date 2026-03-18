@@ -19,8 +19,8 @@ extern uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS];
  * from the predicted next sensor (off-route / skip detection). */
 #define OFF_ROUTE_PATH_MAX_HOPS 120
 
-/* Dead-track timeout multiplier relative to predicted sensor intervals. */
-#define DEAD_TRACK_DEADLINE_MULTIPLIER 2
+/* Dead-track timeout multiplier relative to the next predicted sensor interval. */
+#define DEAD_TRACK_DEADLINE_MULTIPLIER 3
 
 /* Fixed user speed used for all goto operations. */
 #define GOTO_USER_SPEED 8

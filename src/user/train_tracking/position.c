@@ -168,21 +168,17 @@ static track_node *predict_next_sensor_preserve_pred(train_pos_t *pos,
 void pos_refresh_dead_track_deadline(train_pos_t *pos, uint64_t now_us) {
     if (!pos) return;
 
-    track_node *first = NULL;
     uint64_t t1 = 0;
 
     if (pos->pred.next_sensor != NULL && pos->pred.trigger_time > now_us) {
-        first = pos->pred.next_sensor;
         t1 = pos->pred.trigger_time - now_us;
     } else if (pos->cur_sensor != NULL) {
-        first = predict_next_sensor_preserve_pred(pos, pos->cur_sensor, &t1);
+        (void)predict_next_sensor_preserve_pred(pos, pos->cur_sensor, &t1);
     }
 
-    if (first != NULL && t1 > 0) {
-        uint64_t t2 = 0;
-        predict_next_sensor_preserve_pred(pos, first, &t2);
+    if (t1 > 0) {
         pos->dead_track_deadline_us =
-            now_us + DEAD_TRACK_DEADLINE_MULTIPLIER * (t1 + t2);
+            now_us + DEAD_TRACK_DEADLINE_MULTIPLIER * t1;
     } else {
         pos->dead_track_deadline_us = 0;
     }
