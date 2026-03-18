@@ -48,6 +48,10 @@ void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us);
 /* Zero all prediction fields (pred.* + dead_track_deadline_us). */
 void pos_clear_prediction(train_pos_t *pos);
 
+/* Refresh dead-track timeout using the current prediction when available,
+ * otherwise fall back to the current sensor anchor (used after reversals). */
+void pos_refresh_dead_track_deadline(train_pos_t *pos, uint64_t now_us);
+
 /* If pending_target is NULL but orig_user_target is set, restore it so the
  * next replan attempt can reach the original destination. */
 void pos_restore_pending_target(train_pos_t *pos);

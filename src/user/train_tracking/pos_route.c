@@ -315,15 +315,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
         pos->pred.skipped_sensor_count = 0;
     }
 
-    if (pos->pred.next_sensor != NULL && pos->pred.trigger_time > now_us) {
-        uint64_t T1 = pos->pred.trigger_time - now_us;
-        uint64_t T2 = 0;
-        predict_next_sensor(pos, pos->pred.next_sensor, &T2);
-        pos->dead_track_deadline_us =
-            now_us + DEAD_TRACK_DEADLINE_MULTIPLIER * (T1 + T2);
-    } else {
-        pos->dead_track_deadline_us = 0;
-    }
+    pos_refresh_dead_track_deadline(pos, now_us);
 
     ui_mark_position_dirty();
     return 1;

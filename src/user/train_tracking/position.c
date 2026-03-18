@@ -146,6 +146,48 @@ void pos_clear_prediction(train_pos_t *pos) {
     pos->dead_track_deadline_us = 0;
 }
 
+static track_node *predict_next_sensor_preserve_pred(train_pos_t *pos,
+                                                     track_node *cur,
+                                                     uint64_t *out_dt_us) {
+    track_node *saved_alt = NULL;
+    track_node *saved_branch = NULL;
+    if (pos) {
+        saved_alt = pos->pred.alt_sensor;
+        saved_branch = pos->pred.branch_node;
+    }
+
+    track_node *next = predict_next_sensor(pos, cur, out_dt_us);
+
+    if (pos) {
+        pos->pred.alt_sensor = saved_alt;
+        pos->pred.branch_node = saved_branch;
+    }
+    return next;
+}
+
+void pos_refresh_dead_track_deadline(train_pos_t *pos, uint64_t now_us) {
+    if (!pos) return;
+
+    track_node *first = NULL;
+    uint64_t t1 = 0;
+
+    if (pos->pred.next_sensor != NULL && pos->pred.trigger_time > now_us) {
+        first = pos->pred.next_sensor;
+        t1 = pos->pred.trigger_time - now_us;
+    } else if (pos->cur_sensor != NULL) {
+        first = predict_next_sensor_preserve_pred(pos, pos->cur_sensor, &t1);
+    }
+
+    if (first != NULL && t1 > 0) {
+        uint64_t t2 = 0;
+        predict_next_sensor_preserve_pred(pos, first, &t2);
+        pos->dead_track_deadline_us =
+            now_us + DEAD_TRACK_DEADLINE_MULTIPLIER * (t1 + t2);
+    } else {
+        pos->dead_track_deadline_us = 0;
+    }
+}
+
 void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
     pos->user_speed      = GOTO_USER_SPEED;
     int can_spd          = 1 + (GOTO_USER_SPEED - 1) * 77;

@@ -434,7 +434,7 @@ static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     pos->pred.branch_node       = NULL;
     pos->pred.trigger_time      = 0;
     pos->pred.skipped_sensor_count = 0;
-    pos->dead_track_deadline_us = 0;
+    pos_refresh_dead_track_deadline(pos, now_us);
 
     pos->route_state = TRAIN_STATE_ON_ROUTE;
     return 1;
