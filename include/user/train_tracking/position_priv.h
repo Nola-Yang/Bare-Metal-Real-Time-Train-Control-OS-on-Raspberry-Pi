@@ -34,6 +34,8 @@ extern uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS];
 #define REPLAN_INTERVAL_US    200000ULL   /* base interval (us) */
 #define REPLAN_MAX_BACKOFF      4         /* cap exponent at 2^4 = 16x */
 
+/* Give turnout commands a short settle window before launching the train. */
+#define SWITCH_SETTLE_TICKS     3
 
 
 /* Attempt a direct on-route plan from the current stopped position to
@@ -53,6 +55,9 @@ void pos_restore_pending_target(train_pos_t *pos);
 /* Set GOTO_USER_SPEED, send CAN speed command, restore effective_v from
  * cached_v (or speed table), set 400 mm warmup, and anchor cur_sensor_time. */
 void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us);
+
+/* Sleep briefly after issuing switch commands so the turnout can settle. */
+void pos_wait_switch_settle(int sw_count);
 
 /* If user_speed is in [1,14], save effective_v into cached_v, then zero
  * effective_v.  Call this whenever the train has fully stopped. */

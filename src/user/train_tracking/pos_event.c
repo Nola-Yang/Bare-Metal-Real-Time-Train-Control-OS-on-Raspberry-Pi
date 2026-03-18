@@ -377,6 +377,7 @@ static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
         track_update_switch(pos->midrev.sw_nums[j], pos->midrev.sw_dirs[j]);
     }
     if (pos->midrev.sw_count > 0) ui_mark_switches_dirty();
+    pos_wait_switch_settle(pos->midrev.sw_count);
 
     pos->target_sensor    = pos->midrev.final_target;
     pos->target_offset_mm = pos->midrev.final_offset;

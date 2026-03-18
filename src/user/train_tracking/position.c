@@ -5,6 +5,8 @@
 #include "track.h"
 #include "train_tracking/track_data.h"
 #include "train_tracking/speed_table.h"
+#include "server/clock_server.h"
+#include "server/nameserver.h"
 #include "timer.h"
 #include "kassert.h"
 #include "ui.h"
@@ -22,6 +24,7 @@ static route_plan_t g_pos_try_rp;
 static route_plan_t g_pos_try_rp_unconstrained;
 static route_plan_t g_pos_try_rp_temp;
 static uint32_t Speed_Warmup_Distance = 1000;
+static int g_pos_clock_tid = -1;
 
 /* Time from sending the command to the train actually starting
  * to move */
@@ -197,6 +200,15 @@ void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
     pos->cur_sensor_time = now_us;
     pos->is_accelerating = 1;
     pos->accel_start_us  = now_us + GO_LATENCY_US;
+}
+
+void pos_wait_switch_settle(int sw_count) {
+    if (sw_count <= 0) return;
+    if (g_pos_clock_tid < 0) {
+        g_pos_clock_tid = WhoIs(CLOCK_SERVER_NAME);
+        KASSERT(g_pos_clock_tid >= 0);
+    }
+    KASSERT(Delay(g_pos_clock_tid, SWITCH_SETTLE_TICKS) >= 0);
 }
 
 void pos_restore_pending_target(train_pos_t *pos) {
@@ -451,6 +463,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
         return 1;
     }
     if (rp->sw_count > 0) ui_mark_switches_dirty();
+    pos_wait_switch_settle(rp->sw_count);
 
 
     pos->offroute_valid           = 0;
