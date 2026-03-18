@@ -25,21 +25,16 @@ int traffic_reserve_plan(int train_num, track_node *start, const route_plan_t *p
 /* Release all reservations owned by train_num. */
 void traffic_release_train(int train_num);
 
-/* Release all reservations, keeping the train's physical body segment.
- * going_forward=1: body is behind front (forward travel).
- *   - If end==NULL: keep front + body_mm upstream.
- *   - If end!=NULL and front!=end: keep [front->end] + 100mm upstream of end.
- *   - If end!=NULL and front==end: keep 200mm upstream + target + 100mm downstream.
- * going_forward=0: body has already passed target (reverse travel).
- *   - If end==NULL: keep front + body_mm upstream.
- *   - If end!=NULL and front!=end: keep [front->end] + body_mm downstream of end.
- *   - If end!=NULL and front==end: keep 100mm upstream + target + 200mm downstream. */
-void traffic_release_train_keep_body(int train_num, track_node *front,
-                                     int going_forward, int32_t body_mm,
-                                     track_node *end);
+/* Release all reservations except the current sensor window:
+ * keep `body_mm` before `last_hit`, the track from `last_hit` to `next_hit`
+ * (if reachable), and `body_mm` after `next_hit` (or after `last_hit` if NULL). */
+void traffic_release_train_keep_body(int train_num, track_node *last_hit,
+                                     int32_t body_mm, track_node *next_hit);
 
-/* Release reservations on traversed nodes from `from` toward `to` (exclusive). */
-void traffic_release_passed(int train_num, track_node *from, track_node *to);
+/* Release only the traversed segment from `from` toward `to`, while keeping
+ * the train body (`body_mm`) behind `to`. */
+void traffic_release_passed(int train_num, track_node *from, track_node *to,
+                            int32_t body_mm);
 
 /* Check if it is safe to set a switch.
  * Returns -1 when safe; otherwise returns the conflicting train number. */

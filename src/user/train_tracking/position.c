@@ -247,11 +247,18 @@ static int apply_route_switches_safe(const int *sw_nums, const char *sw_dirs,
     return 1;
 }
 
+track_node *pos_release_keep_end(track_node *last_hit, track_node *hint) {
+    if (hint) return hint;
+    return predict_next_sensor(NULL, last_hit, NULL);
+}
+
 void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us) {
     if (!pos) return;
     track_set_speed(pos->train_num, 0);
     traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
-                                    pos->going_forward, TRAIN_BODY_MM, NULL);
+                                    TRAIN_BODY_MM,
+                                    pos_release_keep_end(pos->cur_sensor,
+                                                         pos->pred.next_sensor));
     pos->route_state = TRAIN_STATE_WAIT_RESOURCE;
     pos->replan.retry_count = 0;
     pos->replan.next_us = now_us + REPLAN_INTERVAL_US;
@@ -279,8 +286,10 @@ void pos_on_reverse(int train_num) {
     if (pos->cur_sensor && pos->cur_sensor->reverse)
         pos->cur_sensor = pos->cur_sensor->reverse;
 
+    track_node *keep_end = pos_release_keep_end(pos->cur_sensor, NULL);
     pos_clear_prediction(pos);
-    traffic_release_train(train_num);
+    traffic_release_train_keep_body(train_num, pos->cur_sensor,
+                                    TRAIN_BODY_MM, keep_end);
 
     ui_mark_position_dirty();
 }
@@ -434,7 +443,10 @@ int pos_try_direct_goto(train_pos_t *pos) {
         }
     }
 
-    traffic_release_train(pos->train_num);
+    traffic_release_train_keep_body(pos->train_num, cur_sensor_orig,
+                                    TRAIN_BODY_MM,
+                                    pos_release_keep_end(cur_sensor_orig,
+                                                         pos->pred.next_sensor));
     if (reserve_plan.has_reversal) {
         /* Reserve only the first leg up to the reversal point.
          * The second leg is reserved when the train actually reaches the midpoint. */
@@ -458,7 +470,6 @@ int pos_try_direct_goto(train_pos_t *pos) {
     }
 
     if (!apply_route_switches_safe(rp->sw_nums, rp->sw_dirs, rp->sw_count, pos->train_num)) {
-        traffic_release_train(pos->train_num);
         pos_enter_wait_resource(pos, now_us);
         return 1;
     }
@@ -553,7 +564,14 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
         return 1;
     }
 
-    traffic_release_train(train_num);
+    if (pos->cur_sensor) {
+        traffic_release_train_keep_body(train_num, pos->cur_sensor,
+                                        TRAIN_BODY_MM,
+                                        pos_release_keep_end(pos->cur_sensor,
+                                                             pos->pred.next_sensor));
+    } else {
+        traffic_release_train(train_num);
+    }
 
     pos->pending_target     = target;
     pos->pending_offset_mm  = offset_mm;

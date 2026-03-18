@@ -304,43 +304,30 @@ void traffic_release_train(int train_num) {
     }
 }
 
-void traffic_release_train_keep_body(int train_num, track_node *front,
-                                     int going_forward, int32_t body_mm,
-                                     track_node *end) {
+void traffic_release_train_keep_body(int train_num, track_node *last_hit,
+                                     int32_t body_mm, track_node *next_hit) {
     uint8_t keep[TRACK_MAX];
+    int keep_to_next = 0;
 
     for (int i = 0; i < TRACK_MAX; i++) keep[i] = 0;
 
-    if (end == NULL) {
-        keep_mark_node(keep, front);
-        keep_mark_walk_dist(keep, front, body_mm);
-        if (front && front->reverse)
-            keep_mark_walk_dist(keep, front->reverse, body_mm);
+    if (last_hit && next_hit) {
+        keep_to_next = (last_hit == next_hit) ||
+                       (follow_dist(last_hit, next_hit, 120) >= 0);
+    }
 
-    } else if (going_forward) {
-        if (front == end) {
-            keep_mark_node(keep, front);
-            if (end->reverse)
-                keep_mark_walk_dist(keep, end->reverse, body_mm); /* 200mm before */
-            keep_mark_walk_dist(keep, end, 100);                  /* 100mm after */
-        } else {
-            keep_mark_walk_to(keep, front, end);
-            if (end->reverse)
-                keep_mark_walk_dist(keep, end->reverse, 100);
-            /* Keep train body behind the head */
-            if (front->reverse)
-                keep_mark_walk_dist(keep, front->reverse, body_mm);
+    if (last_hit) {
+        keep_mark_node(keep, last_hit);
+        if (last_hit->reverse) {
+            keep_mark_walk_dist(keep, last_hit->reverse, body_mm);
         }
-
-    } else {
-        if (front == end) {
-            keep_mark_node(keep, front);
-            if (end->reverse)
-                keep_mark_walk_dist(keep, end->reverse, 100); /* 100mm before */
-            keep_mark_walk_dist(keep, end, body_mm);          /* 200mm after */
+        if (keep_to_next) {
+            if (last_hit != next_hit) {
+                keep_mark_walk_to(keep, last_hit, next_hit);
+            }
+            keep_mark_walk_dist(keep, next_hit, body_mm);
         } else {
-            keep_mark_walk_to(keep, front, end);
-            keep_mark_walk_dist(keep, end, body_mm);
+            keep_mark_walk_dist(keep, last_hit, body_mm);
         }
     }
 
@@ -352,8 +339,8 @@ void traffic_release_train_keep_body(int train_num, track_node *front,
         if (!keep[i]) { node_owner[i] = -1; changed = 1; }
     }
 
-    if (front) {
-        int idx  = node_index(front);
+    if (last_hit) {
+        int idx  = node_index(last_hit);
         int ridx = reverse_index(idx);
         if (idx  >= 0 && node_owner[idx]  != train_num) { node_owner[idx]  = train_num; changed = 1; }
         if (ridx >= 0 && node_owner[ridx] != train_num) { node_owner[ridx] = train_num; changed = 1; }
@@ -364,41 +351,41 @@ void traffic_release_train_keep_body(int train_num, track_node *front,
     }
 }
 
-void traffic_release_passed(int train_num, track_node *from, track_node *to) {
+void traffic_release_passed(int train_num, track_node *from, track_node *to,
+                            int32_t body_mm) {
+    uint8_t keep[TRACK_MAX];
+    int changed = 0;
+
     if (train_num < 0 || !from || !to) return;
     if (from == to) return;
 
+    for (int i = 0; i < TRACK_MAX; i++) keep[i] = 0;
+    keep_mark_node(keep, to);
+    if (to->reverse) {
+        keep_mark_walk_dist(keep, to->reverse, body_mm);
+    }
+    expand_marks_with_zones(keep);
+
     track_node *cur = from;
-    int changed = 0;
-    for (int h = 0; h < 120; h++) {
+    for (int h = 0; h < 120 && cur && cur != to; h++) {
         int idx = node_index(cur);
         int ridx = reverse_index(idx);
-        if (idx >= 0 && node_owner[idx] == train_num) {
+
+        if (idx >= 0 && node_owner[idx] == train_num && !keep[idx]) {
             node_owner[idx] = -1;
             changed = 1;
         }
-        if (ridx >= 0 && node_owner[ridx] == train_num) {
+        if (ridx >= 0 && node_owner[ridx] == train_num && !keep[ridx]) {
             node_owner[ridx] = -1;
             changed = 1;
         }
 
         track_edge *e = tm_get_next_edge(cur);
-        if (!e || !e->dest) {
-            if (changed) {
-                pos_mark_routes_dirty();
-                ui_mark_position_dirty();
-            }
-            return;
-        }
+        if (!e || !e->dest) break;
+        if (e->dest->type == NODE_EXIT) break;
         cur = e->dest;
-        if (cur == to || cur->type == NODE_EXIT) {
-            if (changed) {
-                pos_mark_routes_dirty();
-                ui_mark_position_dirty();
-            }
-            return;
-        }
     }
+
     if (changed) {
         pos_mark_routes_dirty();
         ui_mark_position_dirty();

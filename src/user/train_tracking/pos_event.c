@@ -168,10 +168,11 @@ static void enter_terminal_dead_track(train_pos_t *pos) {
     track_node *guessed_end = pos->offroute_expected_sensor
                               ? pos->offroute_expected_sensor
                               : pos->pred.next_sensor;
+    guessed_end = pos_release_keep_end(pos->cur_sensor, guessed_end);
 
     track_set_speed(pos->train_num, 0);
     traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
-                                    pos->going_forward, TRAIN_BODY_MM,
+                                    TRAIN_BODY_MM,
                                     guessed_end);
 
     pos->effective_v              = 0;
@@ -233,18 +234,20 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     track_node *prev_sensor = pos->cur_sensor;
     pos->cur_sensor      = hit;
     pos->cur_sensor_time = time_us;
+    track_node *keep_end = pos_release_keep_end(hit, NULL);
 
     if (prev_sensor && prev_sensor != hit) {
-        traffic_release_passed(pos->train_num, prev_sensor, hit);
+        traffic_release_passed(pos->train_num, prev_sensor, hit, TRAIN_BODY_MM);
     }
 
     /* Off-route: ON_ROUTE hit outside our reservation -> stop and replan. */
     if (pos->route_state == TRAIN_STATE_ON_ROUTE && pos->target_sensor != NULL) {
         if (took_alt_branch || !traffic_is_reserved_by(hit, pos->train_num)) {
+            track_node *expected_sensor = pos->pred.next_sensor;
             traffic_release_train_keep_body(pos->train_num, hit,
-                                            pos->going_forward, TRAIN_BODY_MM, NULL);
+                                            TRAIN_BODY_MM, keep_end);
             pos->offroute_valid           = 1;
-            pos->offroute_expected_sensor = pos->pred.next_sensor;
+            pos->offroute_expected_sensor = expected_sensor;
             pos_clear_prediction(pos);
             track_set_speed(pos->train_num, 0);
             pos->route_state       = TRAIN_STATE_RECOVERY_STOPPING;
@@ -252,12 +255,6 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
             ui_mark_position_dirty();
             return;
         }
-    }
-
-    if (prev_sensor && prev_sensor != hit) {
-        traffic_release_train_keep_body(pos->train_num, hit,
-                                        pos->going_forward, TRAIN_BODY_MM,
-                                        pos->target_sensor);
     }
 
     if (pos->route_state == TRAIN_STATE_UNKNOWN) {
@@ -418,10 +415,10 @@ static void handle_normal_stop(train_pos_t *pos) {
     pos->route_state        = TRAIN_STATE_STOPPED;
     pos->orig_user_target   = NULL;
     pos->orig_target_offset = 0;
-    /* Keep the train body based on direction and target. */
     traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
-                                    pos->going_forward, TRAIN_BODY_MM,
-                                    pos->target_sensor);
+                                    TRAIN_BODY_MM,
+                                    pos_release_keep_end(pos->cur_sensor,
+                                                         pos->pred.next_sensor));
     start_queued_goto_if_any(pos);
 }
 
@@ -449,7 +446,9 @@ static int tick_handle_recovery_stopping(train_pos_t *pos, uint64_t now_us) {
 
     pos_save_ema_and_stop(pos);
     traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
-                                    pos->going_forward, TRAIN_BODY_MM, NULL);
+                                    TRAIN_BODY_MM,
+                                    pos_release_keep_end(pos->cur_sensor,
+                                                         pos->pred.next_sensor));
 
     pos_restore_pending_target(pos);
     KASSERT(pos->pending_target != NULL);
@@ -466,7 +465,9 @@ static int tick_handle_stopping_tr(train_pos_t *pos, uint64_t now_us) {
     pos->route_state = TRAIN_STATE_STOPPED;
     pos->effective_v = 0;
     traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
-                                    pos->going_forward, TRAIN_BODY_MM, NULL);
+                                    TRAIN_BODY_MM,
+                                    pos_release_keep_end(pos->cur_sensor,
+                                                         pos->pred.next_sensor));
     start_queued_goto_if_any(pos);
     ui_mark_position_dirty();
     return 1;
@@ -482,7 +483,9 @@ static int tick_handle_stopping_goto(train_pos_t *pos, uint64_t now_us) {
         pos->find_pos_only = 0;
         pos->route_state   = TRAIN_STATE_STOPPED;
         traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
-                                        pos->going_forward, TRAIN_BODY_MM, NULL);
+                                        TRAIN_BODY_MM,
+                                        pos_release_keep_end(pos->cur_sensor,
+                                                             pos->pred.next_sensor));
         ui_mark_position_dirty();
     } else {
         int ok = pos_try_direct_goto(pos);

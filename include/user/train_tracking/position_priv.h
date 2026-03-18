@@ -52,6 +52,10 @@ void pos_clear_prediction(train_pos_t *pos);
  * next replan attempt can reach the original destination. */
 void pos_restore_pending_target(train_pos_t *pos);
 
+/* Pick the sensor-window end used by reservation release:
+ * prefer `hint`, otherwise predict the next sensor after `last_hit`. */
+track_node *pos_release_keep_end(track_node *last_hit, track_node *hint);
+
 /* Set GOTO_USER_SPEED, send CAN speed command, restore effective_v from
  * cached_v (or speed table), set 400 mm warmup, and anchor cur_sensor_time. */
 void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us);
