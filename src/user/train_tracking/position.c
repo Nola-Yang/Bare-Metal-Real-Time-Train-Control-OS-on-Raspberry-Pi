@@ -21,7 +21,7 @@ static int g_pos_clock_tid = -1;
 
 /* Time from sending the command to the train actually starting
  * to move */
-#define GO_LATENCY_US 50000ULL
+#define GO_LATENCY_US 100000ULL
 
 #ifdef TRACK_D
     static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =

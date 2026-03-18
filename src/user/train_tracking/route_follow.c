@@ -123,6 +123,10 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
 
         n = e->dest;
         if (n->type == NODE_SENSOR) {
+            if (!found_branch && pos) {
+                pos->pred.alt_sensor = NULL;
+                pos->pred.branch_node = NULL;
+            }
             if (is_accel) {
                 /* Kinematic timing: train accelerates from v0 to v_goto then cruises.
                  *   d1 = (v_goto^2 - v0^2) / (2*a)  — distance remaining in accel phase
