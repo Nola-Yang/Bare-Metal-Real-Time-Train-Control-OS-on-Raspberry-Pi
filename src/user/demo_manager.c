@@ -390,8 +390,8 @@ static int demo_start_gold(int argc, char *argv[]) {
         return 2;
     }
 
-    if (train_count < 2) {
-        ui_puts("Usage: demo start <t1> <t2> [t3] [t4] [seed]\r\n");
+    if (train_count < 1) {
+        ui_puts("Usage: demo start <t1> [t2] [t3] [t4] [seed]\r\n");
         return 2;
     }
 
@@ -510,8 +510,8 @@ int demo_handle_command(int argc, char *argv[]) {
     }
 
     if (tok_eq(argv[1], "start")) {
-        if (argc < 4 || argc > 7) {
-            ui_puts("Usage: demo start <t1> <t2> [t3] [t4] [seed]\r\n");
+        if (argc < 3 || argc > 7) {
+            ui_puts("Usage: demo start <t1> [t2] [t3] [t4] [seed]\r\n");
             return 2;
         }
         return demo_start_gold(argc, argv);
