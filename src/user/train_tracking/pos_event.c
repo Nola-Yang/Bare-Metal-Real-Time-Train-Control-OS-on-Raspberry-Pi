@@ -564,29 +564,16 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
     return 0;
 }
 
-/* Detect dead-track: no sensor fired before the deadline.
- * Returns 1 if dead-track was declared. */
-static int tick_check_dead_track(train_pos_t *pos, uint64_t now_us) {
-    if (pos->route_state != TRAIN_STATE_FIND_POS &&
-        pos->route_state != TRAIN_STATE_ON_ROUTE &&
-        pos->route_state != TRAIN_STATE_STOPPING) return 0;
-    if (pos->dead_track_deadline_us == 0) return 0;
-    if (now_us <= pos->dead_track_deadline_us) return 0;
-
-    (void)now_us;
-    enter_terminal_dead_track(pos);
-    ui_mark_position_dirty();
-    return 1;
-}
-
 /* Advance a stale prediction: if more than 2× the expected interval has
- * elapsed without a sensor, skip to the next predicted node. */
-static void tick_advance_prediction(train_pos_t *pos, uint64_t now_us) {
-    if (pos->pred.trigger_time == 0 || pos->pred.next_sensor == NULL) return;
-    if (pos->cur_sensor_time == 0) return;
-    if (pos->pred.trigger_time <= pos->cur_sensor_time) return;
-    if (now_us <= 2 * pos->pred.trigger_time - pos->cur_sensor_time) return;
-    if (pos->pred.skipped_sensor_count >= 1) return;
+ * elapsed without a sensor, skip to the next predicted node and refresh the
+ * dead-track deadline from that new predicted progress point.
+ * Returns 1 if a skip was applied. */
+static int tick_advance_prediction(train_pos_t *pos, uint64_t now_us) {
+    if (pos->pred.trigger_time == 0 || pos->pred.next_sensor == NULL) return 0;
+    if (pos->cur_sensor_time == 0) return 0;
+    if (pos->pred.trigger_time <= pos->cur_sensor_time) return 0;
+    if (now_us <= 2 * pos->pred.trigger_time - pos->cur_sensor_time) return 0;
+    if (pos->pred.skipped_sensor_count >= 1) return 0;
 
     track_node *skipped = pos->pred.next_sensor;
     if (pos->offroute_valid == 0 && pos->offroute_expected_sensor == NULL) {
@@ -596,6 +583,7 @@ static void tick_advance_prediction(train_pos_t *pos, uint64_t now_us) {
     pos->pred.next_sensor  = predict_next_sensor(pos, skipped, &dt);
     pos->pred.trigger_time = now_us + dt;
     pos->pred.skipped_sensor_count = 1;
+    pos_refresh_dead_track_deadline(pos, now_us);
 
     if (pos->target_sensor && pos->route_state == TRAIN_STATE_ON_ROUTE) {
         int32_t skip_dist = follow_dist(skipped,
@@ -605,6 +593,24 @@ static void tick_advance_prediction(train_pos_t *pos, uint64_t now_us) {
             if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
         }
     }
+    return 1;
+}
+
+/* Detect dead-track: no sensor fired before the deadline.
+ * Returns 1 if dead-track was declared. */
+static int tick_check_dead_track(train_pos_t *pos, uint64_t now_us) {
+    if (pos->route_state != TRAIN_STATE_FIND_POS &&
+        pos->route_state != TRAIN_STATE_ON_ROUTE &&
+        pos->route_state != TRAIN_STATE_STOPPING) return 0;
+    if (pos->dead_track_deadline_us == 0) return 0;
+    if (now_us <= pos->dead_track_deadline_us) return 0;
+
+    if (tick_advance_prediction(pos, now_us)) return 0;
+
+    (void)now_us;
+    enter_terminal_dead_track(pos);
+    ui_mark_position_dirty();
+    return 1;
 }
 
 
