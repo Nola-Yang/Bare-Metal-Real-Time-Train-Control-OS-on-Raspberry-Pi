@@ -239,19 +239,10 @@ static int ui_text_len(const char *s) {
     return n;
 }
 
-static int ui_contains_reservation_node(const uint16_t *nodes, int count, uint16_t idx) {
-    if (!nodes) return 0;
-    for (int i = 0; i < count; i++) {
-        if (nodes[i] == idx) return 1;
-    }
-    return 0;
-}
-
-static int ui_append_reservation_node(uint16_t *out, int count, int max_nodes, uint16_t idx) {
-    if (ui_contains_reservation_node(out, count, idx)) return count;
-    if (out && count < max_nodes) out[count] = idx;
-    return count + 1;
-}
+typedef struct {
+    uint16_t idx;
+    uint8_t  hidden;
+} ui_reservation_display_node_t;
 
 static int ui_node_index(const track_node *node) {
     if (!node) return -1;
@@ -261,15 +252,80 @@ static int ui_node_index(const track_node *node) {
     }
 }
 
-static int ui_is_sensor_node_idx(int idx) {
-    return 0 <= idx && idx < TRACK_MAX && g_track[idx].type == NODE_SENSOR;
+static int ui_is_displayable_reservation_node_idx(int idx) {
+    if (idx < 0 || idx >= TRACK_MAX) return 0;
+
+    switch (g_track[idx].type) {
+    case NODE_SENSOR:
+    case NODE_BRANCH:
+    case NODE_MERGE:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int ui_normalize_reservation_display_idx(int idx) {
+    if (!ui_is_displayable_reservation_node_idx(idx)) return -1;
+
+    if (g_track[idx].type == NODE_MERGE) {
+        int rev_idx = ui_node_index(g_track[idx].reverse);
+        if (rev_idx >= 0 && g_track[rev_idx].type == NODE_BRANCH) {
+            return rev_idx;
+        }
+    }
+
+    return idx;
+}
+
+static int ui_same_reservation_entity_idx(int a, int b) {
+    if (a < 0 || a >= TRACK_MAX || b < 0 || b >= TRACK_MAX) return 0;
+    if (a == b) return 1;
+    if (g_track[a].reverse == &g_track[b]) return 1;
+    if (g_track[b].reverse == &g_track[a]) return 1;
+
+    return (g_track[a].num == g_track[b].num) &&
+           ((g_track[a].type == NODE_BRANCH && g_track[b].type == NODE_MERGE) ||
+            (g_track[a].type == NODE_MERGE  && g_track[b].type == NODE_BRANCH));
+}
+
+static int ui_find_reservation_entry(const ui_reservation_display_node_t *nodes,
+                                     int count, int idx) {
+    if (!nodes) return -1;
+
+    int norm_idx = ui_normalize_reservation_display_idx(idx);
+    if (norm_idx < 0) return -1;
+
+    for (int i = 0; i < count; i++) {
+        if (ui_same_reservation_entity_idx((int)nodes[i].idx, norm_idx)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int ui_append_reservation_node(ui_reservation_display_node_t *out,
+                                      int count, int max_nodes,
+                                      int idx, int hidden) {
+    int norm_idx = ui_normalize_reservation_display_idx(idx);
+    int existing = ui_find_reservation_entry(out, count, norm_idx);
+    if (existing >= 0) {
+        if (out && existing < count && !hidden) out[existing].hidden = 0;
+        return count;
+    }
+    if (norm_idx < 0) return count;
+    if (out && count < max_nodes) {
+        out[count].idx = (uint16_t)norm_idx;
+        out[count].hidden = hidden ? 1 : 0;
+    }
+    return count + 1;
 }
 
 static int ui_append_reserved_path_nodes(
     int train_num,
     const uint16_t *path,
     int path_count,
-    uint16_t *out,
+    ui_reservation_display_node_t *out,
     int count,
     int max_nodes
 ) {
@@ -277,15 +333,18 @@ static int ui_append_reserved_path_nodes(
 
     for (int i = 0; i < path_count; i++) {
         int idx = (int)path[i];
-        if (idx < 0 || idx >= TRACK_MAX) continue;
-        if (!ui_is_sensor_node_idx(idx)) continue;
-        if (!traffic_is_reserved_by(&g_track[idx], train_num)) continue;
-        count = ui_append_reservation_node(out, count, max_nodes, (uint16_t)idx);
+        int display_idx = ui_normalize_reservation_display_idx(idx);
+
+        if (display_idx < 0) continue;
+        if (!traffic_is_reserved_by(&g_track[display_idx], train_num)) continue;
+        count = ui_append_reservation_node(out, count, max_nodes, display_idx, 0);
     }
     return count;
 }
 
-static int ui_collect_reservation_display_nodes(int train_num, uint16_t *out, int max_nodes) {
+static int ui_collect_reservation_display_nodes(int train_num,
+                                                ui_reservation_display_node_t *out,
+                                                int max_nodes) {
     int count = 0;
     train_pos_t *pos = pos_get(train_num);
 
@@ -297,7 +356,6 @@ static int ui_collect_reservation_display_nodes(int train_num, uint16_t *out, in
                                               pos->midrev.path2_count,
                                               out, count, max_nodes);
     }
-    if (count > 0) return count;
 
     {
         uint16_t reserved[TRACK_MAX];
@@ -305,27 +363,23 @@ static int ui_collect_reservation_display_nodes(int train_num, uint16_t *out, in
 
         for (int i = 0; i < total_reserved; i++) {
             int idx = (int)reserved[i];
-            int rev_idx;
-
-            if (idx < 0 || idx >= TRACK_MAX) continue;
-            if (!ui_is_sensor_node_idx(idx)) continue;
-
-            rev_idx = ui_node_index(g_track[idx].reverse);
-            if (rev_idx >= 0 && ui_contains_reservation_node(out, count, (uint16_t)rev_idx)) {
-                continue;
-            }
-
-            count = ui_append_reservation_node(out, count, max_nodes, (uint16_t)idx);
+            if (!ui_is_displayable_reservation_node_idx(idx)) continue;
+            count = ui_append_reservation_node(out, count, max_nodes, idx, 1);
         }
     }
     return count;
 }
 
-static void ui_build_reservation_token(int idx, char *out, int cap) {
+static void ui_build_reservation_token(const ui_reservation_display_node_t *node,
+                                       char *out, int cap) {
     int n = 0;
+    int idx = node ? (int)node->idx : -1;
     const char *name = (idx >= 0 && idx < TRACK_MAX && g_track[idx].name)
                        ? g_track[idx].name : "?";
     n = ui_limited_append_str(out, n, cap, name);
+    if (node && node->hidden) {
+        n = ui_limited_append_char(out, n, cap, '*');
+    }
     ui_limited_finish(out, n, cap);
 }
 
@@ -338,8 +392,9 @@ static void ui_build_reservation_block_lines(
     int train_num,
     char lines[UI_RESERVATION_BLOCK_ROWS][UI_RESERVATION_COL_WIDTH + 1]
 ) {
-    uint16_t nodes[TRACK_MAX];
+    ui_reservation_display_node_t nodes[TRACK_MAX];
     int total = ui_collect_reservation_display_nodes(train_num, nodes, TRACK_MAX);
+    int hidden_total = 0;
     int fill = total;
     int row = 1;
     int line_len = 2;
@@ -356,6 +411,13 @@ static void ui_build_reservation_block_lines(
         n = ui_limited_append_int(lines[0], n, UI_RESERVATION_COL_WIDTH + 1, train_num);
         n = ui_limited_append_str(lines[0], n, UI_RESERVATION_COL_WIDTH + 1, " count=");
         n = ui_limited_append_int(lines[0], n, UI_RESERVATION_COL_WIDTH + 1, total);
+        for (int i = 0; i < total && i < TRACK_MAX; i++) {
+            if (nodes[i].hidden) hidden_total++;
+        }
+        if (hidden_total > 0) {
+            n = ui_limited_append_str(lines[0], n, UI_RESERVATION_COL_WIDTH + 1, " extra=");
+            n = ui_limited_append_int(lines[0], n, UI_RESERVATION_COL_WIDTH + 1, hidden_total);
+        }
         ui_limited_finish(lines[0], n, UI_RESERVATION_COL_WIDTH + 1);
     }
 
@@ -375,7 +437,7 @@ static void ui_build_reservation_block_lines(
         char token[24];
         int token_len;
         int needed;
-        ui_build_reservation_token((int)nodes[i], token, sizeof(token));
+        ui_build_reservation_token(&nodes[i], token, sizeof(token));
         token_len = ui_text_len(token);
         needed = token_len + (line_has_tokens ? 2 : 0);
 

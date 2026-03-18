@@ -26,7 +26,4 @@ void demo_on_tick(uint64_t now_us);
 /* Export summary fields for the on-screen UI. */
 void demo_get_ui_summary(demo_ui_summary_t *out, uint64_t now_us);
 
-/* Optional hook for future sensor-anomaly notification throttling. */
-void demo_on_sensor_stats_changed(void);
-
 #endif /* _demo_manager_h_ */
