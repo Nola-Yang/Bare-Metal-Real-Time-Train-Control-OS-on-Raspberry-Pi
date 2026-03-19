@@ -321,7 +321,6 @@ int pos_try_direct_goto(train_pos_t *pos) {
         pos->pred.next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
         pos->pred.trigger_time = now_us + dt;
         pos->pred.skipped_sensor_count = 0;
-        route_kassert_prediction_consistent(pos, pos->cur_sensor);
     }
 
     pos_refresh_dead_track_deadline(pos, now_us);

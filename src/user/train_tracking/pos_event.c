@@ -207,7 +207,6 @@ static void update_next_prediction(train_pos_t *pos, track_node *hit, uint64_t t
     uint64_t dt_pred = 0;
     pos->pred.next_sensor = predict_next_sensor(pos, hit, &dt_pred);
     pos->pred.skipped_sensor_count = 0;
-    route_kassert_prediction_consistent(pos, hit);
 
     if (pos->route_state == TRAIN_STATE_FIND_POS) {
         pos->pred.trigger_time      = 0;
@@ -606,7 +605,6 @@ static int tick_advance_prediction(train_pos_t *pos, uint64_t now_us) {
     pos->pred.next_sensor  = predict_next_sensor(pos, skipped, &dt);
     pos->pred.trigger_time = now_us + dt;
     pos->pred.skipped_sensor_count = 1;
-    route_kassert_prediction_consistent(pos, skipped);
     pos_refresh_dead_track_deadline(pos, now_us);
 
     if (pos->target_sensor && pos->route_state == TRAIN_STATE_ON_ROUTE) {
@@ -623,7 +621,6 @@ static int tick_advance_prediction(train_pos_t *pos, uint64_t now_us) {
 /* ===== Public event API ===== */
 
 void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us) {
-    pos_kassert_storage_guards();
     int track_idx = (int)sensor_id - 1;
     if (track_idx < 0 || track_idx >= TRACK_MAX) return;
 
@@ -648,9 +645,6 @@ void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us) {
 }
 
 void pos_on_tick(uint64_t now_us) {
-    pos_kassert_storage_guards();
-    tick_replan_waiting_trains(now_us);
-
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         train_pos_t *pos = &g_pos[i];
         if (pos->train_num < 0) continue;

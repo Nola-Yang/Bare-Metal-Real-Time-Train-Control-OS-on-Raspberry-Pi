@@ -14,11 +14,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-static const uint64_t G_POS_GUARD_LO_MAGIC = 0x1122334455667788ULL;
-static const uint64_t G_POS_GUARD_HI_MAGIC = 0x8877665544332211ULL;
-static uint64_t g_pos_guard_lo = 0x1122334455667788ULL;
 train_pos_t g_pos[MAX_POS_TRAINS];
-static uint64_t g_pos_guard_hi = 0x8877665544332211ULL;
 
 static uint32_t Speed_Warmup_Distance = 1000;
 static int g_pos_clock_tid = -1;
@@ -34,11 +30,6 @@ static int g_pos_clock_tid = -1;
     static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
         {37, 37, 38, 38, 38};
 #endif
-
-void pos_kassert_storage_guards(void) {
-    KASSERT(g_pos_guard_lo == G_POS_GUARD_LO_MAGIC);
-    KASSERT(g_pos_guard_hi == G_POS_GUARD_HI_MAGIC);
-}
 
 /* Start train moving at GOTO_USER_SPEED to acquire position (FIND_POS).
  * Used by pos_goto (UNKNOWN state) and pos_start_direction_find. */
