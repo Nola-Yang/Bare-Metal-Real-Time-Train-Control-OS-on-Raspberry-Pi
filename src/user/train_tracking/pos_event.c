@@ -110,6 +110,26 @@ static int hit_matches_alt_branch(const train_pos_t *pos, track_node *hit) {
     return follow_dist(pos->pred.next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS) < 0;
 }
 
+/* Return the remaining route_path cursor for a sensor hit, or -1 when the hit
+ * is not on the planned sensor sequence from the current cursor onward.  This
+ * deliberately ignores mutex-only reservation padding around the route. */
+static int route_path_hit_cursor(const train_pos_t *pos, track_node *hit) {
+    if (!pos || !hit || pos->route_path_count <= 0) return -1;
+
+    int start = pos->route_path_cursor;
+    if (start < 0) start = 0;
+    if (start >= pos->route_path_count) return -1;
+
+    int hit_idx = (int)(hit - g_track);
+    for (int k = start; k < pos->route_path_count; k++) {
+        int idx = (int)pos->route_path[k];
+        if (idx < 0 || idx >= TRACK_MAX) continue;
+        if (g_track[idx].type != NODE_SENSOR) continue;
+        if (idx == hit_idx) return k;
+    }
+    return -1;
+}
+
 
 /* ===== handle_sensor sub-functions ===== */
 
@@ -281,6 +301,7 @@ static void update_next_prediction(train_pos_t *pos, track_node *hit, uint64_t t
 static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     accel_update_v(pos, time_us);
     int took_alt_branch = hit_matches_alt_branch(pos, hit);
+    int route_hit_cursor = route_path_hit_cursor(pos, hit);
 
     int was_predicted;
     update_sensor_stats(pos, hit, time_us, &was_predicted);
@@ -289,11 +310,12 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     pos->cur_sensor_time = time_us;
     track_node *keep_end = pos_release_keep_end(hit, NULL);
 
-    /* Off-route: ON_ROUTE hit outside our reservation -> stop and replan. */
+    /* Off-route: ON_ROUTE hit outside the remaining planned sensor path, even
+     * if the node was still reserved only because of mutex safety padding. */
     if (pos->route_state == TRAIN_STATE_ON_ROUTE && pos->target_sensor != NULL) {
         if (pos->force_offroute_on_next_sensor ||
             took_alt_branch ||
-            !traffic_is_reserved_by(hit, pos->train_num)) {
+            route_hit_cursor < 0) {
             pos->force_offroute_on_next_sensor = 0;
             track_node *expected_sensor = pos->pred.next_sensor;
             traffic_release_train_keep_body(pos->train_num, hit,
@@ -331,19 +353,15 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
      * dist_to_target_mm to the exact geometric distance from here to the target
      * along the planned path.  */
     if (pos->route_state == TRAIN_STATE_ON_ROUTE && pos->target_sensor) {
-        int hit_idx = (int)(hit - g_track);
-        for (int k = pos->route_path_cursor; k < pos->route_path_count; k++) {
-            if (pos->route_path[k] == (uint16_t)hit_idx) {
-                pos->route_path_cursor = k;
-                int32_t pd = route_path_dist_from(pos->route_path, k,
-                                                   pos->route_path_count);
-                if (pd >= 0) {
-                    pos->dist_to_target_mm = pd + pos->target_offset_mm;
-                    if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
-                }
-                pos->route_rem_tick_us = time_us;
-                break;
+        if (route_hit_cursor >= 0) {
+            pos->route_path_cursor = route_hit_cursor;
+            int32_t pd = route_path_dist_from(pos->route_path, route_hit_cursor,
+                                              pos->route_path_count);
+            if (pd >= 0) {
+                pos->dist_to_target_mm = pd + pos->target_offset_mm;
+                if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
             }
+            pos->route_rem_tick_us = time_us;
         }
     }
 
