@@ -314,7 +314,33 @@ static void start_queued_goto_if_any(train_pos_t *pos) {
     pos->queued_target    = NULL;
     pos->queued_offset_mm = 0;
     pos->queued_valid     = 0;
-    pos_goto(pos->train_num, qt, qo);
+        pos_goto(pos->train_num, qt, qo);
+}
+
+/* A midpoint reversal may stop at the reversal sensor and then block before the
+ * second leg can be reserved. Collapse that half-complete midrev into a plain
+ * WAIT on the final target*/
+static void collapse_midrev_wait_target(train_pos_t *pos) {
+    if (!pos || !pos->midrev.active) return;
+
+    track_node *final_target = pos->midrev.final_target;
+    int32_t final_offset = pos->midrev.final_offset;
+
+    pos->target_sensor       = final_target;
+    pos->target_offset_mm    = final_offset;
+    pos->pending_target      = final_target;
+    pos->pending_offset_mm   = final_offset;
+    pos->orig_user_target    = final_target;
+    pos->orig_target_offset  = final_offset;
+    pos->dist_to_target_mm   = 0;
+
+    pos->midrev.active       = 0;
+    pos->midrev.sensor       = NULL;
+    pos->midrev.final_target = NULL;
+    pos->midrev.final_offset = 0;
+    pos->midrev.sw_count     = 0;
+    pos->midrev.dist_after   = 0;
+    pos->midrev.path2_count  = 0;
 }
 
 
@@ -370,6 +396,7 @@ static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
         second_leg_plan.path_nodes[j] = pos->midrev.path2[j];
     }
     if (!traffic_can_reserve_plan(pos->train_num, &second_leg_plan)) {
+        collapse_midrev_wait_target(pos);
         pos_enter_wait_resource(pos, now_us);
         return 0;
     }
@@ -391,10 +418,12 @@ static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
         return pos_try_direct_goto(pos);
     }
     if (sw_owner >= 0) {
+        collapse_midrev_wait_target(pos);
         pos_enter_wait_resource(pos, now_us);
         return 0;
     }
     if (!traffic_reserve_plan(pos->train_num, pos->cur_sensor, &second_leg_plan)) {
+        collapse_midrev_wait_target(pos);
         pos_enter_wait_resource(pos, now_us);
         return 0;
     }
