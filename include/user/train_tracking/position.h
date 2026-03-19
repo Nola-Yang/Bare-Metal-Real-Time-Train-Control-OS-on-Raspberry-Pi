@@ -194,6 +194,8 @@ void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us);
 /* Called on every 10 ms tick to handle predicted-sensor timeouts. */
 void pos_on_tick(uint64_t now_us);
 
+void pos_replan_on_tick(uint64_t now_us);
+
 /* Register or update the speed of a tracked train (call after tr command). */
 void pos_on_speed_change(int train_num, int user_speed);
 
@@ -230,6 +232,8 @@ train_pos_t *pos_get_by_index(int i);
 int pos_queue_goto(int train_num, track_node *target, int32_t offset_mm);
 
 void pos_mark_routes_dirty(void);
+
+void pos_reset_dead_train(int train_num);
 
 /* Find a track node by name.
  * Returns NULL if not found. */

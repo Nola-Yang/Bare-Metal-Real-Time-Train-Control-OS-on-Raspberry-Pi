@@ -21,6 +21,9 @@
 RING_BUFFER_DECLARE(RVQueue_t, int, RV_QUEUE_MAX);
 static RVQueue_t rv_queue;
 
+RING_BUFFER_DECLARE(DeadTrainQueue_t, int, MAX_ACTIVE_TRAINS + 1);
+static DeadTrainQueue_t DeadTrainQueue;
+
 static int Train_Nums[MAX_ACTIVE_TRAINS] = {13, 14, 15, 17, 18};
 
 void rv_delay_task(void) {
@@ -120,6 +123,53 @@ void pos_tick_task() {
     }
 }
 
+void add_dead_train_to_retry(int train_num) {
+    ring_buffer_put(&DeadTrainQueue, train_num);
+}
+
+void retry_dead_train_task() {
+    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
+
+    KASSERT(clock_tid >= 0);
+
+    const int tick_interval = 500;
+    Delay(clock_tid, tick_interval);
+
+    if (ring_buffer_is_empty(&DeadTrainQueue)) {
+        Exit();
+    }
+
+    int train_num = -1;
+    if (ring_buffer_get(&DeadTrainQueue, &train_num) != 0) {
+        Exit();
+    }
+
+    int demo_train_ind = get_demo_train_ind(train_num);
+    pos_reset_dead_train(train_num);
+    gold_dispatch_next_by_ind(demo_train_ind);
+
+    Exit();
+}
+
+void pos_replan_tick_task() {
+    int parent = MyParentTid();
+    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
+
+    KASSERT(clock_tid >= 0);
+
+    TrainControlMsg_t msg;
+    TrainControlReply_t reply;
+    msg.type = TRAIN_POS_REPLAN_TICK;
+
+    const int tick_interval = 100;
+
+    for (;;) {
+        Delay(clock_tid, tick_interval);
+        Send(parent, (const char *)&msg, sizeof(msg),
+             (char *)&reply, sizeof(reply));
+    }
+}
+
 // Parse CAN frame for sensor data
 static void process_can_frame(const can_frame_t *frame, uint64_t now) {
     uint8_t command     = (uint8_t)((frame->id >> 17) & 0xFF);
@@ -179,7 +229,9 @@ void train_control_task(void) {
     pos_init();
     demo_init();
     ui_init(term_tid);
+
     ring_buffer_init(&rv_queue);
+    ring_buffer_init(&DeadTrainQueue);
 
     CANEnableInterrupts(can_tid);
 
@@ -199,6 +251,7 @@ void train_control_task(void) {
     Create(TRAIN_COURIER_PRIORITY, ui_tick_task);
     Create(TRAIN_COURIER_PRIORITY, demo_tick_task);
     Create(TRAIN_CONTROL_PRIORITY, pos_tick_task);
+    Create(TRAIN_CONTROL_PRIORITY, pos_replan_tick_task);
 
     char cmdline[80];
     int cmdlen = 0;
@@ -268,6 +321,13 @@ void train_control_task(void) {
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 uint64_t tick_now = read_timer();
                 pos_on_tick(tick_now);
+                break;
+            }
+
+            case TRAIN_POS_REPLAN_TICK: {
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                uint64_t tick_now = read_timer();
+                pos_replan_on_tick(tick_now);
                 break;
             }
 

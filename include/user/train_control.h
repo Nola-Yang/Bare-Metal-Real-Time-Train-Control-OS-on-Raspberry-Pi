@@ -12,6 +12,7 @@
 #define TRAIN_MSG_RV_COMPLETE 4
 #define TRAIN_MSG_DEMO_TICK   5   // 1s periodic demo tick
 #define TRAIN_POS_TICK        6   // Update the position of the train
+#define TRAIN_POS_REPLAN_TICK 7   // Replan the route for the trains
 
 
 typedef struct {
@@ -41,5 +42,13 @@ void demo_tick_task(void);
 
 // Reverse delay courier task
 void rv_delay_task(void);
+
+// retry_dead_train_task: Event to retry a dead train to
+//  go to a different target
+void retry_dead_train_task();
+
+// add_dead_train: Adds a dead train to retry
+//  going to a different target
+void add_dead_train_to_retry(int train_num);
 
 #endif /* _train_control_h_ */

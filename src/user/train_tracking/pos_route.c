@@ -6,8 +6,10 @@
 #include "train_tracking/speed_table.h"
 #include "timer.h"
 #include "ui.h"
+#include "util.h"
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 #define MAX_SENSORS 80
 
@@ -109,8 +111,12 @@ int pos_apply_route_switches_safe(const int *sw_nums, const char *sw_dirs,
     return 1;
 }
 
+bool pos_is_waiting_resource(train_pos_t *pos) {
+    return !pos || pos->route_state == TRAIN_STATE_WAIT_RESOURCE;
+}
+
 void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us) {
-    if (!pos) return;
+    if (pos_is_waiting_resource(pos)) return;
     track_set_speed(pos->train_num, 0);
     traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
                                     TRAIN_BODY_MM,
@@ -208,11 +214,12 @@ int pos_try_direct_goto(train_pos_t *pos) {
         if (!boot_start || !allow_bootstrap ||
             !bfs_find_bootstrap_midrev(boot_start, user_target, d_stop,
                                        blocked, fixed_sw_dirs, rp)) {
-            if (blocked_by_reservation) {
-                pos_enter_wait_resource(pos, read_timer());
-                return 1;
-            }
-            return 0;
+
+            if (!blocked_by_reservation) return 0;
+            if (pos_is_waiting_resource(pos)) return 1;
+
+            pos_enter_wait_resource(pos, read_timer());
+            return 1;
         }
         chosen_origin        = boot_start;
         need_initial_reverse = 1;
@@ -231,6 +238,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
     /* Keep the parked sensor window until the next real hit.
      * The new route is added on top of the existing stopped reservation. */
     if (!traffic_can_reserve_plan(pos->train_num, &reserve_plan)) {
+        if (pos_is_waiting_resource(pos)) return 1;
         pos_enter_wait_resource(pos, now_us);
         return 1;
     }

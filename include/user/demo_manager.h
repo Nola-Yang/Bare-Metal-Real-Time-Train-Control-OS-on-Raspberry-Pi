@@ -26,4 +26,9 @@ void demo_on_tick(uint64_t now_us);
 /* Export summary fields for the on-screen UI. */
 void demo_get_ui_summary(demo_ui_summary_t *out, uint64_t now_us);
 
+// get_demo_train_ind: Retrieves the index based on the train number
+int get_demo_train_ind(int train_num);
+
+int gold_dispatch_next_by_ind(int demo_train_ind);
+
 #endif /* _demo_manager_h_ */

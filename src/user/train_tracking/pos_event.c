@@ -16,7 +16,7 @@
  *       update_next_prediction        (predict next sensor + deadline)
  *
  *   pos_on_tick
- *     tick_replan_waiting_trains      (WAIT_RESOURCE backoff replan)
+ *     pos_replan_on_tick      (WAIT_RESOURCE backoff replan)
  *     per-train loop:
  *       tick_handle_recovery_stopping
  *       tick_handle_stopping_tr
@@ -37,19 +37,21 @@
 #include "timer.h"
 #include "kassert.h"
 #include "ui.h"
+#include "util.h"
+#include "train_control.h"
 #include <stdint.h>
 #include <stddef.h>
 
 /* Stop command lead time for overshoot compensation (microseconds). */
 #ifdef TRACK_D
-    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1200000ULL, 1200000ULL, 1300000ULL, 1200000ULL, 1200000ULL};
+    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1000000ULL, 1200000ULL, 1300000ULL, 1200000ULL, 1200000ULL};
 #else
-    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1500000ULL, 1400000ULL, 1200000ULL, 1400000ULL, 1400000ULL};
+    uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] = {1500000ULL, 1400000ULL, 1200000ULL, 1400000ULL, 1200000ULL};
 #endif
 
-// Offsets at end of train with undershoot of 2.5cm
-static uint32_t Train_Forward_Stop_Offset = 69;
-static uint32_t Train_Reverse_Stop_Offset = 181;
+// Offsets at end of train with undershoot of 2cm
+static uint32_t Train_Forward_Stop_Offset = 64;
+static uint32_t Train_Reverse_Stop_Offset = 176;
 
 
 /* ===== Acceleration model helper ===== */
@@ -214,8 +216,7 @@ static void update_next_prediction(train_pos_t *pos, track_node *hit, uint64_t t
 
     pos->pred.trigger_time = (dt_pred > 0) ? time_us + dt_pred : 0;
     if (dt_pred > 0) {
-        pos->dead_track_deadline_us =
-            time_us + DEAD_TRACK_DEADLINE_MULTIPLIER * dt_pred;
+        pos->dead_track_deadline_us = time_us + DEAD_TRACK_TIMEOUT;;
     } else {
         pos->dead_track_deadline_us = 0;
     }
@@ -319,7 +320,7 @@ static void start_queued_goto_if_any(train_pos_t *pos) {
 
 /* Process all trains waiting for a resource replan (WAIT_RESOURCE).
  * Implements exponential backoff with jitter. */
-static void tick_replan_waiting_trains(uint64_t now_us) {
+void pos_replan_on_tick(uint64_t now_us) {
     static const int ORDER[6] = {13, 14, 15, 17, 18, 55};
     for (int wi = 0; wi < 6; wi++) {
         train_pos_t *pos = pos_get(ORDER[wi]);
@@ -347,10 +348,11 @@ static void tick_replan_waiting_trains(uint64_t now_us) {
         pos->replan.retry_count++;
 
         pos_restore_pending_target(pos);
-        if (pos->pending_target != NULL) {
-            int ok = pos_try_direct_goto(pos);
-            KASSERT(ok);
-        }
+
+        if (pos->pending_target == NULL) continue;
+
+        int ok = pos_try_direct_goto(pos);
+        KASSERT(ok);
     }
 }
 
@@ -576,6 +578,9 @@ static int tick_check_dead_track(train_pos_t *pos, uint64_t now_us) {
     (void)now_us;
     enter_terminal_dead_track(pos);
     ui_mark_position_dirty();
+    
+    add_dead_train_to_retry(pos->train_num);
+    Create(TRAIN_COURIER_PRIORITY, retry_dead_train_task);
     return 1;
 }
 
@@ -635,8 +640,6 @@ void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us) {
 }
 
 void pos_on_tick(uint64_t now_us) {
-    tick_replan_waiting_trains(now_us);
-
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         train_pos_t *pos = &g_pos[i];
         if (pos->train_num < 0) continue;
