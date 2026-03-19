@@ -495,6 +495,12 @@ static int handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
         pos_enter_wait_resource(pos, now_us);
         return 0;
     }
+    if (!pos_apply_route_switches_safe(pos->midrev.sw_nums, pos->midrev.sw_dirs,
+                                       pos->midrev.sw_count, pos->train_num)) {
+        collapse_midrev_wait_target(pos);
+        pos_enter_wait_resource(pos, now_us);
+        return 0;
+    }
     if (!traffic_reserve_plan(pos->train_num, pos->cur_sensor, &second_leg_plan)) {
         collapse_midrev_wait_target(pos);
         pos_enter_wait_resource(pos, now_us);
