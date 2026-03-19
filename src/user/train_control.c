@@ -21,6 +21,9 @@
 RING_BUFFER_DECLARE(RVQueue_t, int, RV_QUEUE_MAX);
 static RVQueue_t rv_queue;
 
+RING_BUFFER_DECLARE(DeadTrainQueue_t, int, MAX_ACTIVE_TRAINS + 1);
+static DeadTrainQueue_t DeadTrainQueue;
+
 static int Train_Nums[MAX_ACTIVE_TRAINS] = {13, 14, 15, 17, 18};
 
 void rv_delay_task(void) {
@@ -101,6 +104,72 @@ void ui_tick_task(void) {
     }
 }
 
+void pos_tick_task() {
+    int parent = MyParentTid();
+    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
+
+    KASSERT(clock_tid >= 0);
+
+    TrainControlMsg_t msg;
+    TrainControlReply_t reply;
+    msg.type = TRAIN_POS_TICK;
+
+    const int tick_interval = 10;
+
+    for (;;) {
+        Delay(clock_tid, tick_interval);
+        Send(parent, (const char *)&msg, sizeof(msg),
+             (char *)&reply, sizeof(reply));
+    }
+}
+
+void add_dead_train_to_retry(int train_num) {
+    ring_buffer_put(&DeadTrainQueue, train_num);
+}
+
+void retry_dead_train_task() {
+    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
+
+    KASSERT(clock_tid >= 0);
+
+    const int tick_interval = 500;
+    Delay(clock_tid, tick_interval);
+
+    if (ring_buffer_is_empty(&DeadTrainQueue)) {
+        Exit();
+    }
+
+    int train_num = -1;
+    if (ring_buffer_get(&DeadTrainQueue, &train_num) != 0) {
+        Exit();
+    }
+
+    int demo_train_ind = get_demo_train_ind(train_num);
+    pos_reset_dead_train(train_num);
+    gold_dispatch_next_by_ind(demo_train_ind);
+
+    Exit();
+}
+
+void pos_replan_tick_task() {
+    int parent = MyParentTid();
+    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
+
+    KASSERT(clock_tid >= 0);
+
+    TrainControlMsg_t msg;
+    TrainControlReply_t reply;
+    msg.type = TRAIN_POS_REPLAN_TICK;
+
+    const int tick_interval = 100;
+
+    for (;;) {
+        Delay(clock_tid, tick_interval);
+        Send(parent, (const char *)&msg, sizeof(msg),
+             (char *)&reply, sizeof(reply));
+    }
+}
+
 // Parse CAN frame for sensor data
 static void process_can_frame(const can_frame_t *frame, uint64_t now) {
     uint8_t command     = (uint8_t)((frame->id >> 17) & 0xFF);
@@ -138,11 +207,12 @@ static void process_can_frame(const can_frame_t *frame, uint64_t now) {
     }
 }
 
-static void init_train_speed() {
+static void init_trains() {
     int train_num;
     for (int i = 0; i < MAX_ACTIVE_TRAINS; ++i) {
         train_num = Train_Nums[i];
         track_set_speed(train_num, 0);
+        track_set_light(train_num, 1);
     }
 }
 
@@ -160,7 +230,9 @@ void train_control_task(void) {
     pos_init();
     demo_init();
     ui_init(term_tid);
+
     ring_buffer_init(&rv_queue);
+    ring_buffer_init(&DeadTrainQueue);
 
     CANEnableInterrupts(can_tid);
 
@@ -173,12 +245,14 @@ void train_control_task(void) {
         track_set_switch(sw, state);
     }
     ui_mark_switches_dirty(); 
-    init_train_speed();
+    init_trains();
 
     Create(TRAIN_COURIER_PRIORITY, can_rx_courier_task);
     Create(TRAIN_COURIER_PRIORITY, keyboard_courier_task);
     Create(TRAIN_COURIER_PRIORITY, ui_tick_task);
     Create(TRAIN_COURIER_PRIORITY, demo_tick_task);
+    Create(TRAIN_CONTROL_PRIORITY, pos_tick_task);
+    Create(TRAIN_CONTROL_PRIORITY, pos_replan_tick_task);
 
     char cmdline[80];
     int cmdlen = 0;
@@ -243,6 +317,21 @@ void train_control_task(void) {
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
             }
+
+            case TRAIN_POS_TICK: {
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                uint64_t tick_now = read_timer();
+                pos_on_tick(tick_now);
+                break;
+            }
+
+            case TRAIN_POS_REPLAN_TICK: {
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                uint64_t tick_now = read_timer();
+                pos_replan_on_tick(tick_now);
+                break;
+            }
+
             case TRAIN_MSG_TICK: {
                 // Periodic UI updates
                 Reply(tid, (const char *)&reply, sizeof(reply));
@@ -252,8 +341,6 @@ void train_control_task(void) {
 
                 int idle_percent = get_idle_percentage();
                 ui_update_idle(idle_percent);
-
-                pos_on_tick(tick_now);
 
                 if (ui_is_switches_dirty()) {
                     ui_puts("\033[s");

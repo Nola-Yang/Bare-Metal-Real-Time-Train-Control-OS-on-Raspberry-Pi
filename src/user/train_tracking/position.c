@@ -10,6 +10,7 @@
 #include "timer.h"
 #include "kassert.h"
 #include "ui.h"
+#include "util.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -28,10 +29,10 @@ static int g_pos_clock_tid = -1;
 
 #ifdef TRACK_D
     static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {106, 109, 109, 109, 109};
+        {37, 37, 38, 38, 38};
 #else
     static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {105, 109, 108, 109, 110};
+        {37, 37, 38, 38, 38};
 #endif
 
 void pos_kassert_storage_guards(void) {
@@ -144,6 +145,12 @@ static train_pos_t *find_or_create_pos(int train_num) {
     return NULL;
 }
 
+void pos_reset_dead_train(int train_num) {
+    train_pos_t *p = find_pos(train_num);
+    if (!p) return;
+
+    p->route_state = TRAIN_STATE_STOPPED;
+}
 
 void pos_clear_prediction(train_pos_t *pos) {
     pos->pred.next_sensor  = NULL;
@@ -185,8 +192,7 @@ void pos_refresh_dead_track_deadline(train_pos_t *pos, uint64_t now_us) {
     }
 
     if (t1 > 0) {
-        pos->dead_track_deadline_us =
-            now_us + DEAD_TRACK_DEADLINE_MULTIPLIER * t1;
+        pos->dead_track_deadline_us = now_us + DEAD_TRACK_TIMEOUT;
     } else {
         pos->dead_track_deadline_us = 0;
     }

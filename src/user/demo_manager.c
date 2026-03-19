@@ -53,6 +53,16 @@ static demo_train_slot_t g_slots[DEMO_MAX_TRAINS];
 static track_node *g_sensor_pool[TRACK_MAX];
 static int g_sensor_pool_count = 0;
 
+int get_demo_train_ind(int train_num) {
+    for (int i = 0; i < DEMO_MAX_TRAINS; ++i) {
+        if (g_slots[i].train_num == train_num) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
 static int parse_int_token_local(const char *tok, int *out) {
     if (!tok || !tok[0] || !out) return 0;
     const char *p = tok;
@@ -208,6 +218,11 @@ static int gold_dispatch_next(demo_train_slot_t *slot) {
     if (!demo_dispatch_to_target(slot, target, 0)) return 0;
     slot->last_target_idx = target_idx;
     return 1;
+}
+
+int gold_dispatch_next_by_ind(int demo_train_ind) {
+    if (demo_train_ind < 0 || demo_train_ind >= DEMO_MAX_TRAINS) return 0;
+    return gold_dispatch_next(&g_slots[demo_train_ind]);
 }
 
 static void demo_update_state_counters(uint64_t now_us) {
