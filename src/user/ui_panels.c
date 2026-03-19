@@ -325,13 +325,16 @@ static int ui_append_reserved_path_nodes(
     int train_num,
     const uint16_t *path,
     int path_count,
+    int path_start,
     ui_reservation_display_node_t *out,
     int count,
     int max_nodes
 ) {
     if (!path || path_count <= 0) return count;
+    if (path_start < 0) path_start = 0;
+    if (path_start > path_count) path_start = path_count;
 
-    for (int i = 0; i < path_count; i++) {
+    for (int i = path_start; i < path_count; i++) {
         int idx = (int)path[i];
         int display_idx = ui_normalize_reservation_display_idx(idx);
 
@@ -351,9 +354,11 @@ static int ui_collect_reservation_display_nodes(int train_num,
     if (pos) {
         count = ui_append_reserved_path_nodes(train_num, pos->route_path,
                                               pos->route_path_count,
+                                              pos->route_path_cursor,
                                               out, count, max_nodes);
         count = ui_append_reserved_path_nodes(train_num, pos->midrev.path2,
                                               pos->midrev.path2_count,
+                                              0,
                                               out, count, max_nodes);
     }
 

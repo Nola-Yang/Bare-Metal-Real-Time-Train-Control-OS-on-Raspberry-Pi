@@ -9,7 +9,7 @@
 #include <stdint.h>
 
 #define DEMO_MAX_TRAINS 4
-#define GOLD_WAIT_RETARGET_US 10000000ULL
+#define GOLD_WAIT_RETARGET_US 30000000ULL
 #define GOLD_DISPATCH_DELAY_US 1000000ULL
 
 typedef enum {

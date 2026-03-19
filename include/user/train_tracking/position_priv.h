@@ -35,7 +35,7 @@ extern uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS];
 #define REPLAN_MAX_BACKOFF      4         /* cap exponent at 2^4 = 16x */
 
 /* Give turnout commands a short settle window before launching the train. */
-#define SWITCH_SETTLE_TICKS     3
+#define SWITCH_SETTLE_TICKS     5
 
 
 /* Attempt a direct on-route plan from the current stopped position to
