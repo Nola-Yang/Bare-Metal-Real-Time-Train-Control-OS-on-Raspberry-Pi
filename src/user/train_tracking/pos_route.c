@@ -23,7 +23,7 @@ static route_plan_t g_pos_try_rp_temp;
     static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
         {227, 232, 242, 229, 230};
     static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {153, 153, 153, 153, 153};
+        {144, 144, 144, 144, 144};
 
     static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] =
     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -35,7 +35,7 @@ static route_plan_t g_pos_try_rp_temp;
     static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
         {226, 224, 226, 222, 236};
     static const int32_t GOTO_DECEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {158, 156, 167, 165, 153};
+        {167, 167, 167, 167, 167};
 
     static const int32_t GOTO_DECEL_OVERRIDE[MAX_SENSORS] =
     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,

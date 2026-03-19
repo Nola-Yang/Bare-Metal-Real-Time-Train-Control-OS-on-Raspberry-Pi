@@ -26,10 +26,10 @@ static int g_pos_clock_tid = -1;
 
 #ifdef TRACK_D
     static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {101, 101, 101, 101, 101};
+        {38, 38, 38, 38, 38};
 #else
     static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {105, 109, 108, 109, 110};
+        {38, 38, 38, 38, 38};
 #endif
 
 /* Start train moving at GOTO_USER_SPEED to acquire position (FIND_POS).

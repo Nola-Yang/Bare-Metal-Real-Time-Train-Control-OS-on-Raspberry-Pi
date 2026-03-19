@@ -207,11 +207,12 @@ static void process_can_frame(const can_frame_t *frame, uint64_t now) {
     }
 }
 
-static void init_train_speed() {
+static void init_trains() {
     int train_num;
     for (int i = 0; i < MAX_ACTIVE_TRAINS; ++i) {
         train_num = Train_Nums[i];
         track_set_speed(train_num, 0);
+        track_set_light(train_num, 1);
     }
 }
 
@@ -244,7 +245,7 @@ void train_control_task(void) {
         track_set_switch(sw, state);
     }
     ui_mark_switches_dirty(); 
-    init_train_speed();
+    init_trains();
 
     Create(TRAIN_COURIER_PRIORITY, can_rx_courier_task);
     Create(TRAIN_COURIER_PRIORITY, keyboard_courier_task);
