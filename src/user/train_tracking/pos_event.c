@@ -216,7 +216,7 @@ static void update_next_prediction(train_pos_t *pos, track_node *hit, uint64_t t
 
     pos->pred.trigger_time = (dt_pred > 0) ? time_us + dt_pred : 0;
     if (dt_pred > 0) {
-        pos->dead_track_deadline_us = time_us + DEAD_TRACK_TIMEOUT;;
+        pos->dead_track_deadline_us = time_us + DEAD_TRACK_TIMEOUT;
     } else {
         pos->dead_track_deadline_us = 0;
     }
@@ -615,24 +615,6 @@ static int tick_advance_prediction(train_pos_t *pos, uint64_t now_us) {
     }
     return 1;
 }
-
-/* Detect dead-track: no sensor fired before the deadline.
- * Returns 1 if dead-track was declared. */
-static int tick_check_dead_track(train_pos_t *pos, uint64_t now_us) {
-    if (pos->route_state != TRAIN_STATE_FIND_POS &&
-        pos->route_state != TRAIN_STATE_ON_ROUTE &&
-        pos->route_state != TRAIN_STATE_STOPPING) return 0;
-    if (pos->dead_track_deadline_us == 0) return 0;
-    if (now_us <= pos->dead_track_deadline_us) return 0;
-
-    if (tick_advance_prediction(pos, now_us)) return 0;
-
-    (void)now_us;
-    enter_terminal_dead_track(pos);
-    ui_mark_position_dirty();
-    return 1;
-}
-
 
 /* ===== Public event API ===== */
 
