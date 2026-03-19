@@ -8,8 +8,9 @@
 
 #define ATTR_TIME_GATE_US     2500000ULL
 #define ATTR_ALT_TIME_GATE_US 6000000ULL
-#define ATTR_MAX_SKIP         2
+#define ATTR_MAX_SKIP         3
 #define ATTR_MARGIN           120
+#define ATTR_SKIP_TIME_SLACK_US 500000ULL
 
 static int spurious_sensor_count = 0;
 static int ambiguous_sensor_count = 0;
@@ -20,6 +21,43 @@ static uint64_t last_ambiguous_time_us = 0;
 
 static int abs64(int64_t x) {
     return (x < 0) ? (int)(-x) : (int)x;
+}
+
+static int abs_time_us(uint64_t a, uint64_t b) {
+    return (a >= b) ? (int)(a - b) : (int)(b - a);
+}
+
+static int attr_estimate_speed_mm_s(const train_pos_t *pos) {
+    if (!pos) return 0;
+    if (pos->effective_v > 0) return pos->effective_v;
+
+    int user_speed = pos->user_speed;
+    if (user_speed <= 0 || user_speed > 14) user_speed = GOTO_USER_SPEED;
+    return speed_table_get_v(pos->train_ind, user_speed);
+}
+
+static int attr_time_from_last_hit_ok(const train_pos_t *pos, int32_t dist_mm,
+                                      int skip_count, uint64_t time_us,
+                                      int *out_terr, uint64_t *out_gate_us) {
+    if (out_terr) *out_terr = 0x7fffffff;
+    if (out_gate_us) *out_gate_us = 0;
+    if (!pos || !pos->cur_sensor || pos->cur_sensor_time == 0 || dist_mm < 0) return 0;
+
+    int32_t v = attr_estimate_speed_mm_s(pos);
+    if (v <= 0) return 0;
+
+    uint64_t dt_us = (uint64_t)((int64_t)dist_mm * 1000000LL / (int64_t)v);
+    uint64_t expected_us = pos->cur_sensor_time + dt_us;
+    int terr = abs_time_us(time_us, expected_us);
+
+    uint64_t gate_us = ATTR_TIME_GATE_US +
+                       (uint64_t)skip_count * ATTR_SKIP_TIME_SLACK_US +
+                       dt_us / 4;
+    if (gate_us > ATTR_ALT_TIME_GATE_US) gate_us = ATTR_ALT_TIME_GATE_US;
+
+    if (out_terr) *out_terr = terr;
+    if (out_gate_us) *out_gate_us = gate_us;
+    return ((uint64_t)terr <= gate_us);
 }
 
 static int should_consider_for_attr(const train_pos_t *pos) {
@@ -257,6 +295,10 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
         int32_t conf = 0;
         int has_candidate = 0;
         int uses_alt_path = 0;
+        int uses_route_path = 0;
+        int uses_last_hit_time = 0;
+        int candidate_terr = 0x7fffffff;
+        uint64_t candidate_gate_us = 0;
 
         if (pos->pred.next_sensor == hit) {
             score = 10000;
@@ -301,21 +343,37 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
         if (!has_candidate && pos->route_state == TRAIN_STATE_ON_ROUTE) {
             int32_t alt_dist = -1;
             int skip = route_path_alt_branch_match(pos, hit, &alt_dist);
-            if (skip >= 0 && skip <= ATTR_MAX_SKIP) {
+            int terr = 0x7fffffff;
+            uint64_t gate_us = 0;
+            if (skip >= 0 && skip <= ATTR_MAX_SKIP &&
+                attr_time_from_last_hit_ok(pos, alt_dist, skip, time_us,
+                                           &terr, &gate_us)) {
                 score = 8000 - skip * 550 - ((alt_dist > 0) ? (alt_dist / 20) : 0);
                 conf = 2;
                 has_candidate = 1;
                 uses_alt_path = 1;
+                uses_route_path = 1;
+                uses_last_hit_time = 1;
+                candidate_terr = terr;
+                candidate_gate_us = gate_us;
             }
         }
 
         if (!has_candidate && pos->route_state == TRAIN_STATE_ON_ROUTE) {
             int32_t path_dist = -1;
             int skip = route_path_skip_to_hit(pos, hit, &path_dist);
-            if (skip >= 0 && skip <= ATTR_MAX_SKIP) {
+            int terr = 0x7fffffff;
+            uint64_t gate_us = 0;
+            if (skip >= 0 && skip <= ATTR_MAX_SKIP &&
+                attr_time_from_last_hit_ok(pos, path_dist, skip, time_us,
+                                           &terr, &gate_us)) {
                 score = 7600 - skip * 600 - ((path_dist > 0) ? (path_dist / 20) : 0);
                 conf = 2;
                 has_candidate = 1;
+                uses_route_path = 1;
+                uses_last_hit_time = 1;
+                candidate_terr = terr;
+                candidate_gate_us = gate_us;
             }
         }
 
@@ -356,14 +414,21 @@ train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us) {
         if (!has_candidate || score <= 0) continue;
 
         int terr = 0x7fffffff;
-        if (pos->pred.trigger_time > 0) {
+        if (uses_last_hit_time) {
+            terr = candidate_terr;
+            if ((uint64_t)terr <= candidate_gate_us) {
+                score += (int32_t)((candidate_gate_us - (uint64_t)terr) / 40000ULL);
+            } else {
+                continue;
+            }
+        } else if (pos->pred.trigger_time > 0) {
             terr = abs64((int64_t)time_us - (int64_t)pos->pred.trigger_time);
-            if (!uses_alt_path &&
+            if (!uses_alt_path && !uses_route_path &&
                 (uint64_t)terr > ATTR_TIME_GATE_US &&
                 pos->pred.next_sensor != hit) {
                 continue;
             }
-            if (uses_alt_path) {
+            if (uses_alt_path || uses_route_path) {
                 if ((uint64_t)terr <= ATTR_ALT_TIME_GATE_US) {
                     score += (int32_t)((ATTR_ALT_TIME_GATE_US - (uint64_t)terr) / 40000ULL);
                 } else {

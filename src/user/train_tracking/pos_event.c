@@ -627,12 +627,13 @@ static int tick_advance_prediction(train_pos_t *pos, uint64_t now_us) {
     if (pos->pred.skipped_sensor_count >= 1) return 0;
 
     track_node *skipped = pos->pred.next_sensor;
+    uint64_t prev_trigger_time = pos->pred.trigger_time;
     if (pos->offroute_valid == 0 && pos->offroute_expected_sensor == NULL) {
         pos->offroute_expected_sensor = skipped;
     }
     uint64_t dt = 0;
     pos->pred.next_sensor  = predict_next_sensor(pos, skipped, &dt);
-    pos->pred.trigger_time = now_us + dt;
+    pos->pred.trigger_time = (dt > 0) ? (prev_trigger_time + dt) : 0;
     pos->pred.skipped_sensor_count = 1;
     pos_refresh_dead_track_deadline(pos, now_us);
 
