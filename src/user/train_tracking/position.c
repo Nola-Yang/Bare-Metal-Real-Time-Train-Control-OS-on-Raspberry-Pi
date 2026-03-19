@@ -42,6 +42,9 @@ static void pos_begin_pos_find(train_pos_t *pos) {
     pos->cur_sensor_time = read_timer();
     pos->is_accelerating = 1;
     pos->accel_start_us  = pos->cur_sensor_time + GO_LATENCY_US;
+    pos->force_offroute_on_next_sensor = 0;
+    pos->dead_track_rescue_pending = 0;
+    pos->dead_track_recover.valid = 0;
     pos->route_state     = TRAIN_STATE_FIND_POS;
 }
 
@@ -115,6 +118,11 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->accel_a_eff          = GOTO_ACCEL_MM_S2[train_ind];
             slot->is_accelerating      = 0;
             slot->accel_start_us       = 0;
+            slot->force_offroute_on_next_sensor = 0;
+            slot->dead_track_rescue_pending = 0;
+            slot->dead_track_recover.valid = 0;
+            slot->dead_track_recover.orig_target = NULL;
+            slot->dead_track_recover.orig_offset_mm = 0;
             slot->midrev.active        = 0;
             slot->midrev.sensor        = NULL;
             slot->midrev.final_target  = NULL;
@@ -141,6 +149,9 @@ void pos_reset_dead_train(int train_num) {
     if (!p) return;
 
     p->route_state = TRAIN_STATE_STOPPED;
+    p->force_offroute_on_next_sensor = 0;
+    p->dead_track_rescue_pending = 0;
+    p->dead_track_recover.valid = 0;
 }
 
 void pos_clear_prediction(train_pos_t *pos) {
@@ -198,6 +209,9 @@ void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
     pos->cur_sensor_time = now_us;
     pos->is_accelerating = 1;
     pos->accel_start_us  = now_us + GO_LATENCY_US;
+    pos->force_offroute_on_next_sensor = 0;
+    pos->dead_track_rescue_pending = 0;
+    pos->dead_track_recover.valid = 0;
 }
 
 void pos_wait_switch_settle(int sw_count) {

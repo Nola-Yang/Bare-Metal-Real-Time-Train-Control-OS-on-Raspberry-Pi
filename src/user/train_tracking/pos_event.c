@@ -167,6 +167,22 @@ static int handle_dead_track_sensor(train_pos_t *pos) {
 static void enter_terminal_dead_track(train_pos_t *pos) {
     if (!pos) return;
 
+    int can_rescue_dead_track =
+        pos->route_state == TRAIN_STATE_ON_ROUTE &&
+        pos->accel_start_us > 0 &&
+        pos->cur_sensor_time < pos->accel_start_us &&
+        pos->orig_user_target != NULL;
+
+    if (can_rescue_dead_track) {
+        pos->dead_track_recover.valid = 1;
+        pos->dead_track_recover.orig_target = pos->orig_user_target;
+        pos->dead_track_recover.orig_offset_mm = pos->orig_target_offset;
+    } else {
+        pos->dead_track_recover.valid = 0;
+        pos->dead_track_recover.orig_target = NULL;
+        pos->dead_track_recover.orig_offset_mm = 0;
+    }
+
     track_node *guessed_end = pos->offroute_expected_sensor
                               ? pos->offroute_expected_sensor
                               : pos->pred.next_sensor;
@@ -195,8 +211,44 @@ static void enter_terminal_dead_track(train_pos_t *pos) {
     pos->midrev.active            = 0;
     pos->replan.next_us           = 0;
     pos->replan.retry_count       = 0;
+    pos->force_offroute_on_next_sensor = 0;
+    pos->dead_track_rescue_pending = 0;
     pos->offroute_valid           = 1;
     pos->offroute_expected_sensor = guessed_end;
+    pos_clear_prediction(pos);
+}
+
+static void pos_revive_dead_track_for_current_hit(train_pos_t *pos) {
+    if (!pos || pos->route_state != TRAIN_STATE_DEAD_TRACK ||
+        !pos->dead_track_recover.valid || pos->dead_track_recover.orig_target == NULL) {
+        return;
+    }
+
+    track_node *orig_target = pos->dead_track_recover.orig_target;
+    int32_t orig_offset_mm = pos->dead_track_recover.orig_offset_mm;
+
+    pos->dead_track_recover.valid = 0;
+    pos->dead_track_recover.orig_target = NULL;
+    pos->dead_track_recover.orig_offset_mm = 0;
+
+    pos->route_state = TRAIN_STATE_ON_ROUTE;
+    pos->target_sensor = orig_target;
+    pos->target_offset_mm = orig_offset_mm;
+    pos->pending_target = orig_target;
+    pos->pending_offset_mm = orig_offset_mm;
+    pos->orig_user_target = orig_target;
+    pos->orig_target_offset = orig_offset_mm;
+    pos->dist_to_target_mm = 0;
+    pos->effective_v = 0;
+    pos->user_speed = 0;
+    pos->is_accelerating = 0;
+    pos->route_path_count = 0;
+    pos->route_path_cursor = 0;
+    pos->route_rem_tick_us = 0;
+    pos->offroute_valid = 0;
+    pos->offroute_expected_sensor = NULL;
+    pos->force_offroute_on_next_sensor = 1;
+    pos->dead_track_rescue_pending = 1;
     pos_clear_prediction(pos);
 }
 
@@ -239,7 +291,10 @@ static void handle_sensor(train_pos_t *pos, track_node *hit, uint64_t time_us) {
 
     /* Off-route: ON_ROUTE hit outside our reservation -> stop and replan. */
     if (pos->route_state == TRAIN_STATE_ON_ROUTE && pos->target_sensor != NULL) {
-        if (took_alt_branch || !traffic_is_reserved_by(hit, pos->train_num)) {
+        if (pos->force_offroute_on_next_sensor ||
+            took_alt_branch ||
+            !traffic_is_reserved_by(hit, pos->train_num)) {
+            pos->force_offroute_on_next_sensor = 0;
             track_node *expected_sensor = pos->pred.next_sensor;
             traffic_release_train_keep_body(pos->train_num, hit,
                                             TRAIN_BODY_MM, keep_end);
@@ -501,11 +556,7 @@ static int tick_handle_stopping(train_pos_t *pos, uint64_t now_us) {
     return 1;
 }
 
-/* Handle RECOVERY_STOPPING -> replan.
- * Returns 1 when braking is complete and replan was attempted. */
-static int tick_handle_recovery_stopping(train_pos_t *pos, uint64_t now_us) {
-    if (!brake_elapsed(pos, now_us)) return 0;
-
+static int do_recovery_replan(train_pos_t *pos) {
     pos_save_ema_and_stop(pos);
     traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
                                     TRAIN_BODY_MM,
@@ -517,6 +568,20 @@ static int tick_handle_recovery_stopping(train_pos_t *pos, uint64_t now_us) {
     int ok = pos_try_direct_goto(pos);
     KASSERT(ok);
     return 1;
+}
+
+/* Handle RECOVERY_STOPPING -> replan.
+ * Returns 1 when braking is complete and replan was attempted. */
+static int tick_handle_recovery_stopping(train_pos_t *pos, uint64_t now_us) {
+    if (pos->dead_track_rescue_pending && pos->effective_v == 0) {
+        pos->dead_track_rescue_pending = 0;
+        return do_recovery_replan(pos);
+    }
+
+    if (!brake_elapsed(pos, now_us)) return 0;
+
+    pos->dead_track_rescue_pending = 0;
+    return do_recovery_replan(pos);
 }
 
 /* Handle STOPPING_TR ->STOPPED.
@@ -657,8 +722,13 @@ void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us) {
     track_node *hit = &g_track[track_idx];
     if (hit->type != NODE_SENSOR) return;
 
-    train_pos_t *owner = traffic_attribute_sensor(hit, time_us);
-    if (!owner) return;
+    traffic_attr_result_t attr = traffic_attribute_sensor(hit, time_us);
+    if (!attr.owner) return;
+
+    train_pos_t *owner = attr.owner;
+    if (attr.revive_dead_track) {
+        pos_revive_dead_track_for_current_hit(owner);
+    }
 
     /* If the train took the alt-direction branch, correct the stored switch state. */
     if (hit_matches_alt_branch(owner, hit) && owner->pred.branch_node != NULL) {

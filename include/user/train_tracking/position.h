@@ -60,6 +60,12 @@ typedef struct {
     uint32_t seen_generation; /* last reservation-change generation observed */
 } pos_replan_t;
 
+typedef struct {
+    uint8_t    valid;
+    track_node *orig_target;
+    int32_t    orig_offset_mm;
+} pos_dead_track_recover_t;
+
 /* ---------- Per-train position state ---------- */
 
 typedef struct {
@@ -137,6 +143,9 @@ typedef struct {
     int32_t     accel_a_eff;
     uint8_t     is_accelerating;
     uint64_t    accel_start_us;
+    uint8_t     force_offroute_on_next_sensor;
+    uint8_t     dead_track_rescue_pending;
+    pos_dead_track_recover_t dead_track_recover;
 
     /* Mid-route reversal */
     pos_midrev_t midrev;

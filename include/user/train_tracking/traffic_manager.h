@@ -13,6 +13,12 @@ typedef struct {
     uint64_t last_ambiguous_time_us;
 } traffic_sensor_stats_t;
 
+typedef struct {
+    train_pos_t *owner;
+    uint8_t      rescued_from_pair;
+    uint8_t      revive_dead_track;
+} traffic_attr_result_t;
+
 /* Initialize reservation/attribution state. */
 void traffic_init(void);
 
@@ -46,9 +52,9 @@ void traffic_refresh_route_reservation(int train_num, track_node *cur_sensor,
  * reservations. Returns -1 when safe; otherwise returns the blocking train number. */
 int traffic_can_set_switch(int sw_num, int requester_train);
 
-/* Attribute a sensor hit to the best train, or NULL if spurious/ambiguous.
- * Updates per-train attribution diagnostics fields. */
-train_pos_t *traffic_attribute_sensor(track_node *hit, uint64_t time_us);
+/* Attribute a sensor hit to the best train, or return owner=NULL when the
+ * event remains spurious after all rescue logic. */
+traffic_attr_result_t traffic_attribute_sensor(track_node *hit, uint64_t time_us);
 
 /* Read sensor-attribution counters for UI diagnostics. */
 void traffic_get_sensor_stats(int *spurious, int *ambiguous);
