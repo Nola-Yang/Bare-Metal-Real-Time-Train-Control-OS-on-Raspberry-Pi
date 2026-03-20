@@ -146,6 +146,16 @@ static int route_plan_long_enough(const route_plan_t *plan, int32_t threshold) {
     return effective_d > threshold;
 }
 
+static void pos_note_blocked_plan(const route_plan_t *cand,
+                                  route_plan_t *best_blocked_plan,
+                                  int *have_blocked_plan) {
+    if (!cand || !best_blocked_plan || !have_blocked_plan) return;
+    if (!*have_blocked_plan || cand->total_dist_mm < best_blocked_plan->total_dist_mm) {
+        *best_blocked_plan = *cand;
+        *have_blocked_plan = 1;
+    }
+}
+
 static track_node *pos_route_current_goal(train_pos_t *pos) {
     if (!pos) return NULL;
     if (pos->orig_user_target) return pos->orig_user_target;
@@ -277,11 +287,8 @@ static pos_route_eval_result_t pos_evaluate_target(train_pos_t *pos,
                                                 blocked, fixed_sw_dirs, rp_temp)) {
             if (bfs_find_route_optimal_constrained(origins[o], user_target, d_stop,
                                                    NULL, fixed_sw_dirs, rp_unconstrained) &&
-                route_plan_long_enough(rp_unconstrained, threshold) &&
-                (!have_blocked_plan ||
-                 rp_unconstrained->total_dist_mm < best_blocked_plan->total_dist_mm)) {
-                *best_blocked_plan = *rp_unconstrained;
-                have_blocked_plan = 1;
+                route_plan_long_enough(rp_unconstrained, threshold)) {
+                pos_note_blocked_plan(rp_unconstrained, best_blocked_plan, &have_blocked_plan);
             }
             continue;
         }
@@ -304,6 +311,10 @@ static pos_route_eval_result_t pos_evaluate_target(train_pos_t *pos,
                                       blocked, fixed_sw_dirs, rp)) {
             chosen_origin = boot_start;
             need_initial_reverse = 1;
+        } else if (boot_start && allow_bootstrap &&
+                   bfs_find_bootstrap_midrev(boot_start, user_target, d_stop,
+                                             NULL, fixed_sw_dirs, rp_unconstrained)) {
+            pos_note_blocked_plan(rp_unconstrained, best_blocked_plan, &have_blocked_plan);
         }
     }
 

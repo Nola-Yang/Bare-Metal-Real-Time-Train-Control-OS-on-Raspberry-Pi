@@ -195,13 +195,15 @@ void train_runtime_task(void) {
 
     KASSERT(can_tid >= 0);
 
+    /* Re-enable CAN RX/TX handling before issuing startup switch commands so
+     * the first init command does not go out before interrupts are live. */
+    CANEnableInterrupts(can_tid);
+
     init_runtime_state(can_tid);
 
     msg.type = TRAIN_MSG_RUNTIME_READY;
     Send(parent, (const char *)&msg, sizeof(msg),
          (char *)&reply, sizeof(reply));
-
-    CANEnableInterrupts(can_tid);
 
     Create(TRAIN_COURIER_PRIORITY, can_rx_courier_task);
     Create(TRAIN_COURIER_PRIORITY, demo_tick_task);
