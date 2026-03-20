@@ -176,6 +176,7 @@ typedef struct {
     int32_t     accel_a_eff;
     uint8_t     is_accelerating;
     uint64_t    accel_start_us;
+    uint8_t     awaiting_post_launch_sensor; /* 1 until the first hit after a goto launch */
     uint8_t     force_offroute_on_next_sensor;
     uint8_t     dead_track_rescue_pending;
     pos_dead_track_recover_t dead_track_recover;

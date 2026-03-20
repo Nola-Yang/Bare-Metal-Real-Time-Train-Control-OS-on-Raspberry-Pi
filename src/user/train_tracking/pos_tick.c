@@ -58,6 +58,12 @@ static int brake_elapsed(train_pos_t *pos, uint64_t now_us) {
     return now_us >= pos->stopping_since_us + calc_brake_us(pos);
 }
 
+static int pos_waiting_for_first_launch_hit(const train_pos_t *pos) {
+    return pos != NULL &&
+           pos->route_state == TRAIN_STATE_ON_ROUTE &&
+           pos->awaiting_post_launch_sensor;
+}
+
 static void start_queued_goto_if_any(train_pos_t *pos) {
     if (!pos || !pos->queued_valid || !pos->queued_target) return;
     track_node *qt = pos->queued_target;
@@ -245,6 +251,7 @@ static int tick_handle_stopping_goto(train_pos_t *pos, uint64_t now_us) {
 static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
     if (pos->route_state != TRAIN_STATE_ON_ROUTE) return 0;
     if (!pos->target_sensor || !pos->cur_sensor || pos->effective_v <= 0) return 0;
+    if (pos_waiting_for_first_launch_hit(pos)) return 0;
 
     if (pos->route_rem_tick_us > 0 && now_us > pos->route_rem_tick_us) {
         uint64_t dt = now_us - pos->route_rem_tick_us;
@@ -356,6 +363,7 @@ static int tick_check_dead_track(train_pos_t *pos, uint64_t now_us) {
 static int tick_advance_prediction(train_pos_t *pos, uint64_t now_us) {
     if (pos->pred.trigger_time == 0 || pos->pred.next_sensor == NULL) return 0;
     if (pos->cur_sensor_time == 0) return 0;
+    if (pos_waiting_for_first_launch_hit(pos)) return 0;
     if (pos->pred.trigger_time <= pos->cur_sensor_time) return 0;
     if (now_us <= 2 * pos->pred.trigger_time - pos->cur_sensor_time) return 0;
     if (pos->pred.skipped_sensor_count >= 1) return 0;

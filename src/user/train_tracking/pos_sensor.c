@@ -119,6 +119,7 @@ void pos_revive_dead_track_for_current_hit(train_pos_t *pos) {
     pos->effective_v = 0;
     pos->user_speed = 0;
     pos->is_accelerating = 0;
+    pos->awaiting_post_launch_sensor = 0;
     pos->route_path_count = 0;
     pos->route_path_cursor = 0;
     pos->route_rem_tick_us = 0;
@@ -176,6 +177,7 @@ void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) 
 
     pos->cur_sensor = hit;
     pos->cur_sensor_time = time_us;
+    pos->awaiting_post_launch_sensor = 0;
 
     /* Off-route: ON_ROUTE/STOPPING hit outside the remaining planned sensor
      * path, even if the node was still reserved only because of mutex safety

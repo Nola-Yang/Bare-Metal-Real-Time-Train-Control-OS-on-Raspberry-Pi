@@ -20,7 +20,7 @@ extern uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS];
 #define OFF_ROUTE_PATH_MAX_HOPS 120
 
 /* Dead-track timeout is prediction-relative, but never shorter than this floor. */
-#define DEAD_TRACK_TIMEOUT_MIN_US 5000000ULL
+#define DEAD_TRACK_TIMEOUT_MIN_US 7000000ULL
 #define DEAD_TRACK_TIMEOUT_MULTIPLIER 3ULL
 
 /* Fixed user speed used for all goto operations. */
