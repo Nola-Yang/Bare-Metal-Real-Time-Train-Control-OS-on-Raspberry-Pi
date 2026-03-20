@@ -22,7 +22,14 @@ typedef enum {
     TRAIN_STATE_STOPPING_GOTO     = 8, /* goto while running; stop sent -> replan */
     TRAIN_STATE_DEAD_TRACK        = 9, /* terminal: stuck on dead track, reservation held in place */
     TRAIN_STATE_WAIT_RESOURCE     = 10, /* route blocked by reservation; stopped and waiting */
+    TRAIN_STATE_WAIT_SWITCH_SETTLE = 11, /* switches set; waiting for turnout settle before launch */
 } train_route_state_t;
+
+typedef enum {
+    POS_SWITCH_SETTLE_NONE = 0,
+    POS_SWITCH_SETTLE_NORMAL = 1,
+    POS_SWITCH_SETTLE_REVERSED = 2,
+} pos_switch_settle_mode_t;
 
 /* ---------- Prediction sub-state ---------- */
 
@@ -138,6 +145,10 @@ typedef struct {
      * Used by pos_on_tick() to fire the STOPPING → STOPPED transition. */
     uint64_t    stopping_since_us;
 
+    /* Deferred launch after issuing switch commands. */
+    uint64_t    switch_settle_due_us;
+    uint8_t     switch_settle_mode;
+
     /* WAIT_RESOURCE backoff */
     pos_replan_t replan;
 
@@ -227,6 +238,8 @@ void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us);
 void pos_on_tick(uint64_t now_us);
 
 void pos_replan_on_tick(uint64_t now_us);
+
+void pos_on_switch_settle_tick(uint64_t now_us);
 
 /* Register or update the speed of a tracked train (call after tr command). */
 void pos_on_speed_change(int train_num, int user_speed);

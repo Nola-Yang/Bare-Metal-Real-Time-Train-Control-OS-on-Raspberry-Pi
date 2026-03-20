@@ -337,6 +337,7 @@ void pos_on_tick(uint64_t now_us) {
         train_pos_t *pos = &g_pos[i];
         if (pos->train_num < 0) continue;
         if (pos->route_state == TRAIN_STATE_WAIT_RESOURCE) continue;
+        if (pos->route_state == TRAIN_STATE_WAIT_SWITCH_SETTLE) continue;
         if (pos->route_state == TRAIN_STATE_DEAD_TRACK) continue;
 
         /* Update kinematic velocity every tick for accelerating trains.

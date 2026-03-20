@@ -490,8 +490,6 @@ int pos_try_direct_goto(train_pos_t *pos) {
         pos->pred.skipped_sensor_count = 0;
         pos->dead_track_deadline_us = 0;
     }
-    pos_wait_switch_settle(rp->sw_count);
-
     pos->offroute_valid           = 0;
     pos->offroute_expected_sensor = NULL;
 
@@ -528,29 +526,20 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     pos->route_path_cursor = 0;
 
-    pos_launch_at_goto_speed(pos, now_us);
-
     int32_t pd = route_path_dist_from(pos->route_path, 0, pos->route_path_count);
     pos->dist_to_target_mm = (pd >= 0) ? pd + pos->target_offset_mm : 0;
     if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
 
-    pos->route_rem_tick_us = now_us;
-
     pos->pending_target    = NULL;
     pos->pending_offset_mm = 0;
-    pos->route_state = TRAIN_STATE_ON_ROUTE;
     pos->replan.next_us = 0;
     pos->replan.seen_generation = traffic_get_change_generation();
     pos->replan.blocker_mask = 0;
 
-    if (!need_initial_reverse) {
-        uint64_t dt = 0;
-        pos->pred.next_sensor  = predict_next_sensor(pos, pos->cur_sensor, &dt);
-        pos->pred.trigger_time = now_us + dt;
-        pos->pred.skipped_sensor_count = 0;
-    }
-
-    pos_refresh_dead_track_deadline(pos, now_us);
+    pos_arm_switch_settle(pos, rp->sw_count,
+                          need_initial_reverse ? POS_SWITCH_SETTLE_REVERSED
+                                               : POS_SWITCH_SETTLE_NORMAL,
+                          now_us);
 
     ui_mark_position_dirty();
     return 1;

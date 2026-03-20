@@ -18,7 +18,6 @@ train_pos_t g_pos[MAX_POS_TRAINS];
 static pos_deadlock_notice_t g_deadlock_notice;
 
 static uint32_t Speed_Warmup_Distance = 1000;
-static int g_pos_clock_tid = -1;
 
 /* Time from sending the command to the train actually starting
  * to move */
@@ -110,6 +109,8 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->offroute_valid           = 0;
             slot->offroute_expected_sensor = NULL;
             slot->stopping_since_us        = 0;
+            slot->switch_settle_due_us     = 0;
+            slot->switch_settle_mode       = POS_SWITCH_SETTLE_NONE;
             slot->replan.next_us           = 0;
             slot->replan.retry_count       = 0;
             slot->replan.rand_state        = (uint32_t)(slot->train_num * 1234567u + 1u);
@@ -158,6 +159,8 @@ void pos_reset_dead_train(int train_num) {
     if (!p) return;
 
     p->route_state = TRAIN_STATE_STOPPED;
+    p->switch_settle_due_us = 0;
+    p->switch_settle_mode = POS_SWITCH_SETTLE_NONE;
     p->force_offroute_on_next_sensor = 0;
     p->dead_track_rescue_pending = 0;
     p->dead_track_recover.valid = 0;
@@ -262,13 +265,46 @@ void pos_clear_deadlock_notice(void) {
     ui_mark_position_dirty();
 }
 
-void pos_wait_switch_settle(int sw_count) {
-    if (sw_count <= 0) return;
-    if (g_pos_clock_tid < 0) {
-        g_pos_clock_tid = WhoIs(CLOCK_SERVER_NAME);
-        KASSERT(g_pos_clock_tid >= 0);
+void pos_complete_switch_settle(train_pos_t *pos, uint64_t now_us) {
+    if (!pos) return;
+
+    pos->switch_settle_due_us = 0;
+    pos->route_state = TRAIN_STATE_ON_ROUTE;
+
+    if (pos->switch_settle_mode == POS_SWITCH_SETTLE_NORMAL) {
+        uint64_t dt = 0;
+        pos->pred.next_sensor = predict_next_sensor(pos, pos->cur_sensor, &dt);
+        pos->pred.trigger_time = (dt > 0) ? now_us + dt : 0;
+        pos->pred.skipped_sensor_count = 0;
+    } else if (pos->switch_settle_mode == POS_SWITCH_SETTLE_REVERSED) {
+        pos->pred.next_sensor = pos->cur_sensor;
+        pos->pred.alt_sensor = NULL;
+        pos->pred.branch_node = NULL;
+        pos->pred.trigger_time = 0;
+        pos->pred.skipped_sensor_count = 0;
     }
-    KASSERT(Delay(g_pos_clock_tid, SWITCH_SETTLE_TICKS) >= 0);
+
+    pos_launch_at_goto_speed(pos, now_us);
+    pos->route_rem_tick_us = now_us;
+    pos->stopping_since_us = 0;
+    pos_refresh_dead_track_deadline(pos, now_us);
+    pos->switch_settle_mode = POS_SWITCH_SETTLE_NONE;
+    ui_mark_position_dirty();
+}
+
+void pos_arm_switch_settle(train_pos_t *pos, int sw_count,
+                           pos_switch_settle_mode_t mode, uint64_t now_us) {
+    if (!pos) return;
+
+    pos->switch_settle_mode = mode;
+    if (sw_count <= 0) {
+        pos_complete_switch_settle(pos, now_us);
+        return;
+    }
+
+    pos->switch_settle_due_us = now_us + (uint64_t)SWITCH_SETTLE_TICKS * 10000ULL;
+    pos->route_state = TRAIN_STATE_WAIT_SWITCH_SETTLE;
+    ui_mark_position_dirty();
 }
 
 void pos_restore_pending_target(train_pos_t *pos) {
@@ -291,6 +327,7 @@ static int state_is_goto_active(train_route_state_t st) {
             st == TRAIN_STATE_STOPPING          ||
             st == TRAIN_STATE_RECOVERY_STOPPING ||
             st == TRAIN_STATE_DEAD_TRACK        ||
+            st == TRAIN_STATE_WAIT_SWITCH_SETTLE ||
             st == TRAIN_STATE_WAIT_RESOURCE);
 }
 
@@ -309,6 +346,16 @@ void pos_init(void) {
     pos_clear_deadlock_notice();
     traffic_init();
     route_init();
+}
+
+void pos_on_switch_settle_tick(uint64_t now_us) {
+    for (int i = 0; i < MAX_POS_TRAINS; i++) {
+        train_pos_t *pos = &g_pos[i];
+        if (pos->train_num < 0) continue;
+        if (pos->route_state != TRAIN_STATE_WAIT_SWITCH_SETTLE) continue;
+        if (pos->switch_settle_due_us == 0 || now_us < pos->switch_settle_due_us) continue;
+        pos_complete_switch_settle(pos, now_us);
+    }
 }
 
 void pos_on_reverse(int train_num) {

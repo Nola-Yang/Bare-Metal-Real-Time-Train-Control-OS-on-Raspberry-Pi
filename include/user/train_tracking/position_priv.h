@@ -121,8 +121,12 @@ int pos_apply_route_switches_safe(const int *sw_nums, const char *sw_dirs,
  * cached_v (or speed table), set 400 mm warmup, and anchor cur_sensor_time. */
 void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us);
 
-/* Sleep briefly after issuing switch commands so the turnout can settle. */
-void pos_wait_switch_settle(int sw_count);
+/* Arm a deferred launch after issuing switch commands. */
+void pos_arm_switch_settle(train_pos_t *pos, int sw_count,
+                           pos_switch_settle_mode_t mode, uint64_t now_us);
+
+/* Finish a deferred launch immediately. */
+void pos_complete_switch_settle(train_pos_t *pos, uint64_t now_us);
 
 /* If user_speed is in [1,14], save effective_v into cached_v, then zero
  * effective_v.  Call this whenever the train has fully stopped. */

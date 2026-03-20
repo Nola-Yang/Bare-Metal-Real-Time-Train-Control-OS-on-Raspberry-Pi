@@ -170,6 +170,23 @@ void pos_replan_tick_task() {
     }
 }
 
+void pos_switch_settle_tick_task() {
+    int parent = MyParentTid();
+    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
+
+    KASSERT(clock_tid >= 0);
+
+    TrainControlMsg_t msg;
+    TrainControlReply_t reply;
+    msg.type = TRAIN_POS_SWITCH_SETTLE_TICK;
+
+    for (;;) {
+        Delay(clock_tid, 1);
+        Send(parent, (const char *)&msg, sizeof(msg),
+             (char *)&reply, sizeof(reply));
+    }
+}
+
 // Parse CAN frame for sensor data
 static void process_can_frame(const can_frame_t *frame, uint64_t now) {
     uint8_t command     = (uint8_t)((frame->id >> 17) & 0xFF);
@@ -253,6 +270,7 @@ void train_control_task(void) {
     Create(TRAIN_COURIER_PRIORITY, demo_tick_task);
     Create(TRAIN_CONTROL_PRIORITY, pos_tick_task);
     Create(TRAIN_CONTROL_PRIORITY, pos_replan_tick_task);
+    Create(TRAIN_CONTROL_PRIORITY, pos_switch_settle_tick_task);
 
     char cmdline[80];
     int cmdlen = 0;
@@ -329,6 +347,13 @@ void train_control_task(void) {
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 uint64_t tick_now = read_timer();
                 pos_replan_on_tick(tick_now);
+                break;
+            }
+
+            case TRAIN_POS_SWITCH_SETTLE_TICK: {
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                uint64_t tick_now = read_timer();
+                pos_on_switch_settle_tick(tick_now);
                 break;
             }
 

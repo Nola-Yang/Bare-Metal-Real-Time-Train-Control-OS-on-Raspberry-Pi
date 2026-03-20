@@ -72,6 +72,7 @@ static int should_consider_for_attr(const train_pos_t *pos) {
     if (!pos || pos->train_num < 0) return 0;
     if (pos->route_state == TRAIN_STATE_STOPPED ||
         pos->route_state == TRAIN_STATE_DEAD_TRACK ||
+        pos->route_state == TRAIN_STATE_WAIT_SWITCH_SETTLE ||
         pos->route_state == TRAIN_STATE_WAIT_RESOURCE) {
         return 0;
     }

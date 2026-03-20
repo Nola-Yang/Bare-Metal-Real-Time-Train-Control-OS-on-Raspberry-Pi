@@ -301,7 +301,9 @@ static void deadlock_apply_reroute(train_pos_t *victim, uint8_t cycle_mask,
     victim->route_rem_tick_us = 0;
     deadlock_reset_midrev_for_reroute(victim);
 
-    if (!pos_try_direct_goto(victim) || victim->route_state != TRAIN_STATE_ON_ROUTE) {
+    if (!pos_try_direct_goto(victim) ||
+        (victim->route_state != TRAIN_STATE_ON_ROUTE &&
+         victim->route_state != TRAIN_STATE_WAIT_SWITCH_SETTLE)) {
         deadlock_write_notice(cycle_mask, victim->train_num, blocked_target, NULL,
                               victim->deadlock_recover.resume_target, 0, 1);
         return;
@@ -503,8 +505,6 @@ int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     if (pos->cur_sensor && pos->cur_sensor->reverse)
         pos->cur_sensor = pos->cur_sensor->reverse;
 
-    pos_wait_switch_settle(pos->midrev.sw_count);
-
     pos->target_sensor = pos->midrev.final_target;
     pos->target_offset_mm = pos->midrev.final_offset;
 
@@ -519,21 +519,7 @@ int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     pos->dist_to_target_mm = d2 + pos->midrev.final_offset;
     if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
 
-    pos->route_rem_tick_us = now_us;
-
-    pos_launch_at_goto_speed(pos, now_us);
-    pos->stopping_since_us = 0;
-
-    /* First expected sensor after reversal is the reversal sensor itself.
-     * trigger_time=0 suppresses the time gate so WAIT_RESOURCE delays do not
-     * cause it to be skipped. */
-    pos->pred.next_sensor = pos->cur_sensor;
-    pos->pred.alt_sensor = NULL;
-    pos->pred.branch_node = NULL;
-    pos->pred.trigger_time = 0;
-    pos->pred.skipped_sensor_count = 0;
-    pos_refresh_dead_track_deadline(pos, now_us);
-
-    pos->route_state = TRAIN_STATE_ON_ROUTE;
+    pos_arm_switch_settle(pos, pos->midrev.sw_count,
+                          POS_SWITCH_SETTLE_REVERSED, now_us);
     return 1;
 }

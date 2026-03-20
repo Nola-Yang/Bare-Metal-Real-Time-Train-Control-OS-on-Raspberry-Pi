@@ -13,6 +13,7 @@
 #define TRAIN_MSG_DEMO_TICK   5   // 1s periodic demo tick
 #define TRAIN_POS_TICK        6   // Update the position of the train
 #define TRAIN_POS_REPLAN_TICK 7   // Replan the route for the trains
+#define TRAIN_POS_SWITCH_SETTLE_TICK 8   // Complete deferred post-switch launches
 
 
 typedef struct {
@@ -39,6 +40,9 @@ void ui_tick_task(void);
 
 // Demo tick task (1s interval)
 void demo_tick_task(void);
+
+// Switch-settle tick task
+void pos_switch_settle_tick_task(void);
 
 // Reverse delay courier task
 void rv_delay_task(void);

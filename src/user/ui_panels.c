@@ -20,6 +20,7 @@ static const char *ui_state_long(train_route_state_t st) {
     case TRAIN_STATE_STOPPING_GOTO:     return "GOTO_STOP";
     case TRAIN_STATE_DEAD_TRACK:        return "DEAD_TRACK";
     case TRAIN_STATE_WAIT_RESOURCE:     return "WAIT";
+    case TRAIN_STATE_WAIT_SWITCH_SETTLE:return "WAIT_SWITCH";
     default:                            return "UNK_STATE";
     }
 }
