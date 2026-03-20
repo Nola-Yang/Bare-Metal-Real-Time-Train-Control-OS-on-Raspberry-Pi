@@ -112,39 +112,48 @@ static int path_edge_dist(track_node *a, track_node *b) {
     return -1;
 }
 
-static track_node *first_sensor_forward_from(track_node *start, int max_hops,
-                                             int32_t *out_dist_mm) {
+/* Follow forward from `start` and return how many sensors on that leg are
+ * skipped before reaching `hit` (0 = first reachable sensor on that leg). */
+static int sensor_skip_forward_from(track_node *start, track_node *hit,
+                                    int max_hops, int32_t *out_dist_mm) {
     if (out_dist_mm) *out_dist_mm = -1;
-    if (!start) return NULL;
+    if (!start || !hit) return -1;
 
     track_node *cur = start;
     int32_t dist_mm = 0;
+    int sensor_hops = 0;
+
     for (int h = 0; h < max_hops; h++) {
         if (cur->type == NODE_SENSOR) {
-            if (out_dist_mm) *out_dist_mm = dist_mm;
-            return cur;
+            sensor_hops++;
+            if (cur == hit) {
+                if (out_dist_mm) *out_dist_mm = dist_mm;
+                return sensor_hops - 1;
+            }
         }
-        if (cur->type == NODE_EXIT) return NULL;
+        if (cur->type == NODE_EXIT) return -1;
 
         track_edge *e = traffic_tm_get_next_edge(cur);
-        if (!e || !e->dest) return NULL;
+        if (!e || !e->dest) return -1;
         dist_mm += (int32_t)e->dist;
         cur = e->dest;
     }
 
-    if (cur->type == NODE_SENSOR) {
+    if (cur->type == NODE_SENSOR && cur == hit) {
+        sensor_hops++;
         if (out_dist_mm) *out_dist_mm = dist_mm;
-        return cur;
+        return sensor_hops - 1;
     }
-    return NULL;
+
+    return -1;
 }
 
-/* Rebuild the first alternate-branch sensor between cur_sensor and the current
- * predicted next sensor. This is a fallback when pred.alt_sensor went stale or
- * was never cached, while the software switch state still describes the planned
- * route up to the next sensor. */
-static int current_leg_alt_branch_match(const train_pos_t *pos, track_node *hit,
-                                        int32_t *out_dist_mm) {
+/* Scan the current prediction leg for a turnout mismatch and allow the hit to
+ * match any of the first few sensors on that alternate leg, not only the first
+ * one. This covers cases where the first sensor on the wrong branch is dead. */
+static int current_leg_alt_branch_skip_to_hit(const train_pos_t *pos,
+                                              track_node *hit,
+                                              int32_t *out_dist_mm) {
     if (out_dist_mm) *out_dist_mm = -1;
     if (!pos || !hit || !pos->cur_sensor || !pos->pred.next_sensor) return -1;
 
@@ -164,24 +173,25 @@ static int current_leg_alt_branch_match(const train_pos_t *pos, track_node *hit,
 
         int alt_dir = (state == 'S') ? DIR_CURVED : DIR_STRAIGHT;
         int32_t alt_tail_mm = -1;
-        track_node *alt_sensor = first_sensor_forward_from(cur->edge[alt_dir].dest,
-                                                           20, &alt_tail_mm);
-        if (!alt_sensor || alt_sensor != hit) continue;
+        int skip = sensor_skip_forward_from(cur->edge[alt_dir].dest, hit,
+                                            OFF_ROUTE_PATH_MAX_HOPS, &alt_tail_mm);
+        if (skip < 0) continue;
 
         if (out_dist_mm) {
             *out_dist_mm = dist_to_branch_mm + (int32_t)cur->edge[alt_dir].dist;
             if (alt_tail_mm > 0) *out_dist_mm += alt_tail_mm;
         }
-        return 0;
+        return skip;
     }
     return -1;
 }
 
 /* Scan the remaining planned path for a later branch whose unplanned leg leads
- * directly to the hit sensor. This keeps attribution working when the turnout
- * failure happens beyond the currently cached pred.alt_sensor. */
-static int route_path_alt_branch_match(const train_pos_t *pos, track_node *hit,
-                                       int32_t *out_dist_mm) {
+ * to the hit sensor. Like current_leg_alt_branch_skip_to_hit(), this accepts a
+ * later sensor on that wrong leg when the first one never fired. */
+static int route_path_alt_branch_skip_to_hit(const train_pos_t *pos,
+                                             track_node *hit,
+                                             int32_t *out_dist_mm) {
     if (out_dist_mm) *out_dist_mm = -1;
     if (!pos || !hit || pos->route_path_count <= 1) return -1;
 
@@ -190,7 +200,6 @@ static int route_path_alt_branch_match(const train_pos_t *pos, track_node *hit,
     if (start >= pos->route_path_count - 1) return -1;
 
     int32_t dist_mm = 0;
-    int main_sensor_hops = 0;
     for (int i = start; i < pos->route_path_count - 1; i++) {
         int idx = (int)pos->route_path[i];
         int next_idx = (int)pos->route_path[i + 1];
@@ -205,7 +214,6 @@ static int route_path_alt_branch_match(const train_pos_t *pos, track_node *hit,
         }
 
         track_node *node = &g_track[idx];
-        if (node->type == NODE_SENSOR && i > start) main_sensor_hops++;
         if (node->type != NODE_BRANCH) continue;
 
         track_node *planned_next = &g_track[next_idx];
@@ -220,15 +228,15 @@ static int route_path_alt_branch_match(const train_pos_t *pos, track_node *hit,
 
         int alt_dir = (planned_dir == DIR_STRAIGHT) ? DIR_CURVED : DIR_STRAIGHT;
         int32_t alt_tail_mm = -1;
-        track_node *alt_sensor = first_sensor_forward_from(node->edge[alt_dir].dest,
-                                                           20, &alt_tail_mm);
-        if (!alt_sensor || alt_sensor != hit) continue;
+        int skip = sensor_skip_forward_from(node->edge[alt_dir].dest, hit,
+                                            OFF_ROUTE_PATH_MAX_HOPS, &alt_tail_mm);
+        if (skip < 0) continue;
 
         if (out_dist_mm) {
             *out_dist_mm = dist_mm + (int32_t)node->edge[alt_dir].dist;
             if (alt_tail_mm > 0) *out_dist_mm += alt_tail_mm;
         }
-        return main_sensor_hops;
+        return skip;
     }
 
     return -1;
@@ -585,36 +593,25 @@ traffic_attr_result_t traffic_attribute_sensor(track_node *hit, uint64_t time_us
 
         if (!has_candidate) {
             int32_t alt_dist = -1;
-            int alt_skip = current_leg_alt_branch_match(pos, hit, &alt_dist);
-            if (alt_skip >= 0) {
+            int terr = 0x7fffffff;
+            uint64_t gate_us = 0;
+            int alt_skip = current_leg_alt_branch_skip_to_hit(pos, hit, &alt_dist);
+            if (alt_skip >= 0 && alt_skip <= ATTR_MAX_SKIP &&
+                attr_time_from_last_hit_ok(pos, alt_dist, alt_skip, time_us,
+                                           &terr, &gate_us)) {
                 score = 8250 - alt_skip * 550 - ((alt_dist > 0) ? (alt_dist / 20) : 0);
                 conf = 2;
                 has_candidate = 1;
                 uses_alt_path = 1;
-            }
-        }
-
-        if (!has_candidate && pos->pred.alt_sensor != NULL) {
-            int32_t alt_dist = follow_dist(pos->pred.alt_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS);
-            int32_t pred_dist = -1;
-            if (pos->pred.next_sensor != NULL) {
-                pred_dist = follow_dist(pos->pred.next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS);
-            }
-            if (alt_dist >= 0 && pred_dist < 0) {
-                int hops = sensor_hops_between(pos->pred.alt_sensor, hit, 120);
-                int skip = (hops >= 0) ? (hops - 1) : 99;
-                if (skip <= ATTR_MAX_SKIP) {
-                    score = 7900 - skip * 550 - alt_dist / 20;
-                    conf = 2;
-                    has_candidate = 1;
-                    uses_alt_path = 1;
-                }
+                uses_last_hit_time = 1;
+                candidate_terr = terr;
+                candidate_gate_us = gate_us;
             }
         }
 
         if (!has_candidate && pos->route_state == TRAIN_STATE_ON_ROUTE) {
             int32_t alt_dist = -1;
-            int skip = route_path_alt_branch_match(pos, hit, &alt_dist);
+            int skip = route_path_alt_branch_skip_to_hit(pos, hit, &alt_dist);
             int terr = 0x7fffffff;
             uint64_t gate_us = 0;
             if (skip >= 0 && skip <= ATTR_MAX_SKIP &&
