@@ -28,6 +28,11 @@ static int route_path_hit_cursor(const train_pos_t *pos, track_node *hit) {
     return -1;
 }
 
+static int route_state_checks_offroute(train_route_state_t route_state) {
+    return route_state == TRAIN_STATE_ON_ROUTE ||
+           route_state == TRAIN_STATE_STOPPING;
+}
+
 /* Update EMA speed, warmup, and prediction-error stats on a sensor hit.
  * Sets *was_predicted for use by the FSM. */
 static void update_sensor_stats(train_pos_t *pos, track_node *hit,
@@ -172,9 +177,11 @@ void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) 
     pos->cur_sensor = hit;
     pos->cur_sensor_time = time_us;
 
-    /* Off-route: ON_ROUTE hit outside the remaining planned sensor path, even
-     * if the node was still reserved only because of mutex safety padding. */
-    if (pos->route_state == TRAIN_STATE_ON_ROUTE && pos->target_sensor != NULL) {
+    /* Off-route: ON_ROUTE/STOPPING hit outside the remaining planned sensor
+     * path, even if the node was still reserved only because of mutex safety
+     * padding. */
+    if (route_state_checks_offroute(pos->route_state) &&
+        pos->target_sensor != NULL) {
         if (pos->force_offroute_on_next_sensor ||
             took_alt_branch ||
             route_hit_cursor < 0) {
@@ -183,7 +190,7 @@ void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) 
 
             if (conflict_owner >= 0 && conflict_owner != pos->train_num) {
                 train_pos_t *other = pos_get(conflict_owner);
-                if (other && other->route_state == TRAIN_STATE_ON_ROUTE &&
+                if (other && route_state_checks_offroute(other->route_state) &&
                     other->cur_sensor != NULL) {
                     enter_recovery_stop(other, other->pred.next_sensor, time_us);
                 }
