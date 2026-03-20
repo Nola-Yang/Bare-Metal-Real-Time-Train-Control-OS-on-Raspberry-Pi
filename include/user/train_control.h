@@ -14,7 +14,6 @@
 #define TRAIN_POS_REPLAN_TICK 7   // Replan the route for the trains
 #define TRAIN_POS_SWITCH_SETTLE_TICK 8   // Complete deferred post-switch launches
 #define TRAIN_MSG_RUNTIME_READY 9   // Runtime worker finished initialization
-#define TRAIN_MSG_RETRY_DEAD_TRAIN 10   // Retry a queued dead-train recovery
 
 #define TRAIN_CMD_MAX_LEN 80
 

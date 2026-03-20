@@ -6,7 +6,6 @@
 #include "syscall.h"
 #include "kassert.h"
 #include "ui.h"
-#include "train_runtime.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -294,9 +293,6 @@ static int tick_check_dead_track(train_pos_t *pos, uint64_t now_us) {
 
     enter_terminal_dead_track(pos);
     ui_mark_position_dirty();
-
-    add_dead_train_to_retry(pos->train_num);
-    Create(TRAIN_COURIER_PRIORITY, retry_dead_train_task);
     return 1;
 }
 

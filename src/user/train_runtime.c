@@ -18,9 +18,6 @@
 RING_BUFFER_DECLARE(RVQueue_t, int, RV_QUEUE_MAX);
 static RVQueue_t rv_queue;
 
-RING_BUFFER_DECLARE(DeadTrainQueue_t, int, MAX_ACTIVE_TRAINS + 1);
-static DeadTrainQueue_t dead_train_queue;
-
 static int train_nums[MAX_ACTIVE_TRAINS] = {13, 14, 15, 17, 18};
 
 static void can_rx_courier_task(void) {
@@ -132,28 +129,6 @@ static void pos_switch_settle_tick_task(void) {
     }
 }
 
-void add_dead_train_to_retry(int train_num) {
-    (void)ring_buffer_put(&dead_train_queue, train_num);
-}
-
-void retry_dead_train_task(void) {
-    int parent = MyParentTid();
-    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
-
-    TrainControlMsg_t msg;
-    TrainControlReply_t reply;
-
-    KASSERT(clock_tid >= 0);
-
-    Delay(clock_tid, 500);
-
-    msg.type = TRAIN_MSG_RETRY_DEAD_TRAIN;
-    Send(parent, (const char *)&msg, sizeof(msg),
-         (char *)&reply, sizeof(reply));
-
-    Exit();
-}
-
 static void process_can_frame(const can_frame_t *frame, uint64_t now) {
     uint8_t command = (uint8_t)((frame->id >> 17) & 0xFF);
     int is_response = (int)((frame->id >> 16) & 1);
@@ -197,7 +172,6 @@ static void init_runtime_state(int can_tid) {
     demo_init();
 
     ring_buffer_init(&rv_queue);
-    ring_buffer_init(&dead_train_queue);
 
     for (int sw = 1; sw <= 18; sw++) {
         track_set_switch(sw, 'S');
@@ -209,17 +183,6 @@ static void init_runtime_state(int can_tid) {
 
     ui_mark_switches_dirty();
     init_trains();
-}
-
-static void handle_dead_train_retry(void) {
-    int train_num = -1;
-
-    if (ring_buffer_get(&dead_train_queue, &train_num) != 0) {
-        return;
-    }
-
-    pos_reset_dead_train(train_num);
-    demo_retry_train_by_ind(get_demo_train_ind(train_num));
 }
 
 void train_runtime_task(void) {
@@ -318,11 +281,6 @@ void train_runtime_task(void) {
             case TRAIN_MSG_DEMO_TICK:
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 demo_on_tick(read_timer());
-                break;
-
-            case TRAIN_MSG_RETRY_DEAD_TRAIN:
-                Reply(tid, (const char *)&reply, sizeof(reply));
-                handle_dead_train_retry();
                 break;
 
             default:
