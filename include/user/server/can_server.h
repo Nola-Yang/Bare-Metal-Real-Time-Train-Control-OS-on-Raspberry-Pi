@@ -1,6 +1,7 @@
 #ifndef _can_server_h_
 #define _can_server_h_ 1
 
+#include <stdint.h>
 #include "mcp2515.h"
 
 #define CAN_SERVER_NAME "CANServer"
@@ -17,8 +18,14 @@ typedef struct {
 } CANRequest_t;
 
 typedef struct {
+    can_frame_t frame;
+    uint64_t arrival_us;
+} CANRxFrame_t;
+
+typedef struct {
     int status;
     can_frame_t frame;
+    uint64_t arrival_us;
 } CANReply_t;
 
 // CAN server task 
@@ -32,7 +39,7 @@ int CANSend(int tid, const can_frame_t *frame);
 
 // Receive a CAN frame 
 // Returns: 0 on success, negative on error
-int CANReceive(int tid, can_frame_t *frame);
+int CANReceive(int tid, can_frame_t *frame, uint64_t *arrival_us);
 
 // Enable MCP2515/GPIO interrupt handling
 int CANEnableInterrupts(int tid);

@@ -61,7 +61,7 @@ static void can_rx_courier_task(void) {
     msg.type = TRAIN_MSG_CAN_FRAME;
 
     for (;;) {
-        if (CANReceive(can_tid, &msg.frame) == 0) {
+        if (CANReceive(can_tid, &msg.frame, &msg.arrival_us) == 0) {
             Send(parent, (const char *)&msg, sizeof(msg),
                  (char *)&reply, sizeof(reply));
         }
@@ -329,8 +329,7 @@ void train_control_task(void) {
             }
 
             case TRAIN_MSG_CAN_FRAME: {
-                uint64_t now = read_timer();
-                process_can_frame(&msg.frame, now);
+                process_can_frame(&msg.frame, msg.arrival_us);
 
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;

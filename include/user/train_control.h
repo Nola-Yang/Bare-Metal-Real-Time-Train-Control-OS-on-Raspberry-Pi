@@ -21,6 +21,7 @@ typedef struct {
     char ch;
     int train;
     can_frame_t frame;
+    uint64_t arrival_us;   // frame arrival time stamped by courier
 } TrainControlMsg_t;
 
 typedef struct {

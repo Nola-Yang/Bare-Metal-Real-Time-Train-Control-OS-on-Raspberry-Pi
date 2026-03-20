@@ -9,6 +9,7 @@
 #include "rpi.h"
 #include "ring_buffer.h"
 #include "kassert.h"
+#include "timer.h"
 
 
 //I guess only one for now implementation
@@ -18,7 +19,7 @@
 #define RX_QUEUE_SIZE 64
 #define TX_QUEUE_SIZE 64
 
-RING_BUFFER_DECLARE(CANRxQueue_t, can_frame_t, RX_QUEUE_SIZE);
+RING_BUFFER_DECLARE(CANRxQueue_t, CANRxFrame_t, RX_QUEUE_SIZE);
 RING_BUFFER_DECLARE(CANTxQueue_t, can_frame_t, TX_QUEUE_SIZE);
 
 typedef struct {
@@ -56,12 +57,13 @@ static int is_pending_reply_match(const PendingReply_t *pending,
 }
 
 static void reply_waiter_with_frame(int waiters[], int *waiter_count,
-                                    const can_frame_t *frame) {
+                                    const CANRxFrame_t *frame) {
     if (*waiter_count <= 0) return;
 
     CANReply_t recv_reply;
     recv_reply.status = 0;
-    recv_reply.frame = *frame;
+    recv_reply.frame = frame->frame;
+    recv_reply.arrival_us = frame->arrival_us;
     Reply(waiters[0], (const char *)&recv_reply, sizeof(recv_reply));
 
     for (int i = 1; i < *waiter_count; i++) {
@@ -72,7 +74,7 @@ static void reply_waiter_with_frame(int waiters[], int *waiter_count,
 
 static void dispatch_rx_frame(CANRxQueue_t *rx_queue,
                               int waiters[], int *waiter_count,
-                              const can_frame_t *frame) {
+                              const CANRxFrame_t *frame) {
     if (*waiter_count > 0) {
         reply_waiter_with_frame(waiters, waiter_count, frame);
     } else {
@@ -136,10 +138,12 @@ void can_server_task(void) {
 
                 // Drain all available RX frames if RX interrupt fired.
                 if (flags & (MCP2515_CANINTF_RX0IF | MCP2515_CANINTF_RX1IF)) {
-                    can_frame_t frame;
-                    while (can_try_recv(&frame)) {
+                    CANRxFrame_t rx_frame;
+                    while (can_try_recv(&rx_frame.frame)) {
+                        rx_frame.arrival_us = read_timer();
                         if (tx_waiting_reply &&
-                            is_pending_reply_match(&pending_reply, &frame)) {
+                            is_pending_reply_match(&pending_reply,
+                                                   &rx_frame.frame)) {
                             tx_waiting_reply = 0;
                             pending_reply.active = 0;
                             try_send_next_queued(&tx_queue, &tx_waiting_reply,
@@ -147,7 +151,7 @@ void can_server_task(void) {
                             continue;
                         }
                         dispatch_rx_frame(&rx_queue, recv_waiters,
-                                          &recv_waiter_count, &frame);
+                                          &recv_waiter_count, &rx_frame);
                     }
                 }
 
@@ -186,10 +190,11 @@ void can_server_task(void) {
             }
 
             case CAN_MSG_RECV: {
-                can_frame_t frame;
-                if (ring_buffer_get(&rx_queue, &frame) == 0) {
+                CANRxFrame_t rx_frame;
+                if (ring_buffer_get(&rx_queue, &rx_frame) == 0) {
                     reply.status = 0;
-                    reply.frame = frame;
+                    reply.frame = rx_frame.frame;
+                    reply.arrival_us = rx_frame.arrival_us;
                     Reply(tid, (const char *)&reply, sizeof(reply));
 
                     // If RX interrupts were disabled due to full queue, re-enable now.
@@ -198,9 +203,10 @@ void can_server_task(void) {
                         gpio_enable_can_interrupt();
                     }
                 } else {
-                    if (can_try_recv(&frame)) {
+                    if (can_try_recv(&rx_frame.frame)) {
                         reply.status = 0;
-                        reply.frame = frame;
+                        reply.frame = rx_frame.frame;
+                        reply.arrival_us = read_timer();
                         Reply(tid, (const char *)&reply, sizeof(reply));
                     } else {
                         // Enable RX interrupts and GPIO detect, then queue the client
@@ -257,7 +263,7 @@ int CANSend(int tid, const can_frame_t *frame) {
     return reply.status;
 }
 
-int CANReceive(int tid, can_frame_t *frame) {
+int CANReceive(int tid, can_frame_t *frame, uint64_t *arrival_us) {
     CANRequest_t req;
     CANReply_t reply;
 
@@ -270,6 +276,9 @@ int CANReceive(int tid, can_frame_t *frame) {
     }
     if (reply.status == 0) {
         *frame = reply.frame;
+        if (arrival_us) {
+            *arrival_us = reply.arrival_us;
+        }
     }
     return reply.status;
 }
