@@ -67,15 +67,39 @@ static void start_queued_goto_if_any(train_pos_t *pos) {
     pos_goto(pos->train_num, qt, qo);
 }
 
+/* When the braking estimate stops the train before the final target sensor
+ * actually fires, keep the remaining planned tail reserved up to the target. */
+static void release_stop_reservation(train_pos_t *pos) {
+    track_node *keep_end;
+    int keep_remaining_route;
+
+    if (!pos || !pos->cur_sensor) return;
+
+    keep_end = pos_release_keep_end(pos->cur_sensor, pos->pred.next_sensor);
+    keep_remaining_route =
+        pos->route_path_count > 0 &&
+        pos->route_path_cursor >= 0 &&
+        pos->route_path_cursor < pos->route_path_count - 1;
+
+    if (keep_remaining_route) {
+        traffic_refresh_route_reservation(pos->train_num, pos->cur_sensor,
+                                          keep_end,
+                                          pos->route_path,
+                                          pos->route_path_cursor,
+                                          pos->route_path_count);
+        return;
+    }
+
+    traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
+                                    TRAIN_BODY_MM, keep_end);
+}
+
 static void handle_normal_stop(train_pos_t *pos) {
     track_node *arrived_target;
 
     pos->route_state = TRAIN_STATE_STOPPED;
     arrived_target = pos->target_sensor;
-    traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
-                                    TRAIN_BODY_MM,
-                                    pos_release_keep_end(pos->cur_sensor,
-                                                         pos->pred.next_sensor));
+    release_stop_reservation(pos);
 
     if (pos->queued_valid && pos->queued_target) {
         pos->orig_user_target = NULL;
