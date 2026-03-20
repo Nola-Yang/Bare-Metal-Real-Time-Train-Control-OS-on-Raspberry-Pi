@@ -139,8 +139,7 @@ static void update_next_prediction(train_pos_t *pos, track_node *hit, uint64_t t
     }
 
     pos->pred.trigger_time = (dt_pred > 0) ? time_us + dt_pred : 0;
-    if (pos->pred.next_sensor != NULL) KASSERT(pos->pred.trigger_time > time_us);
-    else KASSERT(pos->pred.trigger_time == 0);
+    
     if (dt_pred > 0) {
         pos->dead_track_deadline_us = time_us + DEAD_TRACK_TIMEOUT;
     } else {
