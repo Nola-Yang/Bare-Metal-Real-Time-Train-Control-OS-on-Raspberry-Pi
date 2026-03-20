@@ -1,6 +1,7 @@
 #include "train_tracking/position_priv.h"
 #include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
+#include "traffic_manager_internal.h"
 #include "track.h"
 #include "train_tracking/speed_table.h"
 #include "syscall.h"
@@ -71,15 +72,28 @@ static void start_queued_goto_if_any(train_pos_t *pos) {
  * actually fires, keep the remaining planned tail reserved up to the target. */
 static void release_stop_reservation(train_pos_t *pos) {
     track_node *keep_end;
+    track_node *keep_after_target;
     int keep_remaining_route;
 
     if (!pos || !pos->cur_sensor) return;
 
     keep_end = pos_release_keep_end(pos->cur_sensor, pos->pred.next_sensor);
+    keep_after_target = NULL;
+    if (pos->target_sensor != NULL && pos->cur_sensor == pos->target_sensor) {
+        track_edge *e = traffic_tm_get_next_edge(pos->cur_sensor);
+        if (e) keep_after_target = e->dest;
+    }
     keep_remaining_route =
         pos->route_path_count > 0 &&
         pos->route_path_cursor >= 0 &&
         pos->route_path_cursor < pos->route_path_count - 1;
+
+    if (keep_after_target != NULL) {
+        traffic_refresh_route_reservation(pos->train_num, pos->cur_sensor,
+                                          keep_after_target,
+                                          NULL, 0, 0);
+        return;
+    }
 
     if (keep_remaining_route) {
         traffic_refresh_route_reservation(pos->train_num, pos->cur_sensor,
