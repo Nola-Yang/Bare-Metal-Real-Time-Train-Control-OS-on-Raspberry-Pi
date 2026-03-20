@@ -513,7 +513,8 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
     return 1;
 }
 
-int pos_try_direct_goto(train_pos_t *pos) {
+static int pos_try_direct_goto_impl(train_pos_t *pos,
+                                    int wait_on_unreachable) {
     track_node *user_target = pos->pending_target;
     int32_t     offset_mm   = pos->pending_offset_mm;
     track_node *cur_sensor_orig;
@@ -525,7 +526,11 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     switch (pos_evaluate_target_ready_now(pos, user_target, &g_pos_try_eval_main)) {
     case POS_ROUTE_EVAL_UNREACHABLE:
-        return 0;
+        if (!wait_on_unreachable) return 0;
+        /* Treat planner misses like a transient wait so STOPPED callers and
+         * replan loops keep retrying instead of tripping KASSERTs. */
+        pos_enter_wait_resource(pos, read_timer(), 0);
+        return 1;
     case POS_ROUTE_EVAL_BLOCKED:
         pos_enter_wait_resource(pos, read_timer(), g_pos_try_eval_main.blocker_mask);
         return 1;
@@ -636,4 +641,12 @@ int pos_try_direct_goto(train_pos_t *pos) {
 
     ui_mark_position_dirty();
     return 1;
+}
+
+int pos_try_direct_goto(train_pos_t *pos) {
+    return pos_try_direct_goto_impl(pos, 1);
+}
+
+int pos_try_direct_goto_strict(train_pos_t *pos) {
+    return pos_try_direct_goto_impl(pos, 0);
 }

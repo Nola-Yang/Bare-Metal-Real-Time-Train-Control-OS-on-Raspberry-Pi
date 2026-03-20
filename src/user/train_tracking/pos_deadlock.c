@@ -83,6 +83,19 @@ static int deadlock_train_is_manual_stop_blocker(const train_pos_t *pos) {
     return !demo_is_auto_dispatching_targets();
 }
 
+static int deadlock_train_is_yield_stop_blocker(const train_pos_t *pos) {
+    if (!pos || pos->route_state != TRAIN_STATE_STOPPED) return 0;
+    if (!pos->deadlock_recover.valid) return 0;
+    if (pos->deadlock_recover.resume_target == NULL) return 0;
+    if (pos->deadlock_recover.yield_target == NULL) return 0;
+    return pos->deadlock_recover.parked_at_yield != 0;
+}
+
+static int deadlock_train_is_stopped_blocker(const train_pos_t *pos) {
+    return deadlock_train_is_manual_stop_blocker(pos) ||
+           deadlock_train_is_yield_stop_blocker(pos);
+}
+
 static void deadlock_build_graph(uint8_t adj[6], uint8_t *out_wait_mask,
                                  uint8_t *out_stopped_mask) {
     uint8_t wait_mask = 0;
@@ -100,7 +113,7 @@ static void deadlock_build_graph(uint8_t adj[6], uint8_t *out_wait_mask,
         bit = (uint8_t)(1u << idx);
         if (pos->route_state == TRAIN_STATE_WAIT_RESOURCE) {
             wait_mask |= bit;
-        } else if (deadlock_train_is_manual_stop_blocker(pos)) {
+        } else if (deadlock_train_is_stopped_blocker(pos)) {
             stopped_mask |= bit;
         }
     }
@@ -405,7 +418,7 @@ static int deadlock_apply_reroute(train_pos_t *victim, uint8_t cycle_mask,
     victim->route_rem_tick_us = 0;
     deadlock_reset_midrev_for_reroute(victim);
 
-    if (!pos_try_direct_goto(victim) ||
+    if (!pos_try_direct_goto_strict(victim) ||
         (victim->route_state != TRAIN_STATE_ON_ROUTE &&
          victim->route_state != TRAIN_STATE_WAIT_SWITCH_SETTLE)) {
         deadlock_write_notice(cycle_mask, victim->train_num, blocked_target, NULL,
@@ -435,6 +448,7 @@ static int deadlock_apply_stopped_blocker_reroute(uint8_t cycle_mask,
     for (int i = 0; i < 6; i++) {
         int train_num;
         train_pos_t *pos;
+        int keep_resume_target;
 
         if (!(cycle_mask & (uint8_t)(1u << i))) continue;
         train_num = pos_deadlock_index_to_train(i);
@@ -442,7 +456,10 @@ static int deadlock_apply_stopped_blocker_reroute(uint8_t cycle_mask,
         if (!pos || pos->route_state != TRAIN_STATE_STOPPED) continue;
 
         if (fallback_victim < 0) fallback_victim = train_num;
-        if (deadlock_apply_reroute(pos, cycle_mask, now_us, 0)) {
+        keep_resume_target =
+            pos->deadlock_recover.valid &&
+            pos->deadlock_recover.resume_target != NULL;
+        if (deadlock_apply_reroute(pos, cycle_mask, now_us, keep_resume_target)) {
             if (out_victim_train) *out_victim_train = train_num;
             return 1;
         }

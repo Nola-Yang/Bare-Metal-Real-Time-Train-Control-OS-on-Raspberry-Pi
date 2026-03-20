@@ -72,8 +72,13 @@ static inline uint8_t pos_deadlock_train_bit(int train_num) {
 }
 
 /* Attempt a direct on-route plan from the current stopped position to
- * pos->pending_target. Returns 1 and sets ON_ROUTE if route found; 0 otherwise. */
+ * pos->pending_target. Returns 1 when the request is accepted, either by
+ * launching immediately or by entering WAIT_RESOURCE for retry. */
 int pos_try_direct_goto(train_pos_t *pos);
+
+/* Strict variant for deadlock reroute probes: planner-unreachable results
+ * fail without forcing the train into WAIT_RESOURCE. */
+int pos_try_direct_goto_strict(train_pos_t *pos);
 
 /* Return 1 when `hit` lies on the alternate leg of the next predicted branch. */
 int pos_hit_matches_alt_branch(const train_pos_t *pos, track_node *hit);
