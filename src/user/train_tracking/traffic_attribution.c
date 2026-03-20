@@ -79,6 +79,12 @@ static int should_consider_for_attr(const train_pos_t *pos) {
     return 1;
 }
 
+static int attr_has_remaining_route_path(const train_pos_t *pos) {
+    if (!pos) return 0;
+    return pos->route_state == TRAIN_STATE_ON_ROUTE ||
+           pos->route_state == TRAIN_STATE_STOPPING;
+}
+
 static int is_bootstrap_state(train_route_state_t st) {
     return (st == TRAIN_STATE_UNKNOWN ||
             st == TRAIN_STATE_FIND_POS);
@@ -609,7 +615,7 @@ traffic_attr_result_t traffic_attribute_sensor(track_node *hit, uint64_t time_us
             }
         }
 
-        if (!has_candidate && pos->route_state == TRAIN_STATE_ON_ROUTE) {
+        if (!has_candidate && attr_has_remaining_route_path(pos)) {
             int32_t alt_dist = -1;
             int skip = route_path_alt_branch_skip_to_hit(pos, hit, &alt_dist);
             int terr = 0x7fffffff;
@@ -628,7 +634,7 @@ traffic_attr_result_t traffic_attribute_sensor(track_node *hit, uint64_t time_us
             }
         }
 
-        if (!has_candidate && pos->route_state == TRAIN_STATE_ON_ROUTE) {
+        if (!has_candidate && attr_has_remaining_route_path(pos)) {
             int32_t path_dist = -1;
             int skip = route_path_skip_to_hit(pos, hit, &path_dist);
             int terr = 0x7fffffff;

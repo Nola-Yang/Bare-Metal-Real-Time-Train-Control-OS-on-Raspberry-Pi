@@ -219,7 +219,9 @@ void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) 
     /* On every on-route sensor hit: advance route_path_cursor to hit and snap
      * dist_to_target_mm to the exact geometric distance from here to the target
      * along the planned path. */
-    if (pos->route_state == TRAIN_STATE_ON_ROUTE && pos->target_sensor) {
+    if ((pos->route_state == TRAIN_STATE_ON_ROUTE ||
+         pos->route_state == TRAIN_STATE_STOPPING) &&
+        pos->target_sensor) {
         if (route_hit_cursor >= 0) {
             pos->route_path_cursor = route_hit_cursor;
             int32_t pd = route_path_dist_from(pos->route_path, route_hit_cursor,
