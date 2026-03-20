@@ -88,6 +88,9 @@ int traffic_get_reserved_nodes(int train_num, uint16_t *out, int max_nodes);
 /* Return 1 if node is currently reserved by train_num, 0 otherwise. */
 int traffic_is_reserved_by(track_node *node, int train_num);
 
+/* Return the train number currently owning `node`, or -1 when unreserved. */
+int traffic_get_node_owner(track_node *node);
+
 /* Monotonic generation counter for reservation ownership changes. */
 uint32_t traffic_get_change_generation(void);
 

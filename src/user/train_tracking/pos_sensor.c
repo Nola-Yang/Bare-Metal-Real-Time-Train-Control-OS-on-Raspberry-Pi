@@ -132,7 +132,8 @@ static void update_next_prediction(train_pos_t *pos, track_node *hit, uint64_t t
     pos->pred.next_sensor = predict_next_sensor(pos, hit, &dt_pred);
     pos->pred.skipped_sensor_count = 0;
 
-    if (pos->route_state == TRAIN_STATE_FIND_POS) {
+    if (pos->route_state == TRAIN_STATE_FIND_POS ||
+        pos->route_state == TRAIN_STATE_RECOVERY_STOPPING) {
         pos->pred.trigger_time = 0;
         pos->dead_track_deadline_us = 0;
         return;
@@ -147,6 +148,22 @@ static void update_next_prediction(train_pos_t *pos, track_node *hit, uint64_t t
     }
 }
 
+static void enter_recovery_stop(train_pos_t *pos,
+                                track_node *expected_sensor,
+                                uint64_t time_us) {
+    if (!pos) return;
+
+    pos->force_offroute_on_next_sensor = 0;
+    pos->offroute_valid = 1;
+    pos->offroute_expected_sensor = expected_sensor;
+    pos->pred.trigger_time = 0;
+    pos->pred.skipped_sensor_count = 0;
+    pos->dead_track_deadline_us = 0;
+    track_set_speed(pos->train_num, 0);
+    pos->route_state = TRAIN_STATE_RECOVERY_STOPPING;
+    pos->stopping_since_us = time_us;
+}
+
 void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) {
     pos_update_accel_velocity(pos, time_us);
     int took_alt_branch = pos_hit_matches_alt_branch(pos, hit);
@@ -157,7 +174,6 @@ void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) 
 
     pos->cur_sensor = hit;
     pos->cur_sensor_time = time_us;
-    track_node *keep_end = pos_release_keep_end(hit, NULL);
 
     /* Off-route: ON_ROUTE hit outside the remaining planned sensor path, even
      * if the node was still reserved only because of mutex safety padding. */
@@ -165,16 +181,18 @@ void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) 
         if (pos->force_offroute_on_next_sensor ||
             took_alt_branch ||
             route_hit_cursor < 0) {
-            pos->force_offroute_on_next_sensor = 0;
             track_node *expected_sensor = pos->pred.next_sensor;
-            traffic_release_train_keep_body(pos->train_num, hit,
-                                            TRAIN_BODY_MM, keep_end);
-            pos->offroute_valid = 1;
-            pos->offroute_expected_sensor = expected_sensor;
-            pos_clear_prediction(pos);
-            track_set_speed(pos->train_num, 0);
-            pos->route_state = TRAIN_STATE_RECOVERY_STOPPING;
-            pos->stopping_since_us = time_us;
+            int conflict_owner = traffic_get_node_owner(hit);
+
+            if (conflict_owner >= 0 && conflict_owner != pos->train_num) {
+                train_pos_t *other = pos_get(conflict_owner);
+                if (other && other->route_state == TRAIN_STATE_ON_ROUTE &&
+                    other->cur_sensor != NULL) {
+                    enter_recovery_stop(other, other->pred.next_sensor, time_us);
+                }
+            }
+
+            enter_recovery_stop(pos, expected_sensor, time_us);
             ui_mark_position_dirty();
             return;
         }

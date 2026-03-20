@@ -160,11 +160,16 @@ static int tick_handle_stopping(train_pos_t *pos, uint64_t now_us) {
 }
 
 static int do_recovery_replan(train_pos_t *pos) {
+    track_node *keep_hint;
+
     pos_save_ema_and_stop(pos);
+    keep_hint = pos->pred.next_sensor
+                ? pos->pred.next_sensor
+                : pos->offroute_expected_sensor;
     traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
                                     TRAIN_BODY_MM,
                                     pos_release_keep_end(pos->cur_sensor,
-                                                         pos->pred.next_sensor));
+                                                         keep_hint));
 
     pos_restore_pending_target(pos);
     KASSERT(pos->pending_target != NULL);

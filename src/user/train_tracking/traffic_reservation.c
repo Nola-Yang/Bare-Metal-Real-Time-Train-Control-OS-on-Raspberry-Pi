@@ -489,6 +489,12 @@ int traffic_is_reserved_by(track_node *node, int train_num) {
     return node_owner[idx] == train_num;
 }
 
+int traffic_get_node_owner(track_node *node) {
+    int idx = traffic_node_index(node);
+    if (idx < 0) return -1;
+    return node_owner[idx];
+}
+
 uint32_t traffic_get_change_generation(void) {
     return g_change_generation;
 }
