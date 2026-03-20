@@ -6,7 +6,7 @@
 #include "syscall.h"
 #include "kassert.h"
 #include "ui.h"
-#include "train_control.h"
+#include "train_runtime.h"
 #include <stddef.h>
 #include <stdint.h>
 

@@ -13,6 +13,8 @@
 #define TRAIN_POS_TICK        6   // Update the position of the train
 #define TRAIN_POS_REPLAN_TICK 7   // Replan the route for the trains
 #define TRAIN_POS_SWITCH_SETTLE_TICK 8   // Complete deferred post-switch launches
+#define TRAIN_MSG_RUNTIME_READY 9   // Runtime worker finished initialization
+#define TRAIN_MSG_RETRY_DEAD_TRAIN 10   // Retry a queued dead-train recovery
 
 #define TRAIN_CMD_MAX_LEN 80
 
@@ -38,22 +40,5 @@ void command_input_task(void);
 
 // Periodic UI refresh task
 void ui_tick_task(void);
-
-// Demo tick task (1s interval)
-void demo_tick_task(void);
-
-// Switch-settle tick task
-void pos_switch_settle_tick_task(void);
-
-// Reverse delay courier task
-void rv_delay_task(void);
-
-// retry_dead_train_task: Event to retry a dead train to
-//  go to a different target
-void retry_dead_train_task();
-
-// add_dead_train: Adds a dead train to retry
-//  going to a different target
-void add_dead_train_to_retry(int train_num);
 
 #endif /* _train_control_h_ */
