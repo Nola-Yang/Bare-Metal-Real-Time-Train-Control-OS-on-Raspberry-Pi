@@ -145,6 +145,10 @@ typedef struct {
      * Used by pos_on_tick() to fire the STOPPING → STOPPED transition. */
     uint64_t    stopping_since_us;
 
+    /* 1 when the last STOPPED state was reached after physically hitting the
+     * route target sensor; reverse replans should anchor at cur_sensor->reverse. */
+    uint8_t     stopped_on_target_hit;
+
     /* Deferred launch after issuing switch commands. */
     uint64_t    switch_settle_due_us;
     uint8_t     switch_settle_mode;

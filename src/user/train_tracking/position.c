@@ -110,6 +110,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->offroute_valid           = 0;
             slot->offroute_expected_sensor = NULL;
             slot->stopping_since_us        = 0;
+            slot->stopped_on_target_hit    = 0;
             slot->switch_settle_due_us     = 0;
             slot->switch_settle_mode       = POS_SWITCH_SETTLE_NONE;
             slot->replan.next_us           = 0;
@@ -161,6 +162,7 @@ void pos_reset_dead_train(int train_num) {
     if (!p) return;
 
     p->route_state = TRAIN_STATE_STOPPED;
+    p->stopped_on_target_hit = 0;
     p->switch_settle_due_us = 0;
     p->switch_settle_mode = POS_SWITCH_SETTLE_NONE;
     p->awaiting_post_launch_sensor = 0;
@@ -245,6 +247,7 @@ void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
     pos->force_offroute_on_next_sensor = 0;
     pos->dead_track_rescue_pending = 0;
     pos->dead_track_recover.valid = 0;
+    pos->stopped_on_target_hit = 0;
 }
 
 void pos_clear_deadlock_recover(train_pos_t *pos) {

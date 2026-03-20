@@ -163,6 +163,13 @@ static track_node *pos_route_current_goal(train_pos_t *pos) {
     return pos->pending_target;
 }
 
+static int pos_route_use_cur_reverse_start(const train_pos_t *pos) {
+    return pos != NULL &&
+           (pos->route_state == TRAIN_STATE_STOPPED ||
+            pos->route_state == TRAIN_STATE_WAIT_RESOURCE) &&
+           pos->stopped_on_target_hit;
+}
+
 static void pos_build_fixed_switch_dirs(int requester_train, char fixed_sw_dirs[TRACK_MAX]) {
     for (int i = 0; i < TRACK_MAX; i++) fixed_sw_dirs[i] = '?';
 
@@ -268,7 +275,9 @@ static pos_route_eval_result_t pos_evaluate_target(train_pos_t *pos,
         uint64_t dt_ignored = 0;
         plan_start = predict_next_sensor(pos, pos->cur_sensor, &dt_ignored);
     }
-    reverse_plan_start = plan_start ? plan_start->reverse : cur_sensor_orig->reverse;
+    reverse_plan_start = pos_route_use_cur_reverse_start(pos)
+                         ? cur_sensor_orig->reverse
+                         : (plan_start ? plan_start->reverse : cur_sensor_orig->reverse);
     origins[0] = plan_start;
     origins[1] = reverse_plan_start;
 

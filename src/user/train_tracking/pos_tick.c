@@ -123,6 +123,9 @@ static void handle_normal_stop(train_pos_t *pos) {
     track_node *stopped_target;
 
     pos->route_state = TRAIN_STATE_STOPPED;
+    pos->stopped_on_target_hit =
+        pos->cur_sensor != NULL &&
+        pos_targets_same_sensor(pos->cur_sensor, pos->target_sensor);
     /* STOPPING -> STOPPED means the train reached the planned stop target even
      * if that final sensor never physically fired; use the planned target, not
      * cur_sensor, to arm deadlock-yield resume. */
@@ -213,6 +216,7 @@ static int tick_handle_stopping_tr(train_pos_t *pos, uint64_t now_us) {
     if (!brake_elapsed(pos, now_us)) return 0;
 
     pos->route_state = TRAIN_STATE_STOPPED;
+    pos->stopped_on_target_hit = 0;
     pos->effective_v = 0;
     traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
                                     TRAIN_BODY_MM,
@@ -233,6 +237,7 @@ static int tick_handle_stopping_goto(train_pos_t *pos, uint64_t now_us) {
     if (pos->find_pos_only) {
         pos->find_pos_only = 0;
         pos->route_state = TRAIN_STATE_STOPPED;
+        pos->stopped_on_target_hit = 0;
         traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
                                         TRAIN_BODY_MM,
                                         pos_release_keep_end(pos->cur_sensor,
