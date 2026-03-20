@@ -14,6 +14,7 @@
 typedef enum {
     DEMO_MODE_OFF = 0,
     DEMO_MODE_GOLD = 1,
+    DEMO_MODE_LOCATE = 2,
 } demo_mode_t;
 
 typedef enum {
@@ -79,6 +80,7 @@ static const char *demo_mode_str(demo_mode_t m) {
     switch (m) {
     case DEMO_MODE_OFF:   return "OFF";
     case DEMO_MODE_GOLD:  return "GOLD";
+    case DEMO_MODE_LOCATE:return "LOCATE";
     default:              return "UNK";
     }
 }
@@ -224,6 +226,13 @@ int gold_dispatch_next_by_ind(int demo_train_ind) {
     return gold_dispatch_next(&g_slots[demo_train_ind]);
 }
 
+int demo_retry_train_by_ind(int demo_train_ind) {
+    if (demo_train_ind < 0 || demo_train_ind >= DEMO_MAX_TRAINS) return 0;
+    if (!g_slots[demo_train_ind].enabled) return 0;
+    if (g_demo_mode != DEMO_MODE_GOLD) return 0;
+    return gold_dispatch_next(&g_slots[demo_train_ind]);
+}
+
 static void demo_update_state_counters(uint64_t now_us) {
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         demo_train_slot_t *slot = &g_slots[i];
@@ -272,13 +281,29 @@ static void demo_try_finish_stop(uint64_t now_us) {
     ui_puts("demo: stopped\r\n");
 }
 
-static int demo_start_next_unstarted_gold(void) {
+static void demo_finish_locate(void) {
+    g_demo_mode = DEMO_MODE_OFF;
+    g_demo_state = DEMO_RUN_IDLE;
+    g_demo_start_us = 0;
+    g_demo_stop_request_us = 0;
+    demo_reset_slots();
+    g_demo_last_ui_uptime_sec = UINT32_MAX;
+    ui_mark_position_dirty();
+    ui_puts("findpos: completed\r\n");
+}
+
+static int demo_start_next_unstarted(void) {
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         demo_train_slot_t *slot = &g_slots[i];
         if (!slot->enabled || slot->started) continue;
         if (!track_is_valid_train(slot->train_num)) continue;
         if (pos_is_train_position_known(slot->train_num)) {
-            return gold_dispatch_next(slot);
+            if (g_demo_mode == DEMO_MODE_GOLD) {
+                return gold_dispatch_next(slot);
+            }
+            slot->started = 1;
+            slot->next_dispatch_us = 0;
+            return 1;
         }
         if (!pos_start_direction_find(slot->train_num)) return 0;
         slot->started = 1;
@@ -344,12 +369,70 @@ static int train_seen(const int *arr, int n, int v) {
     return 0;
 }
 
-static int demo_start_gold(int argc, char *argv[]) {
+static int demo_start_session(demo_mode_t mode,
+                              int train_count,
+                              const int *trains,
+                              int seed_override) {
+    const char *mode_prefix = (mode == DEMO_MODE_GOLD) ? "demo gold" : "findpos";
+
     if (g_demo_mode != DEMO_MODE_OFF) {
         ui_puts("demo: already running, use `demo stop`\r\n");
         return 2;
     }
 
+    for (int i = 0; i < train_count; i++) {
+        if (pos_is_train_goto_active(trains[i])) {
+            ui_puts(mode_prefix);
+            ui_puts(": train busy with active goto\r\n");
+            return 2;
+        }
+    }
+
+    if (mode == DEMO_MODE_GOLD && seed_override >= 0) demo_seed_rng((uint32_t)seed_override);
+
+    demo_reset_slots();
+    g_demo_mode = mode;
+    g_demo_state = DEMO_RUN_STARTING;
+    g_demo_start_us = read_timer();
+    g_demo_stop_request_us = 0;
+    g_demo_last_ui_uptime_sec = UINT32_MAX;
+    demo_build_sensor_pool();
+
+    for (int i = 0; i < train_count; i++) {
+        demo_train_slot_t *slot = demo_alloc_slot(trains[i]);
+        if (!slot) {
+            g_demo_mode = DEMO_MODE_OFF;
+            g_demo_state = DEMO_RUN_FAILED;
+            demo_reset_slots();
+            ui_puts(mode_prefix);
+            ui_puts(": failed to allocate slots\r\n");
+            return 2;
+        }
+    }
+
+    /* Start only the first train; demo_on_tick will chain the rest. */
+    if (!demo_start_next_unstarted()) {
+        g_demo_mode = DEMO_MODE_OFF;
+        g_demo_state = DEMO_RUN_FAILED;
+        demo_reset_slots();
+        if (mode == DEMO_MODE_GOLD) {
+            ui_puts("demo gold: failed initial dispatch\r\n");
+        } else {
+            ui_puts("findpos: failed initial bootstrap\r\n");
+        }
+        return 2;
+    }
+
+    if (mode == DEMO_MODE_GOLD) {
+        ui_puts("demo gold: bootstrapping trains one by one\r\n");
+    } else {
+        ui_puts("findpos: bootstrapping trains one by one\r\n");
+    }
+    ui_mark_position_dirty();
+    return 2;
+}
+
+static int demo_start_gold(int argc, char *argv[]) {
     int trains[DEMO_MAX_TRAINS];
     int train_count = 0;
     int seed_override = -1;
@@ -381,62 +464,54 @@ static int demo_start_gold(int argc, char *argv[]) {
         return 2;
     }
 
-    for (int i = 0; i < train_count; i++) {
-        if (pos_is_train_goto_active(trains[i])) {
-            ui_puts("demo gold: train busy with active goto\r\n");
+    return demo_start_session(DEMO_MODE_GOLD, train_count, trains, seed_override);
+}
+
+static int demo_start_locate(int argc, char *argv[]) {
+    int trains[DEMO_MAX_TRAINS];
+    int train_count = 0;
+
+    for (int i = 2; i < argc; i++) {
+        int v = 0;
+        if (!parse_int_token_local(argv[i], &v)) {
+            ui_puts("findpos: train numbers required\r\n");
             return 2;
         }
-    }
-
-    if (seed_override >= 0) demo_seed_rng((uint32_t)seed_override);
-
-    demo_reset_slots();
-    g_demo_mode = DEMO_MODE_GOLD;
-    g_demo_state = DEMO_RUN_STARTING;
-    g_demo_start_us = read_timer();
-    g_demo_stop_request_us = 0;
-    g_demo_last_ui_uptime_sec = UINT32_MAX;
-    demo_build_sensor_pool();
-
-    for (int i = 0; i < train_count; i++) {
-        demo_train_slot_t *slot = demo_alloc_slot(trains[i]);
-        if (!slot) {
-            g_demo_mode = DEMO_MODE_OFF;
-            g_demo_state = DEMO_RUN_FAILED;
-            demo_reset_slots();
-            ui_puts("demo gold: failed to allocate slots\r\n");
+        if (!track_is_valid_train(v)) {
+            ui_puts("findpos: invalid train\r\n");
             return 2;
         }
+        if (train_count >= DEMO_MAX_TRAINS) {
+            ui_puts("findpos: too many trains\r\n");
+            return 2;
+        }
+        if (train_seen(trains, train_count, v)) {
+            ui_puts("findpos: duplicate train\r\n");
+            return 2;
+        }
+        trains[train_count++] = v;
     }
 
-    /* Start only the first train; demo_on_tick will chain the rest. */
-    if (!demo_start_next_unstarted_gold()) {
-        g_demo_mode = DEMO_MODE_OFF;
-        g_demo_state = DEMO_RUN_FAILED;
-        demo_reset_slots();
-        ui_puts("demo gold: failed initial dispatch\r\n");
+    if (train_count < 1) {
+        ui_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
         return 2;
     }
 
-    ui_puts("demo gold: bootstrapping trains one by one\r\n");
-    ui_mark_position_dirty();
-    return 2;
+    return demo_start_session(DEMO_MODE_LOCATE, train_count, trains, -1);
 }
 
 int demo_handle_command(int argc, char *argv[]) {
     if (argc <= 0 || !argv || !argv[0]) return 2;
-    if (!(argv[0][0] == 'd' && argv[0][1] == 'e' && argv[0][2] == 'm' &&
-          argv[0][3] == 'o' && argv[0][4] == '\0')) {
+    if (!tok_eq(argv[0], "demo")) {
         return 2;
     }
 
     if (argc == 1) {
-        ui_puts("Usage: demo <start|stop|tune|seed> ...\r\n");
+        ui_puts("Usage: demo <start|locate|stop|tune|seed> ...\r\n");
         return 2;
     }
 
-    if (argv[1][0] == 's' && argv[1][1] == 't' && argv[1][2] == 'o' &&
-        argv[1][3] == 'p' && argv[1][4] == '\0') {
+    if (tok_eq(argv[1], "stop")) {
         if (g_demo_mode == DEMO_MODE_OFF) {
             ui_puts("demo: already stopped\r\n");
             return 2;
@@ -457,8 +532,7 @@ int demo_handle_command(int argc, char *argv[]) {
         return 2;
     }
 
-    if (argv[1][0] == 's' && argv[1][1] == 'e' && argv[1][2] == 'e' &&
-        argv[1][3] == 'd' && argv[1][4] == '\0') {
+    if (tok_eq(argv[1], "seed")) {
         if (argc != 3) {
             ui_puts("Usage: demo seed <u32>\r\n");
             return 2;
@@ -474,8 +548,7 @@ int demo_handle_command(int argc, char *argv[]) {
         return 2;
     }
 
-    if (argv[1][0] == 't' && argv[1][1] == 'u' && argv[1][2] == 'n' &&
-        argv[1][3] == 'e' && argv[1][4] == '\0') {
+    if (tok_eq(argv[1], "tune")) {
         if (argc != 4) {
             ui_puts("Usage: demo tune <trip> <mm>\r\n");
             return 2;
@@ -485,8 +558,7 @@ int demo_handle_command(int argc, char *argv[]) {
             ui_puts("demo tune: positive mm required\r\n");
             return 2;
         }
-        if (argv[2][0] == 't' && argv[2][1] == 'r' && argv[2][2] == 'i' &&
-            argv[2][3] == 'p' && argv[2][4] == '\0') {
+        if (tok_eq(argv[2], "trip")) {
             g_gold_min_trip_mm = mm;
             ui_puts("demo tune trip: updated\r\n");
             return 2;
@@ -501,6 +573,14 @@ int demo_handle_command(int argc, char *argv[]) {
             return 2;
         }
         return demo_start_gold(argc, argv);
+    }
+
+    if (tok_eq(argv[1], "locate")) {
+        if (argc < 3 || argc > 6) {
+            ui_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
+            return 2;
+        }
+        return demo_start_locate(argc, argv);
     }
 
     ui_puts("demo: unknown subcommand\r\n");
@@ -522,13 +602,12 @@ void demo_on_tick(uint64_t now_us) {
     demo_update_state_counters(now_us);
     demo_try_finish_stop(now_us);
 
-    if (g_demo_mode != DEMO_MODE_GOLD) return;
-
     /* STARTING: bootstrap trains one at a time.
      *
      * Phase A — position finding (sequential to avoid attribution ambiguity):
      *   Unknown-position trains acquire position one by one; known-position
-     *   trains skip straight to their first mission.
+     *   trains are accepted immediately (LOCATE) or skip to their first mission
+     *   (GOLD).
      *   Wait for every started train to confirm its position,
      *   As soon as the last started train has confirmed position, kick off the
      *   next unstarted train.
@@ -559,17 +638,23 @@ void demo_on_tick(uint64_t now_us) {
 
         if (any_unstarted) {
             /* Kick off the next train's bootstrap. */
-            (void)demo_start_next_unstarted_gold();
+            (void)demo_start_next_unstarted();
             return;
         }
 
         if (!all_stopped) return;
+
+        if (g_demo_mode == DEMO_MODE_LOCATE) {
+            demo_finish_locate();
+            return;
+        }
 
         g_demo_state = DEMO_RUN_RUNNING;
         ui_mark_position_dirty();
         return;
     }
 
+    if (g_demo_mode != DEMO_MODE_GOLD) return;
     if (g_demo_state != DEMO_RUN_RUNNING) return;
 
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {

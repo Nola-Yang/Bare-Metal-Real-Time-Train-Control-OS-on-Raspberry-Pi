@@ -30,5 +30,6 @@ void demo_get_ui_summary(demo_ui_summary_t *out, uint64_t now_us);
 int get_demo_train_ind(int train_num);
 
 int gold_dispatch_next_by_ind(int demo_train_ind);
+int demo_retry_train_by_ind(int demo_train_ind);
 
 #endif /* _demo_manager_h_ */

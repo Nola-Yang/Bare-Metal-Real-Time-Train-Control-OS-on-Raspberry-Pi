@@ -41,6 +41,15 @@ static int parse_train_token(const char *tok, int *out) {
     return 1;
 }
 
+static int tok_eq(const char *a, const char *b) {
+    if (!a || !b) return 0;
+    while (*a && *b && *a == *b) {
+        a++;
+        b++;
+    }
+    return (*a == '\0' && *b == '\0');
+}
+
 // Returns number of tokens
 static int tokenize(char *cmd, char *argv[], int max_args) {
     KASSERT(cmd != NULL);
@@ -73,19 +82,33 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
     if (argc == 0) return 1;
 
     // q
-    if ((argv[0][0] == 'q' || argv[0][0] == 'Q') && argv[0][1] == '\0') {
+    if (tok_eq(argv[0], "q") || tok_eq(argv[0], "Q")) {
         ui_puts("Rebooting...\r\n");
         return 0;
     }
 
     // demo
-    if (argv[0][0] == 'd' && argv[0][1] == 'e' && argv[0][2] == 'm' &&
-        argv[0][3] == 'o' && argv[0][4] == '\0') {
+    if (tok_eq(argv[0], "demo")) {
         return demo_handle_command(argc, argv);
     }
 
+    if (tok_eq(argv[0], "findpos")) {
+        if (argc < 2 || argc > 5) {
+            ui_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
+            return 2;
+        }
+
+        char *demo_argv[10];
+        demo_argv[0] = "demo";
+        demo_argv[1] = "locate";
+        for (int i = 1; i < argc; i++) {
+            demo_argv[i + 1] = argv[i];
+        }
+        return demo_handle_command(argc + 1, demo_argv);
+    }
+
     // tr
-    if (argv[0][0] == 't' && argv[0][1] == 'r' && argv[0][2] == '\0') {
+    if (tok_eq(argv[0], "tr")) {
         if (argc != 3) {
             ui_puts("Usage: tr <train> <speed 0-14>\r\n");
             return 2;
@@ -108,7 +131,7 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
     }
 
     // sw
-    if (argv[0][0] == 's' && argv[0][1] == 'w' && argv[0][2] == '\0') {
+    if (tok_eq(argv[0], "sw")) {
         if (argc != 3) {
             ui_puts("Usage: sw <switch> <S|C>\r\n");
             return 2;
@@ -147,7 +170,7 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
     }
 
     // rv
-    if (argv[0][0] == 'r' && argv[0][1] == 'v' && argv[0][2] == '\0') {
+    if (tok_eq(argv[0], "rv")) {
         if (argc != 2) {
             ui_puts("Usage: rv <train>\r\n");
             return 2;
@@ -174,7 +197,7 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
     }
 
     // li (light)
-    if (argv[0][0] == 'l' && argv[0][1] == 'i' && argv[0][2] == '\0') {
+    if (tok_eq(argv[0], "li")) {
         if (argc != 3) {
             ui_puts("Usage: li <train> <0|1>\r\n");
             return 2;
@@ -196,8 +219,7 @@ int execute_it(char *cmd, int *rv_train, int rv_in_progress) {
 
 
     // goto <train> <node> [offset_mm]
-    if (argv[0][0] == 'g' && argv[0][1] == 'o' && argv[0][2] == 't' &&
-        argv[0][3] == 'o' && argv[0][4] == '\0') {
+    if (tok_eq(argv[0], "goto")) {
         if (argc < 3 || argc > 4) {
             ui_puts("Usage: goto <train> <node> [offset_mm]\r\n");
             return 2;

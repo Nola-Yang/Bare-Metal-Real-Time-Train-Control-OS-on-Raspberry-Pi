@@ -146,7 +146,7 @@ void retry_dead_train_task() {
 
     int demo_train_ind = get_demo_train_ind(train_num);
     pos_reset_dead_train(train_num);
-    gold_dispatch_next_by_ind(demo_train_ind);
+    demo_retry_train_by_ind(demo_train_ind);
 
     Exit();
 }
