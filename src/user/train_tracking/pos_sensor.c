@@ -1,6 +1,7 @@
 #include "train_tracking/position_priv.h"
 #include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
+#include "traffic_manager_internal.h"
 #include "track.h"
 #include "train_tracking/track_data.h"
 #include "kassert.h"
@@ -26,6 +27,69 @@ static int route_path_hit_cursor(const train_pos_t *pos, track_node *hit) {
         if (idx == hit_idx) return k;
     }
     return -1;
+}
+
+static track_node *route_path_first_remaining_sensor(const train_pos_t *pos) {
+    if (!pos || pos->route_path_count <= 0) return NULL;
+
+    int start = pos->route_path_cursor;
+    if (start < 0) start = 0;
+    if (start >= pos->route_path_count) return NULL;
+
+    for (int i = start; i < pos->route_path_count; i++) {
+        int idx = (int)pos->route_path[i];
+        if (idx < 0 || idx >= TRACK_MAX) continue;
+        if (g_track[idx].type == NODE_SENSOR) return &g_track[idx];
+    }
+    return NULL;
+}
+
+static int branch_dir_reaches_sensor(track_node *branch, int dir,
+                                     track_node *sensor) {
+    if (!branch || branch->type != NODE_BRANCH || !sensor) return 0;
+    return follow_dist(branch->edge[dir].dest, sensor, OFF_ROUTE_PATH_MAX_HOPS) >= 0;
+}
+
+static int branch_planned_dir(const train_pos_t *pos, track_node *branch) {
+    if (!branch || branch->type != NODE_BRANCH) return -1;
+
+    track_node *planned_sensor = route_path_first_remaining_sensor(pos);
+    if (!planned_sensor && pos) planned_sensor = pos->pred.next_sensor;
+
+    if (planned_sensor) {
+        int straight = branch_dir_reaches_sensor(branch, DIR_STRAIGHT, planned_sensor);
+        int curved = branch_dir_reaches_sensor(branch, DIR_CURVED, planned_sensor);
+        if (straight != curved) return straight ? DIR_STRAIGHT : DIR_CURVED;
+    }
+
+    int sw_idx = track_switch_to_index(branch->num);
+    char state = (sw_idx >= 0) ? track_get_switch_state()[sw_idx].state : '?';
+    if (state == 'S') return DIR_STRAIGHT;
+    if (state == 'C') return DIR_CURVED;
+    return -1;
+}
+
+static int current_leg_alt_branch_hit(const train_pos_t *pos, track_node *hit) {
+    if (!pos || !hit || !pos->cur_sensor) return 0;
+
+    track_node *cur = pos->cur_sensor;
+    for (int h = 0; h < 80; h++) {
+        track_edge *e = traffic_tm_get_next_edge(cur);
+        if (!e || !e->dest) return 0;
+
+        cur = e->dest;
+        if (cur == pos->pred.next_sensor || cur->type == NODE_SENSOR) return 0;
+        if (cur->type != NODE_BRANCH) continue;
+
+        int planned_dir = branch_planned_dir(pos, cur);
+        if (planned_dir != DIR_STRAIGHT && planned_dir != DIR_CURVED) return 0;
+
+        int alt_dir = (planned_dir == DIR_STRAIGHT) ? DIR_CURVED : DIR_STRAIGHT;
+        if (!branch_dir_reaches_sensor(cur, alt_dir, hit)) return 0;
+        if (branch_dir_reaches_sensor(cur, planned_dir, hit)) return 0;
+        return 1;
+    }
+    return 0;
 }
 
 static int route_state_checks_offroute(train_route_state_t route_state) {
@@ -85,14 +149,17 @@ static void handle_dead_track_sensor(train_pos_t *pos) {
 
 int pos_hit_matches_alt_branch(const train_pos_t *pos, track_node *hit) {
     if (!pos || !hit) return 0;
-    if (pos->pred.branch_node == NULL || pos->pred.alt_sensor == NULL) return 0;
-    if (pos->pred.alt_sensor == hit) return 1;
+    if (pos->pred.branch_node != NULL && pos->pred.alt_sensor != NULL) {
+        if (pos->pred.alt_sensor == hit) return 1;
 
-    int32_t alt_dist = follow_dist(pos->pred.alt_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS);
-    if (alt_dist < 0) return 0;
+        int32_t alt_dist = follow_dist(pos->pred.alt_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS);
+        if (alt_dist >= 0) {
+            if (pos->pred.next_sensor == NULL) return 1;
+            return follow_dist(pos->pred.next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS) < 0;
+        }
+    }
 
-    if (pos->pred.next_sensor == NULL) return 1;
-    return follow_dist(pos->pred.next_sensor, hit, OFF_ROUTE_PATH_MAX_HOPS) < 0;
+    return current_leg_alt_branch_hit(pos, hit);
 }
 
 void pos_revive_dead_track_for_current_hit(train_pos_t *pos) {
