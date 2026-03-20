@@ -352,6 +352,12 @@ void demo_get_ui_summary(demo_ui_summary_t *out, uint64_t now_us) {
     traffic_get_sensor_stats_ex(&out->sensor_stats);
 }
 
+int demo_is_auto_dispatching_targets(void) {
+    return g_demo_mode == DEMO_MODE_GOLD &&
+           (g_demo_state == DEMO_RUN_STARTING ||
+            g_demo_state == DEMO_RUN_RUNNING);
+}
+
 void demo_init(void) {
     demo_reset_slots();
     g_demo_mode = DEMO_MODE_OFF;
