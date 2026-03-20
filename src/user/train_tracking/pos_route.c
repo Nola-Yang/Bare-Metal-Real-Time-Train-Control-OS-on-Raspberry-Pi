@@ -18,6 +18,27 @@ static char         g_pos_try_fixed_sw_dirs[TRACK_MAX];
 static route_plan_t g_pos_try_rp;
 static route_plan_t g_pos_try_rp_unconstrained;
 static route_plan_t g_pos_try_rp_temp;
+static route_plan_t g_pos_try_best_blocked_plan;
+static route_plan_t g_pos_try_candidate_plan;
+static route_plan_t g_pos_try_reserve_plan;
+static int          g_pos_try_snapshot[TRACK_MAX];
+
+typedef enum {
+    POS_ROUTE_EVAL_UNREACHABLE = 0,
+    POS_ROUTE_EVAL_BLOCKED     = 1,
+    POS_ROUTE_EVAL_READY       = 2,
+} pos_route_eval_result_t;
+
+typedef struct {
+    route_plan_t plan;
+    track_node   *chosen_origin;
+    int          need_initial_reverse;
+    uint8_t      blocker_mask;
+} pos_route_eval_t;
+
+static pos_route_eval_t g_pos_try_eval_main;
+static pos_route_eval_t g_pos_try_eval_candidate;
+static pos_route_eval_t g_pos_try_eval_ready;
 
 #ifdef TRACK_D
     static const int32_t GOTO_SPEED_MM_S[MAX_PHYSICAL_TRAINS] =
@@ -69,6 +90,59 @@ static int route_switch_needs_change(int sw_num, char desired_dir) {
     return current_dir != desired_dir;
 }
 
+static uint8_t blocker_mask_from_trains(int requester_train, const int *trains, int count) {
+    uint8_t mask = 0;
+    for (int i = 0; i < count; i++) {
+        if (trains[i] == requester_train) continue;
+        mask |= pos_deadlock_train_bit(trains[i]);
+    }
+    return mask;
+}
+
+static uint8_t blocker_mask_from_plan(int requester_train, const route_plan_t *plan) {
+    int blockers[6];
+    int count = traffic_collect_plan_blockers(requester_train, plan, blockers, 6);
+    return blocker_mask_from_trains(requester_train, blockers, count);
+}
+
+static uint8_t blocker_mask_from_switches(const int *sw_nums, const char *sw_dirs,
+                                          int sw_count, int requester_train) {
+    uint8_t mask = 0;
+    for (int i = sw_count - 1; i >= 0; i--) {
+        int blockers[6];
+        int count;
+        if (!route_switch_needs_change(sw_nums[i], sw_dirs[i])) continue;
+        count = traffic_collect_switch_envelope_blockers(sw_nums[i], blockers, 6);
+        mask |= blocker_mask_from_trains(requester_train, blockers, count);
+    }
+    return mask;
+}
+
+static int blocker_mask_bit_count(uint8_t mask) {
+    int count = 0;
+    while (mask) {
+        count += (mask & 1u);
+        mask >>= 1;
+    }
+    return count;
+}
+
+static int route_plan_long_enough(const route_plan_t *plan, int32_t threshold) {
+    int32_t effective_d;
+    if (!plan) return 0;
+    effective_d = plan->has_reversal
+                  ? plan->dist_to_reversal_mm + plan->dist_after_reversal_mm
+                  : plan->total_dist_mm;
+    return effective_d > threshold;
+}
+
+static track_node *pos_route_current_goal(train_pos_t *pos) {
+    if (!pos) return NULL;
+    if (pos->orig_user_target) return pos->orig_user_target;
+    if (pos->target_sensor) return pos->target_sensor;
+    return pos->pending_target;
+}
+
 static void pos_build_fixed_switch_dirs(int requester_train, char fixed_sw_dirs[TRACK_MAX]) {
     for (int i = 0; i < TRACK_MAX; i++) fixed_sw_dirs[i] = '?';
 
@@ -111,12 +185,17 @@ int pos_apply_route_switches_safe(const int *sw_nums, const char *sw_dirs,
     return 1;
 }
 
-bool pos_is_waiting_resource(train_pos_t *pos) {
+static bool pos_is_waiting_resource(train_pos_t *pos) {
     return !pos || pos->route_state == TRAIN_STATE_WAIT_RESOURCE;
 }
 
-void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us) {
-    if (pos_is_waiting_resource(pos)) return;
+void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us, uint8_t blocker_mask) {
+    if (!pos) return;
+    pos->replan.blocker_mask = blocker_mask;
+    if (pos_is_waiting_resource(pos)) {
+        ui_mark_position_dirty();
+        return;
+    }
     track_set_speed(pos->train_num, 0);
     traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
                                     TRAIN_BODY_MM,
@@ -132,123 +211,270 @@ void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us) {
     ui_mark_position_dirty();
 }
 
-int pos_try_direct_goto(train_pos_t *pos) {
-    track_node *user_target = pos->pending_target;
-    int32_t     offset_mm   = pos->pending_offset_mm;
+static pos_route_eval_result_t pos_evaluate_target(train_pos_t *pos,
+                                                   track_node *user_target,
+                                                   pos_route_eval_t *out) {
+    route_plan_t *rp = &g_pos_try_rp;
+    route_plan_t *rp_unconstrained = &g_pos_try_rp_unconstrained;
+    route_plan_t *rp_temp = &g_pos_try_rp_temp;
+    track_node *cur_sensor_orig;
+    track_node *plan_start;
+    track_node *reverse_plan_start;
+    track_node *origins[2];
+    uint8_t *blocked = g_pos_try_blocked;
+    char *fixed_sw_dirs = g_pos_try_fixed_sw_dirs;
+    track_node *chosen_origin = NULL;
+    route_plan_t *best_blocked_plan = &g_pos_try_best_blocked_plan;
+    int have_blocked_plan = 0;
+    int32_t best_total = 0;
+    int need_initial_reverse = 0;
+    int32_t tv;
+    int32_t ta;
+    int32_t d_brake;
+    int32_t d_stop;
+    int32_t threshold;
 
-    if (!pos->cur_sensor || !user_target) return 0;
+    if (out) {
+        out->plan = (route_plan_t){0};
+        out->chosen_origin = NULL;
+        out->need_initial_reverse = 0;
+        out->blocker_mask = 0;
+    }
+    if (!pos || !pos->cur_sensor || !user_target) return POS_ROUTE_EVAL_UNREACHABLE;
 
-    track_node *cur_sensor_orig = pos->cur_sensor;
-
-    /* Plan from pred.next_sensor if available.
-     * Never use cur_sensor directly — the train has already passed it.
-     * Reverse planning starts from prediction->reverse, except at a dead-end
-     * where no forward prediction exists and we must fall back to cur->reverse. */
-    track_node *plan_start = pos->pred.next_sensor;
+    cur_sensor_orig = pos->cur_sensor;
+    plan_start = pos->pred.next_sensor;
     if (!plan_start) {
         uint64_t dt_ignored = 0;
         plan_start = predict_next_sensor(pos, pos->cur_sensor, &dt_ignored);
     }
-    track_node *reverse_plan_start = plan_start
-                                     ? plan_start->reverse
-                                     : cur_sensor_orig->reverse;
+    reverse_plan_start = plan_start ? plan_start->reverse : cur_sensor_orig->reverse;
+    origins[0] = plan_start;
+    origins[1] = reverse_plan_start;
 
-    int32_t tv        = speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
-    int32_t ta        = GOTO_DECEL_MM_S2[pos->train_ind];
-    int32_t d_brake   = tv * tv / (2 * ta);
-    int32_t d_stop    = d_brake + (int32_t)((int64_t)tv * (int64_t)STOP_EARLY_US[pos->train_ind] / 1000000LL);
-    int32_t threshold = GOTO_MIN_DIST_FACTOR * d_stop;
+    tv        = speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
+    ta        = GOTO_DECEL_MM_S2[pos->train_ind];
+    d_brake   = tv * tv / (2 * ta);
+    d_stop    = d_brake + (int32_t)((int64_t)tv * (int64_t)STOP_EARLY_US[pos->train_ind] / 1000000LL);
+    threshold = GOTO_MIN_DIST_FACTOR * d_stop;
 
-    /*
-     * Two candidate origins:
-     *   origins[0] = plan_start           (prediction)          — forward direction
-     *   origins[1] = reverse_plan_start   (prediction->reverse, or cur->reverse
-     *                                     when forward prediction is unavailable)
-     */
-    track_node *origins[2] = { plan_start, reverse_plan_start };
-    uint8_t *blocked = g_pos_try_blocked;
-    char *fixed_sw_dirs = g_pos_try_fixed_sw_dirs;
-    route_plan_t *rp = &g_pos_try_rp;
-    route_plan_t *rp_unconstrained = &g_pos_try_rp_unconstrained;
-    route_plan_t *rp_temp = &g_pos_try_rp_temp;
     traffic_build_constraints(pos->train_num, blocked);
     pos_build_fixed_switch_dirs(pos->train_num, fixed_sw_dirs);
-
-    track_node  *chosen_origin = NULL;
-    int32_t      best_total    = 0;
-    int          need_initial_reverse = 0;
-    int          blocked_by_reservation = 0;
 
     for (int o = 0; o < 2; o++) {
         if (!origins[o]) continue;
         if (!bfs_find_route_optimal_constrained(origins[o], user_target, d_stop,
                                                 blocked, fixed_sw_dirs, rp_temp)) {
-            if (!blocked_by_reservation &&
-                bfs_find_route_optimal_constrained(origins[o], user_target, d_stop,
-                                                   NULL, fixed_sw_dirs, rp_unconstrained)) {
-                blocked_by_reservation = 1;
+            if (bfs_find_route_optimal_constrained(origins[o], user_target, d_stop,
+                                                   NULL, fixed_sw_dirs, rp_unconstrained) &&
+                route_plan_long_enough(rp_unconstrained, threshold) &&
+                (!have_blocked_plan ||
+                 rp_unconstrained->total_dist_mm < best_blocked_plan->total_dist_mm)) {
+                *best_blocked_plan = *rp_unconstrained;
+                have_blocked_plan = 1;
             }
             continue;
         }
 
-        int32_t effective_d = rp_temp->has_reversal
-                              ? rp_temp->dist_to_reversal_mm + rp_temp->dist_after_reversal_mm
-                              : rp_temp->total_dist_mm;
-        if (effective_d <= threshold) continue;
+        if (!route_plan_long_enough(rp_temp, threshold)) continue;
         if (chosen_origin == NULL || rp_temp->total_dist_mm < best_total) {
-            *rp                   = *rp_temp;
-            chosen_origin         = origins[o];
-            best_total            = rp_temp->total_dist_mm;
-            need_initial_reverse  = (o == 1);
+            *rp                  = *rp_temp;
+            chosen_origin        = origins[o];
+            best_total           = rp_temp->total_dist_mm;
+            need_initial_reverse = (o == 1);
         }
     }
 
     if (!chosen_origin) {
-        /* no long-enough direct route found.
-         * Reverse immediately, drive to a far sensor, reverse again, then
-         * continue to the real target.  Covers the EXIT dead-end case where
-         * the target and current position are on the same short segment. */
         track_node *boot_start = reverse_plan_start;
-        int allow_bootstrap = !blocked_by_reservation ||
+        int allow_bootstrap = !have_blocked_plan ||
                               pos->route_state == TRAIN_STATE_WAIT_RESOURCE;
-        if (!boot_start || !allow_bootstrap ||
-            !bfs_find_bootstrap_midrev(boot_start, user_target, d_stop,
-                                       blocked, fixed_sw_dirs, rp)) {
-
-            if (!blocked_by_reservation) return 0;
-            if (pos_is_waiting_resource(pos)) return 1;
-
-            pos_enter_wait_resource(pos, read_timer());
-            return 1;
+        if (boot_start && allow_bootstrap &&
+            bfs_find_bootstrap_midrev(boot_start, user_target, d_stop,
+                                      blocked, fixed_sw_dirs, rp)) {
+            chosen_origin = boot_start;
+            need_initial_reverse = 1;
         }
-        chosen_origin        = boot_start;
-        need_initial_reverse = 1;
     }
+
+    if (!chosen_origin) {
+        if (out && have_blocked_plan) out->blocker_mask = blocker_mask_from_plan(pos->train_num,
+                                                                                  best_blocked_plan);
+        return have_blocked_plan ? POS_ROUTE_EVAL_BLOCKED : POS_ROUTE_EVAL_UNREACHABLE;
+    }
+
+    if (out) {
+        out->plan = *rp;
+        out->chosen_origin = chosen_origin;
+        out->need_initial_reverse = need_initial_reverse;
+        out->blocker_mask = 0;
+    }
+    return POS_ROUTE_EVAL_READY;
+}
+
+static pos_route_eval_result_t pos_evaluate_target_ready_now(train_pos_t *pos,
+                                                             track_node *user_target,
+                                                             pos_route_eval_t *out) {
+    pos_route_eval_t *eval = out ? out : &g_pos_try_eval_ready;
+    route_plan_t *reserve_plan = &g_pos_try_reserve_plan;
+
+    pos_route_eval_result_t result = pos_evaluate_target(pos, user_target, eval);
+    if (result != POS_ROUTE_EVAL_READY) return result;
+
+    *reserve_plan = eval->plan;
+    if (reserve_plan->has_reversal) {
+        reserve_plan->path_count2 = 0;
+    }
+
+    if (!traffic_can_reserve_plan(pos->train_num, reserve_plan)) {
+        eval->blocker_mask = blocker_mask_from_plan(pos->train_num, reserve_plan);
+        return POS_ROUTE_EVAL_BLOCKED;
+    }
+
+    if (pos_route_switch_blocker(eval->plan.sw_nums, eval->plan.sw_dirs,
+                                 eval->plan.sw_count, pos->train_num) >= 0) {
+        eval->blocker_mask = blocker_mask_from_switches(eval->plan.sw_nums,
+                                                        eval->plan.sw_dirs,
+                                                        eval->plan.sw_count,
+                                                        pos->train_num);
+        return POS_ROUTE_EVAL_BLOCKED;
+    }
+
+    eval->blocker_mask = 0;
+    return POS_ROUTE_EVAL_READY;
+}
+
+static uint8_t pos_simulate_deadlock_unblocked_mask(train_pos_t *victim,
+                                                    uint8_t cycle_mask,
+                                                    track_node *yield_target) {
+    uint8_t ready_mask = 0;
+    track_node *keep_end;
+
+    if (!victim || !yield_target) return 0;
+
+    keep_end = pos_release_keep_end(yield_target, NULL);
+    traffic_snapshot_reservations(g_pos_try_snapshot);
+    traffic_simulate_parked_train(victim->train_num, yield_target, keep_end);
+
+    for (int i = 0; i < 6; i++) {
+        uint8_t bit = (uint8_t)(1u << i);
+        train_pos_t *other;
+        track_node *target;
+
+        if (!(cycle_mask & bit)) continue;
+        if (pos_deadlock_index_to_train(i) == victim->train_num) continue;
+
+        other = pos_get(pos_deadlock_index_to_train(i));
+        if (!other || other->route_state != TRAIN_STATE_WAIT_RESOURCE) continue;
+
+        pos_restore_pending_target(other);
+        target = pos_route_current_goal(other);
+        if (!target) continue;
+
+        if (pos_evaluate_target_ready_now(other, target, NULL) == POS_ROUTE_EVAL_READY) {
+            ready_mask |= bit;
+        }
+    }
+
+    traffic_restore_reservations(g_pos_try_snapshot);
+    return ready_mask;
+}
+
+int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
+                                   track_node **out_target, uint8_t *out_unblocked_mask) {
+    track_node *current_target;
+    track_node *best_target = NULL;
+    uint8_t best_unblocked_mask = 0;
+    int32_t best_dist = 0;
+
+    if (out_target) *out_target = NULL;
+    if (out_unblocked_mask) *out_unblocked_mask = 0;
+    if (!pos || !pos->cur_sensor) return 0;
+
+    current_target = pos_route_current_goal(pos);
+    for (int i = 0; i < TRACK_MAX; i++) {
+        uint8_t unblocked_mask;
+        int32_t cand_total_dist;
+        track_node *cand = &g_track[i];
+        if (cand->type != NODE_SENSOR) continue;
+        if (cand == pos->cur_sensor) continue;
+        if (cand == current_target) continue;
+        if (pos_evaluate_target_ready_now(pos, cand, &g_pos_try_eval_candidate) != POS_ROUTE_EVAL_READY) continue;
+        g_pos_try_candidate_plan = g_pos_try_eval_candidate.plan;
+        cand_total_dist = g_pos_try_candidate_plan.total_dist_mm;
+        unblocked_mask = pos_simulate_deadlock_unblocked_mask(pos, cycle_mask, cand);
+        if (unblocked_mask == 0) continue;
+        if (best_target == NULL ||
+            blocker_mask_bit_count(unblocked_mask) > blocker_mask_bit_count(best_unblocked_mask) ||
+            (blocker_mask_bit_count(unblocked_mask) == blocker_mask_bit_count(best_unblocked_mask) &&
+             cand_total_dist < best_dist)) {
+            best_target = cand;
+            best_unblocked_mask = unblocked_mask;
+            best_dist = cand_total_dist;
+        }
+    }
+
+    if (!best_target) return 0;
+    if (out_target) *out_target = best_target;
+    if (out_unblocked_mask) *out_unblocked_mask = best_unblocked_mask;
+    return 1;
+}
+
+int pos_try_direct_goto(train_pos_t *pos) {
+    track_node *user_target = pos->pending_target;
+    int32_t     offset_mm   = pos->pending_offset_mm;
+    track_node *cur_sensor_orig;
+    route_plan_t *rp;
+    track_node *chosen_origin;
+    int need_initial_reverse;
+
+    if (!pos->cur_sensor || !user_target) return 0;
+
+    switch (pos_evaluate_target_ready_now(pos, user_target, &g_pos_try_eval_main)) {
+    case POS_ROUTE_EVAL_UNREACHABLE:
+        return 0;
+    case POS_ROUTE_EVAL_BLOCKED:
+        pos_enter_wait_resource(pos, read_timer(), g_pos_try_eval_main.blocker_mask);
+        return 1;
+    case POS_ROUTE_EVAL_READY:
+        break;
+    default:
+        return 0;
+    }
+
+    cur_sensor_orig = pos->cur_sensor;
+    rp = &g_pos_try_eval_main.plan;
+    chosen_origin = g_pos_try_eval_main.chosen_origin;
+    need_initial_reverse = g_pos_try_eval_main.need_initial_reverse;
 
     uint64_t now_us = read_timer();
     track_node *eff_start = chosen_origin;
     track_node *chosen_target = rp->has_reversal ? rp->reversal_sensor
                                                   : rp->chosen_target;
-    route_plan_t reserve_plan = *rp;
-    if (reserve_plan.has_reversal) {
+    route_plan_t *reserve_plan = &g_pos_try_reserve_plan;
+    *reserve_plan = *rp;
+    if (reserve_plan->has_reversal) {
         /* Reserve only the first leg up to the reversal point.
          * The second leg is reserved when the train actually reaches the midpoint. */
-        reserve_plan.path_count2 = 0;
+        reserve_plan->path_count2 = 0;
     }
     /* Keep the parked sensor window until the next real hit.
      * The new route is added on top of the existing stopped reservation. */
-    if (!traffic_can_reserve_plan(pos->train_num, &reserve_plan)) {
-        if (pos_is_waiting_resource(pos)) return 1;
-        pos_enter_wait_resource(pos, now_us);
+    if (!traffic_can_reserve_plan(pos->train_num, reserve_plan)) {
+        uint8_t blocker_mask = blocker_mask_from_plan(pos->train_num, reserve_plan);
+        pos_enter_wait_resource(pos, now_us, blocker_mask);
         return 1;
     }
     if (!pos_apply_route_switches_safe(rp->sw_nums, rp->sw_dirs, rp->sw_count,
                                        pos->train_num)) {
-        pos_enter_wait_resource(pos, now_us);
+        uint8_t blocker_mask = blocker_mask_from_switches(rp->sw_nums, rp->sw_dirs,
+                                                          rp->sw_count, pos->train_num);
+        pos_enter_wait_resource(pos, now_us, blocker_mask);
         return 1;
     }
-    if (!traffic_reserve_plan(pos->train_num, eff_start, &reserve_plan)) {
-        pos_enter_wait_resource(pos, now_us);
+    if (!traffic_reserve_plan(pos->train_num, eff_start, reserve_plan)) {
+        uint8_t blocker_mask = blocker_mask_from_plan(pos->train_num, reserve_plan);
+        pos_enter_wait_resource(pos, now_us, blocker_mask);
         return 1;
     }
     if (rp->sw_count > 0) ui_mark_switches_dirty();
@@ -315,6 +541,7 @@ int pos_try_direct_goto(train_pos_t *pos) {
     pos->route_state = TRAIN_STATE_ON_ROUTE;
     pos->replan.next_us = 0;
     pos->replan.seen_generation = traffic_get_change_generation();
+    pos->replan.blocker_mask = 0;
 
     if (!need_initial_reverse) {
         uint64_t dt = 0;

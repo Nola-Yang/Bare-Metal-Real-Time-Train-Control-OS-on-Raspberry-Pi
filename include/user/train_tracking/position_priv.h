@@ -34,16 +34,53 @@ extern uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS];
 #define REPLAN_INTERVAL_US    200000ULL   /* base interval (us) */
 #define REPLAN_MAX_BACKOFF      4         /* cap exponent at 2^4 = 16x */
 
+/* Keep resolved deadlock notices visible in the UI briefly after reroute. */
+#define DEADLOCK_NOTICE_RESOLVED_US 8000000ULL
+
 /* Give turnout commands a short settle window before launching the train. */
 #define SWITCH_SETTLE_TICKS     5
 
+/* Train order used for deadlock blocker masks. */
+static inline int pos_deadlock_train_to_index(int train_num) {
+    switch (train_num) {
+    case 13: return 0;
+    case 14: return 1;
+    case 15: return 2;
+    case 17: return 3;
+    case 18: return 4;
+    case 55: return 5;
+    default: return -1;
+    }
+}
+
+static inline int pos_deadlock_index_to_train(int index) {
+    switch (index) {
+    case 0: return 13;
+    case 1: return 14;
+    case 2: return 15;
+    case 3: return 17;
+    case 4: return 18;
+    case 5: return 55;
+    default: return -1;
+    }
+}
+
+static inline uint8_t pos_deadlock_train_bit(int train_num) {
+    int idx = pos_deadlock_train_to_index(train_num);
+    return (idx >= 0) ? (uint8_t)(1u << idx) : 0;
+}
 
 /* Attempt a direct on-route plan from the current stopped position to
  * pos->pending_target. Returns 1 and sets ON_ROUTE if route found; 0 otherwise. */
 int pos_try_direct_goto(train_pos_t *pos);
 
+/* Pick the nearest safe deadlock-yield sensor target for the current stopped train.
+ * Returns 1 and stores the chosen sensor in *out_target, 0 if none is available. */
+int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
+                                   track_node **out_target, uint8_t *out_unblocked_mask);
+
 /* Stop and wait for resources; pending_target remains unchanged for retries. */
-void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us);
+void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us, uint8_t blocker_mask);
 
 /* Zero all prediction fields (pred.* + dead_track_deadline_us). */
 void pos_clear_prediction(train_pos_t *pos);
@@ -78,5 +115,12 @@ void pos_wait_switch_settle(int sw_count);
 /* If user_speed is in [1,14], save effective_v into cached_v, then zero
  * effective_v.  Call this whenever the train has fully stopped. */
 void pos_save_ema_and_stop(train_pos_t *pos);
+
+/* Clear any pending deadlock-resume chain on the train. */
+void pos_clear_deadlock_recover(train_pos_t *pos);
+
+/* Internal deadlock notice state shared with the UI. */
+void pos_set_deadlock_notice(const pos_deadlock_notice_t *notice);
+void pos_clear_deadlock_notice(void);
 
 #endif /* _position_priv_h_ */

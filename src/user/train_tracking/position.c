@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 train_pos_t g_pos[MAX_POS_TRAINS];
+static pos_deadlock_notice_t g_deadlock_notice;
 
 static uint32_t Speed_Warmup_Distance = 1000;
 static int g_pos_clock_tid = -1;
@@ -45,6 +46,7 @@ static void pos_begin_pos_find(train_pos_t *pos) {
     pos->force_offroute_on_next_sensor = 0;
     pos->dead_track_rescue_pending = 0;
     pos->dead_track_recover.valid = 0;
+    pos_clear_deadlock_recover(pos);
     pos->route_state     = TRAIN_STATE_FIND_POS;
 }
 
@@ -112,6 +114,7 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->replan.retry_count       = 0;
             slot->replan.rand_state        = (uint32_t)(slot->train_num * 1234567u + 1u);
             slot->replan.seen_generation   = traffic_get_change_generation();
+            slot->replan.blocker_mask      = 0;
             slot->dead_track_deadline_us   = 0;
             for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
             slot->speed_warmup_mm      = 0;
@@ -123,6 +126,12 @@ static train_pos_t *find_or_create_pos(int train_num) {
             slot->dead_track_recover.valid = 0;
             slot->dead_track_recover.orig_target = NULL;
             slot->dead_track_recover.orig_offset_mm = 0;
+            slot->deadlock_recover.valid = 0;
+            slot->deadlock_recover.resume_target = NULL;
+            slot->deadlock_recover.resume_offset_mm = 0;
+            slot->deadlock_recover.yield_target = NULL;
+            slot->deadlock_recover.wait_start_mask = 0;
+            slot->deadlock_recover.parked_at_yield = 0;
             slot->midrev.active        = 0;
             slot->midrev.sensor        = NULL;
             slot->midrev.final_target  = NULL;
@@ -152,6 +161,8 @@ void pos_reset_dead_train(int train_num) {
     p->force_offroute_on_next_sensor = 0;
     p->dead_track_rescue_pending = 0;
     p->dead_track_recover.valid = 0;
+    p->replan.blocker_mask = 0;
+    pos_clear_deadlock_recover(p);
 }
 
 void pos_clear_prediction(train_pos_t *pos) {
@@ -214,6 +225,43 @@ void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
     pos->dead_track_recover.valid = 0;
 }
 
+void pos_clear_deadlock_recover(train_pos_t *pos) {
+    if (!pos) return;
+    pos->deadlock_recover.valid = 0;
+    pos->deadlock_recover.resume_target = NULL;
+    pos->deadlock_recover.resume_offset_mm = 0;
+    pos->deadlock_recover.yield_target = NULL;
+    pos->deadlock_recover.wait_start_mask = 0;
+    pos->deadlock_recover.parked_at_yield = 0;
+}
+
+void pos_get_deadlock_notice(pos_deadlock_notice_t *out) {
+    if (!out) return;
+    *out = g_deadlock_notice;
+}
+
+void pos_set_deadlock_notice(const pos_deadlock_notice_t *notice) {
+    if (!notice) {
+        pos_clear_deadlock_notice();
+        return;
+    }
+    g_deadlock_notice = *notice;
+    ui_mark_position_dirty();
+}
+
+void pos_clear_deadlock_notice(void) {
+    g_deadlock_notice.active = 0;
+    g_deadlock_notice.unresolved = 0;
+    g_deadlock_notice.victim_train = -1;
+    g_deadlock_notice.cycle_count = 0;
+    for (int i = 0; i < 6; i++) g_deadlock_notice.cycle_trains[i] = -1;
+    g_deadlock_notice.blocked_target = NULL;
+    g_deadlock_notice.yield_target = NULL;
+    g_deadlock_notice.resume_target = NULL;
+    g_deadlock_notice.expire_us = 0;
+    ui_mark_position_dirty();
+}
+
 void pos_wait_switch_settle(int sw_count) {
     if (sw_count <= 0) return;
     if (g_pos_clock_tid < 0) {
@@ -258,6 +306,7 @@ void pos_init(void) {
         g_pos[i].train_num = -1;
         g_pos[i].replan.seen_generation = 0;
     }
+    pos_clear_deadlock_notice();
     traffic_init();
     route_init();
 }
@@ -274,6 +323,7 @@ void pos_on_reverse(int train_num) {
     pos_clear_prediction(pos);
     traffic_release_train_keep_body(train_num, pos->cur_sensor,
                                     TRAIN_BODY_MM, keep_end);
+    pos->replan.blocker_mask = 0;
 
     ui_mark_position_dirty();
 }
@@ -346,6 +396,8 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     pos->pending_offset_mm  = offset_mm;
     pos->orig_user_target   = target;
     pos->orig_target_offset = offset_mm;
+    pos->replan.blocker_mask = 0;
+    pos_clear_deadlock_recover(pos);
     pos->offroute_valid           = 0;
     pos->offroute_expected_sensor = NULL;
 
@@ -391,6 +443,8 @@ int pos_start_direction_find(int train_num) {
     pos->pending_offset_mm        = 0;
     pos->orig_user_target         = NULL;
     pos->orig_target_offset       = 0;
+    pos->replan.blocker_mask      = 0;
+    pos_clear_deadlock_recover(pos);
     pos->target_sensor            = NULL;
     pos->target_offset_mm         = 0;
     pos->dist_to_target_mm        = 0;

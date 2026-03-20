@@ -9,7 +9,6 @@
 #include <stdint.h>
 
 #define DEMO_MAX_TRAINS 4
-#define GOLD_WAIT_RETARGET_US 30000000ULL
 #define GOLD_DISPATCH_DELAY_US 1000000ULL
 
 typedef enum {
@@ -312,43 +311,6 @@ static int tok_eq(const char *a, const char *b) {
     return (*a == '\0' && *b == '\0');
 }
 
-static void demo_maybe_retarget_waiting_gold(uint64_t now_us) {
-    if (g_demo_mode != DEMO_MODE_GOLD || g_demo_state != DEMO_RUN_RUNNING) return;
-    for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
-        demo_train_slot_t *slot = &g_slots[i];
-        if (!slot->enabled) continue;
-        if (demo_slot_is_dead_track(slot)) continue;
-        if (slot->wait_enter_us == 0) continue;
-        if (now_us < slot->wait_enter_us + GOLD_WAIT_RETARGET_US) continue;
-
-        train_pos_t *pos = pos_get(slot->train_num);
-        if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) continue;
-
-        int idx = -1;
-        track_node *target = gold_pick_target(slot->train_num, g_gold_min_trip_mm, &idx);
-        if (!target) {
-            slot->wait_enter_us = now_us;
-            continue;
-        }
-
-        /* Replace current pending target directly so WAIT_RESOURCE replans can use it. */
-        pos->pending_target = target;
-        pos->pending_offset_mm = 0;
-        pos->orig_user_target = target;
-        pos->orig_target_offset = 0;
-        pos->target_sensor = target;
-        pos->target_offset_mm = 0;
-        pos->dist_to_target_mm = 0;
-        pos->queued_target = NULL;
-        pos->queued_offset_mm = 0;
-        pos->queued_valid = 0;
-        slot->last_target_idx = idx;
-        slot->wait_enter_us = now_us;
-        pos->replan.next_us = 0;
-        ui_mark_position_dirty();
-    }
-}
-
 void demo_get_ui_summary(demo_ui_summary_t *out, uint64_t now_us) {
     if (!out) return;
     out->mode_name = demo_mode_str(g_demo_mode);
@@ -610,14 +572,13 @@ void demo_on_tick(uint64_t now_us) {
 
     if (g_demo_state != DEMO_RUN_RUNNING) return;
 
-    demo_maybe_retarget_waiting_gold(now_us);
-
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         demo_train_slot_t *slot = &g_slots[i];
         if (!slot->enabled) continue;
         if (demo_slot_is_dead_track(slot)) continue;
         train_pos_t *pos = pos_get(slot->train_num);
         if (!pos) continue;
+        if (pos->deadlock_recover.valid) continue;
         if (!pos_is_train_goto_active(slot->train_num) &&
             pos->route_state == TRAIN_STATE_STOPPED &&
             !(pos->queued_valid && pos->queued_target)) {

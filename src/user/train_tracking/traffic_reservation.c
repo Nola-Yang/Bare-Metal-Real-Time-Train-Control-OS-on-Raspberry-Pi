@@ -149,6 +149,43 @@ static int plan_has_conflict(int train_num, const uint8_t want[TRACK_MAX]) {
     return 0;
 }
 
+static int append_unique_train(int *out, int count, int max_trains, int train_num) {
+    if (train_num < 0) return count;
+    for (int i = 0; i < count; i++) {
+        if (out[i] == train_num) return count;
+    }
+    if (count < max_trains) out[count] = train_num;
+    return count + 1;
+}
+
+static void build_keep_body_marks(uint8_t keep[TRACK_MAX], track_node *last_hit,
+                                  track_node *next_hit) {
+    int keep_to_next = 0;
+
+    for (int i = 0; i < TRACK_MAX; i++) keep[i] = 0;
+    if (last_hit && next_hit) {
+        keep_to_next = (last_hit == next_hit) ||
+                       (follow_dist(last_hit, next_hit, 120) >= 0);
+    }
+
+    if (!last_hit) {
+        expand_marks_with_zones(keep);
+        return;
+    }
+
+    keep_mark_node(keep, last_hit);
+    if (last_hit->reverse) {
+        keep_mark_walk_dist(keep, last_hit->reverse, 0);
+    }
+    if (keep_to_next) {
+        if (last_hit != next_hit) {
+            keep_mark_walk_to(keep, last_hit, next_hit);
+        }
+        keep_mark_walk_dist(keep, next_hit, 0);
+    }
+    expand_marks_with_zones(keep);
+}
+
 void traffic_reservation_init(void) {
     for (int i = 0; i < TRACK_MAX; i++) node_owner[i] = -1;
     g_change_generation = 0;
@@ -238,29 +275,7 @@ void traffic_release_train_keep_body(int train_num, track_node *last_hit,
                                      int32_t body_mm, track_node *next_hit) {
     (void)body_mm;
     uint8_t keep[TRACK_MAX];
-    int keep_to_next = 0;
-
-    for (int i = 0; i < TRACK_MAX; i++) keep[i] = 0;
-
-    if (last_hit && next_hit) {
-        keep_to_next = (last_hit == next_hit) ||
-                       (follow_dist(last_hit, next_hit, 120) >= 0);
-    }
-
-    if (last_hit) {
-        keep_mark_node(keep, last_hit);
-        if (last_hit->reverse) {
-            keep_mark_walk_dist(keep, last_hit->reverse, 0);
-        }
-        if (keep_to_next) {
-            if (last_hit != next_hit) {
-                keep_mark_walk_to(keep, last_hit, next_hit);
-            }
-            keep_mark_walk_dist(keep, next_hit, 0);
-        }
-    }
-
-    expand_marks_with_zones(keep);
+    build_keep_body_marks(keep, last_hit, next_hit);
 
     int changed = 0;
     for (int i = 0; i < TRACK_MAX; i++) {
@@ -369,6 +384,90 @@ int traffic_can_set_switch(int sw_num, int requester_train) {
         }
     }
     return -1;
+}
+
+int traffic_collect_plan_blockers(int requester_train, const route_plan_t *plan,
+                                  int *out_trains, int max_trains) {
+    uint8_t want[TRACK_MAX];
+    int unique[6];
+    int total = 0;
+
+    if (!plan) return 0;
+    if (max_trains < 0) max_trains = 0;
+
+    build_plan_marks(want, plan);
+    for (int i = 0; i < TRACK_MAX; i++) {
+        int owner;
+        if (!want[i]) continue;
+        owner = node_owner[i];
+        if (owner < 0 || owner == requester_train) continue;
+        total = append_unique_train(unique, total, 6, owner);
+    }
+    for (int i = 0; out_trains && i < total && i < max_trains; i++) out_trains[i] = unique[i];
+    return total;
+}
+
+int traffic_collect_switch_envelope_blockers(int sw_num, int *out_trains,
+                                             int max_trains) {
+    int unique[6];
+    int total = 0;
+
+    if (max_trains < 0) max_trains = 0;
+
+    for (int i = 0; i < TRACK_MAX; i++) {
+        track_node *n = &g_track[i];
+        if (n->type != NODE_BRANCH || n->num != sw_num) continue;
+
+        int checks[6];
+        int c = 0;
+        checks[c++] = i;
+        checks[c++] = traffic_reverse_index(i);
+        if (n->edge[DIR_STRAIGHT].dest) {
+            int idx = traffic_node_index(n->edge[DIR_STRAIGHT].dest);
+            checks[c++] = idx;
+            checks[c++] = traffic_reverse_index(idx);
+        }
+        if (n->edge[DIR_CURVED].dest) {
+            int idx = traffic_node_index(n->edge[DIR_CURVED].dest);
+            checks[c++] = idx;
+            checks[c++] = traffic_reverse_index(idx);
+        }
+
+        for (int j = 0; j < c; j++) {
+            int idx = checks[j];
+            int owner;
+            if (idx < 0 || idx >= TRACK_MAX) continue;
+            owner = node_owner[idx];
+            if (owner < 0) continue;
+            total = append_unique_train(unique, total, 6, owner);
+        }
+        break;
+    }
+    for (int i = 0; out_trains && i < total && i < max_trains; i++) out_trains[i] = unique[i];
+    return total;
+}
+
+void traffic_snapshot_reservations(int out_owners[TRACK_MAX]) {
+    if (!out_owners) return;
+    for (int i = 0; i < TRACK_MAX; i++) out_owners[i] = node_owner[i];
+}
+
+void traffic_restore_reservations(const int owners[TRACK_MAX]) {
+    if (!owners) return;
+    for (int i = 0; i < TRACK_MAX; i++) node_owner[i] = owners[i];
+}
+
+void traffic_simulate_parked_train(int train_num, track_node *last_hit,
+                                   track_node *next_hit) {
+    uint8_t keep[TRACK_MAX];
+    build_keep_body_marks(keep, last_hit, next_hit);
+
+    for (int i = 0; i < TRACK_MAX; i++) {
+        if (node_owner[i] == train_num) node_owner[i] = -1;
+    }
+    for (int i = 0; i < TRACK_MAX; i++) {
+        if (keep[i]) node_owner[i] = train_num;
+    }
 }
 
 int traffic_get_reserved_nodes(int train_num, uint16_t *out, int max_nodes) {

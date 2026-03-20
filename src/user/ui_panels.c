@@ -239,6 +239,33 @@ static int ui_text_len(const char *s) {
     return n;
 }
 
+static char *ui_append_deadlock_warn(char *p, const pos_deadlock_notice_t *notice) {
+    if (!notice || !notice->active) return p;
+
+    p = buf_append(p, "deadlock ");
+    for (int i = 0; i < notice->cycle_count; i++) {
+        if (i > 0) p = buf_append(p, ",");
+        p = buf_append_int(p, notice->cycle_trains[i]);
+    }
+
+    if (notice->unresolved || !notice->yield_target || !notice->blocked_target) {
+        p = buf_append(p, " unresolved");
+        return p;
+    }
+
+    p = buf_append(p, " reroute ");
+    p = buf_append_int(p, notice->victim_train);
+    p = buf_append(p, " ");
+    p = buf_append(p, notice->blocked_target->name ? notice->blocked_target->name : "-");
+    p = buf_append(p, "->");
+    p = buf_append(p, notice->yield_target->name ? notice->yield_target->name : "-");
+    if (notice->resume_target && notice->resume_target->name) {
+        p = buf_append(p, " resume ");
+        p = buf_append(p, notice->resume_target->name);
+    }
+    return p;
+}
+
 typedef struct {
     uint16_t idx;
     uint8_t  hidden;
@@ -522,7 +549,10 @@ void ui_draw_position(void) {
     p = ui_move_to_row(p, 29);
     p = buf_append(p, "Warn: ");
     {
+        pos_deadlock_notice_t deadlock_notice;
         int warned = 0;
+        pos_get_deadlock_notice(&deadlock_notice);
+
         for (int i = 0; i < MAX_POS_TRAINS; i++) {
             train_pos_t *pos = pos_get_by_index(i);
             if (!pos || pos->train_num < 0) continue;
@@ -533,14 +563,26 @@ void ui_draw_position(void) {
                 warned = 1;
                 break;
             }
-            if (pos->offroute_valid &&
-                pos->offroute_expected_sensor && pos->offroute_expected_sensor->name) {
-                p = buf_append(p, "tr");
-                p = buf_append_int(p, pos->train_num);
-                p = buf_append(p, " off-route exp=");
-                p = buf_append(p, pos->offroute_expected_sensor->name);
-                warned = 1;
-                break;
+        }
+        if (!warned && deadlock_notice.active &&
+            (deadlock_notice.unresolved ||
+             (deadlock_notice.expire_us > 0 && now_us <= deadlock_notice.expire_us))) {
+            p = ui_append_deadlock_warn(p, &deadlock_notice);
+            warned = 1;
+        }
+        if (!warned) {
+            for (int i = 0; i < MAX_POS_TRAINS; i++) {
+                train_pos_t *pos = pos_get_by_index(i);
+                if (!pos || pos->train_num < 0) continue;
+                if (pos->offroute_valid &&
+                    pos->offroute_expected_sensor && pos->offroute_expected_sensor->name) {
+                    p = buf_append(p, "tr");
+                    p = buf_append_int(p, pos->train_num);
+                    p = buf_append(p, " off-route exp=");
+                    p = buf_append(p, pos->offroute_expected_sensor->name);
+                    warned = 1;
+                    break;
+                }
             }
         }
         if (!warned) {

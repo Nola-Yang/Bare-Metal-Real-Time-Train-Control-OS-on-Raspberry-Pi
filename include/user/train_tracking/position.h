@@ -58,6 +58,7 @@ typedef struct {
     int      retry_count;    /* exponential backoff retry counter */
     uint32_t rand_state;     /* LCG state for jitter randomization */
     uint32_t seen_generation; /* last reservation-change generation observed */
+    uint8_t  blocker_mask;   /* bitmask of trains currently blocking this replan */
 } pos_replan_t;
 
 typedef struct {
@@ -65,6 +66,27 @@ typedef struct {
     track_node *orig_target;
     int32_t    orig_offset_mm;
 } pos_dead_track_recover_t;
+
+typedef struct {
+    uint8_t    valid;
+    track_node *resume_target;
+    int32_t    resume_offset_mm;
+    track_node *yield_target;
+    uint8_t    wait_start_mask;
+    uint8_t    parked_at_yield;
+} pos_deadlock_recover_t;
+
+typedef struct {
+    uint8_t    active;
+    uint8_t    unresolved;
+    int        victim_train;
+    int        cycle_trains[6];
+    int        cycle_count;
+    track_node *blocked_target;
+    track_node *yield_target;
+    track_node *resume_target;
+    uint64_t   expire_us;
+} pos_deadlock_notice_t;
 
 /* ---------- Per-train position state ---------- */
 
@@ -146,6 +168,7 @@ typedef struct {
     uint8_t     force_offroute_on_next_sensor;
     uint8_t     dead_track_rescue_pending;
     pos_dead_track_recover_t dead_track_recover;
+    pos_deadlock_recover_t deadlock_recover;
 
     /* Mid-route reversal */
     pos_midrev_t midrev;
@@ -243,6 +266,8 @@ int pos_queue_goto(int train_num, track_node *target, int32_t offset_mm);
 void pos_mark_routes_dirty(void);
 
 void pos_reset_dead_train(int train_num);
+
+void pos_get_deadlock_notice(pos_deadlock_notice_t *out);
 
 /* Find a track node by name.
  * Returns NULL if not found. */

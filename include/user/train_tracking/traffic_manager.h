@@ -52,6 +52,25 @@ void traffic_refresh_route_reservation(int train_num, track_node *cur_sensor,
  * reservations. Returns -1 when safe; otherwise returns the blocking train number. */
 int traffic_can_set_switch(int sw_num, int requester_train);
 
+/* Collect unique train numbers that currently block reserving `plan`.
+ * Returns total unique blocker count and fills up to max_trains entries. */
+int traffic_collect_plan_blockers(int requester_train, const route_plan_t *plan,
+                                  int *out_trains, int max_trains);
+
+/* Collect unique train numbers occupying the safety envelope around `sw_num`.
+ * Returns total unique blocker count and fills up to max_trains entries. */
+int traffic_collect_switch_envelope_blockers(int sw_num, int *out_trains,
+                                             int max_trains);
+
+/* Copy and restore the current reservation owner map for local simulations. */
+void traffic_snapshot_reservations(int out_owners[TRACK_MAX]);
+void traffic_restore_reservations(const int owners[TRACK_MAX]);
+
+/* Simulate a stopped train holding the same keep-body window that
+ * traffic_release_train_keep_body() would preserve after stopping at last_hit. */
+void traffic_simulate_parked_train(int train_num, track_node *last_hit,
+                                   track_node *next_hit);
+
 /* Attribute a sensor hit to the best train, or return owner=NULL when the
  * event remains spurious after all rescue logic. */
 traffic_attr_result_t traffic_attribute_sensor(track_node *hit, uint64_t time_us);
