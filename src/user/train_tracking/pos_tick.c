@@ -108,11 +108,19 @@ static void release_stop_reservation(train_pos_t *pos) {
                                     TRAIN_BODY_MM, keep_end);
 }
 
+static int pos_targets_same_sensor(track_node *a, track_node *b) {
+    if (!a || !b) return 0;
+    return a == b || a->reverse == b || b->reverse == a;
+}
+
 static void handle_normal_stop(train_pos_t *pos) {
-    track_node *arrived_target;
+    track_node *stopped_target;
 
     pos->route_state = TRAIN_STATE_STOPPED;
-    arrived_target = pos->target_sensor;
+    /* STOPPING -> STOPPED means the train reached the planned stop target even
+     * if that final sensor never physically fired; use the planned target, not
+     * cur_sensor, to arm deadlock-yield resume. */
+    stopped_target = pos->target_sensor;
     release_stop_reservation(pos);
     pos_clear_prediction(pos);
 
@@ -126,7 +134,7 @@ static void handle_normal_stop(train_pos_t *pos) {
 
     if (pos->deadlock_recover.valid &&
         pos->deadlock_recover.resume_target != NULL &&
-        arrived_target == pos->deadlock_recover.yield_target) {
+        pos_targets_same_sensor(stopped_target, pos->deadlock_recover.yield_target)) {
         pos->pending_target = pos->deadlock_recover.resume_target;
         pos->pending_offset_mm = pos->deadlock_recover.resume_offset_mm;
         pos->orig_user_target = pos->deadlock_recover.resume_target;

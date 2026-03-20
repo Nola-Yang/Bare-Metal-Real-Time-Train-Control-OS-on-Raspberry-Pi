@@ -63,9 +63,10 @@ static int deadlock_bit_count(uint8_t mask) {
     return count;
 }
 
-static int deadlock_train_has_started(const train_pos_t *pos) {
+static int deadlock_train_has_reserved_route(const train_pos_t *pos) {
     if (!pos) return 0;
     switch (pos->route_state) {
+    case TRAIN_STATE_WAIT_SWITCH_SETTLE:
     case TRAIN_STATE_ON_ROUTE:
     case TRAIN_STATE_STOPPING:
     case TRAIN_STATE_RECOVERY_STOPPING:
@@ -335,6 +336,16 @@ static void deadlock_reset_midrev_for_reroute(train_pos_t *pos) {
     pos->midrev.path2_count = 0;
 }
 
+static track_node *deadlock_actual_yield_target(const train_pos_t *pos,
+                                                track_node *fallback) {
+    if (!pos) return fallback;
+    if (pos->midrev.active && pos->midrev.final_target != NULL) {
+        return pos->midrev.final_target;
+    }
+    if (pos->target_sensor != NULL) return pos->target_sensor;
+    return fallback;
+}
+
 static int deadlock_apply_reroute(train_pos_t *victim, uint8_t cycle_mask,
                                   uint64_t now_us, int resume_after_yield) {
     track_node *yield_target = NULL;
@@ -359,10 +370,14 @@ static int deadlock_apply_reroute(train_pos_t *victim, uint8_t cycle_mask,
 
     if (!pos_pick_deadlock_yield_target(victim, cycle_mask, &yield_target,
                                         &unblocked_mask) ||
-        !yield_target || unblocked_mask == 0) {
+        !yield_target) {
         deadlock_write_notice(cycle_mask, victim->train_num, blocked_target, NULL,
                               resume_target, 0, 1);
         return 0;
+    }
+
+    if (resume_after_yield && unblocked_mask == 0) {
+        unblocked_mask = cycle_mask & (uint8_t)~pos_deadlock_train_bit(victim->train_num);
     }
 
     if (resume_after_yield && !victim->deadlock_recover.valid) {
@@ -397,6 +412,11 @@ static int deadlock_apply_reroute(train_pos_t *victim, uint8_t cycle_mask,
                               resume_after_yield ? victim->deadlock_recover.resume_target : NULL,
                               0, 1);
         return 0;
+    }
+
+    yield_target = deadlock_actual_yield_target(victim, yield_target);
+    if (resume_after_yield) {
+        victim->deadlock_recover.yield_target = yield_target;
     }
 
     deadlock_write_notice(cycle_mask, victim->train_num, blocked_target, yield_target,
@@ -435,7 +455,7 @@ static int deadlock_apply_stopped_blocker_reroute(uint8_t cycle_mask,
     return 0;
 }
 
-static int deadlock_resume_waiting_trains_started(uint8_t wait_start_mask) {
+static int deadlock_resume_waiting_trains_reserved(uint8_t wait_start_mask) {
     int any_waiting = 0;
 
     for (int i = 0; i < 6; i++) {
@@ -445,7 +465,9 @@ static int deadlock_resume_waiting_trains_started(uint8_t wait_start_mask) {
 
         other = pos_get(pos_deadlock_index_to_train(i));
         if (!other) continue;
-        if (deadlock_train_has_started(other)) return 1;
+        /* Once a blocked peer has reserved a route, it can make progress;
+         * the yielded train does not need to wait for physical movement. */
+        if (deadlock_train_has_reserved_route(other)) return 1;
         if (other->route_state == TRAIN_STATE_WAIT_RESOURCE) any_waiting = 1;
     }
 
@@ -461,7 +483,7 @@ int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos) {
     if (pos->deadlock_recover.yield_target == NULL) return 0;
     if (!pos->deadlock_recover.parked_at_yield) return 0;
     if (pos->deadlock_recover.wait_start_mask != 0 &&
-        !deadlock_resume_waiting_trains_started(pos->deadlock_recover.wait_start_mask)) {
+        !deadlock_resume_waiting_trains_reserved(pos->deadlock_recover.wait_start_mask)) {
         return 0;
     }
 

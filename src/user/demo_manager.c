@@ -289,7 +289,6 @@ static void demo_finish_locate(void) {
     demo_reset_slots();
     g_demo_last_ui_uptime_sec = UINT32_MAX;
     ui_mark_position_dirty();
-    ui_cmd_puts("findpos: completed\r\n");
 }
 
 static int demo_start_next_unstarted(void) {
