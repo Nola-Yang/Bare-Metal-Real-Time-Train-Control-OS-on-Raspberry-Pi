@@ -5,7 +5,7 @@
 #include "task_scheduler.h"
 
 // Message types for train control task
-#define TRAIN_MSG_CHAR      0   // Keyboard character input
+#define TRAIN_MSG_COMMAND   0   // Complete command line input
 #define TRAIN_MSG_CAN_FRAME 1   // CAN frame received
 #define TRAIN_MSG_RV_REQUEST  3   // Reverse delay task requests parameters
 #define TRAIN_MSG_RV_COMPLETE 4
@@ -14,11 +14,12 @@
 #define TRAIN_POS_REPLAN_TICK 7   // Replan the route for the trains
 #define TRAIN_POS_SWITCH_SETTLE_TICK 8   // Complete deferred post-switch launches
 
+#define TRAIN_CMD_MAX_LEN 80
 
 typedef struct {
     int type;
-    char ch;
     int train;
+    char cmdline[TRAIN_CMD_MAX_LEN];
     can_frame_t frame;
     uint64_t arrival_us;   // frame arrival time stamped by courier
 } TrainControlMsg_t;
@@ -32,8 +33,8 @@ typedef struct {
 // Main train control task
 void train_control_task(void);
 
-// Keyboard courier task
-void keyboard_courier_task(void);
+// Command input task
+void command_input_task(void);
 
 // Periodic UI refresh task
 void ui_tick_task(void);

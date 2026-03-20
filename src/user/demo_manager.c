@@ -278,7 +278,7 @@ static void demo_try_finish_stop(uint64_t now_us) {
     demo_reset_slots();
     g_demo_last_ui_uptime_sec = UINT32_MAX;
     ui_mark_position_dirty();
-    ui_puts("demo: stopped\r\n");
+    ui_cmd_puts("demo: stopped\r\n");
 }
 
 static void demo_finish_locate(void) {
@@ -289,7 +289,7 @@ static void demo_finish_locate(void) {
     demo_reset_slots();
     g_demo_last_ui_uptime_sec = UINT32_MAX;
     ui_mark_position_dirty();
-    ui_puts("findpos: completed\r\n");
+    ui_cmd_puts("findpos: completed\r\n");
 }
 
 static int demo_start_next_unstarted(void) {
@@ -376,14 +376,14 @@ static int demo_start_session(demo_mode_t mode,
     const char *mode_prefix = (mode == DEMO_MODE_GOLD) ? "demo gold" : "findpos";
 
     if (g_demo_mode != DEMO_MODE_OFF) {
-        ui_puts("demo: already running, use `demo stop`\r\n");
+        ui_cmd_puts("demo: already running, use `demo stop`\r\n");
         return 2;
     }
 
     for (int i = 0; i < train_count; i++) {
         if (pos_is_train_goto_active(trains[i])) {
-            ui_puts(mode_prefix);
-            ui_puts(": train busy with active goto\r\n");
+            ui_cmd_puts(mode_prefix);
+            ui_cmd_puts(": train busy with active goto\r\n");
             return 2;
         }
     }
@@ -404,8 +404,8 @@ static int demo_start_session(demo_mode_t mode,
             g_demo_mode = DEMO_MODE_OFF;
             g_demo_state = DEMO_RUN_FAILED;
             demo_reset_slots();
-            ui_puts(mode_prefix);
-            ui_puts(": failed to allocate slots\r\n");
+            ui_cmd_puts(mode_prefix);
+            ui_cmd_puts(": failed to allocate slots\r\n");
             return 2;
         }
     }
@@ -416,17 +416,17 @@ static int demo_start_session(demo_mode_t mode,
         g_demo_state = DEMO_RUN_FAILED;
         demo_reset_slots();
         if (mode == DEMO_MODE_GOLD) {
-            ui_puts("demo gold: failed initial dispatch\r\n");
+            ui_cmd_puts("demo gold: failed initial dispatch\r\n");
         } else {
-            ui_puts("findpos: failed initial bootstrap\r\n");
+            ui_cmd_puts("findpos: failed initial bootstrap\r\n");
         }
         return 2;
     }
 
     if (mode == DEMO_MODE_GOLD) {
-        ui_puts("demo gold: bootstrapping trains one by one\r\n");
+        ui_cmd_puts("demo gold: bootstrapping trains one by one\r\n");
     } else {
-        ui_puts("findpos: bootstrapping trains one by one\r\n");
+        ui_cmd_puts("findpos: bootstrapping trains one by one\r\n");
     }
     ui_mark_position_dirty();
     return 2;
@@ -440,12 +440,12 @@ static int demo_start_gold(int argc, char *argv[]) {
     for (int i = 2; i < argc; i++) {
         int v = 0;
         if (!parse_int_token_local(argv[i], &v)) {
-            ui_puts("demo start: numeric args required\r\n");
+            ui_cmd_puts("demo start: numeric args required\r\n");
             return 2;
         }
         if (track_is_valid_train(v) && train_count < DEMO_MAX_TRAINS) {
             if (train_seen(trains, train_count, v)) {
-                ui_puts("demo start: duplicate train\r\n");
+                ui_cmd_puts("demo start: duplicate train\r\n");
                 return 2;
             }
             trains[train_count++] = v;
@@ -455,12 +455,12 @@ static int demo_start_gold(int argc, char *argv[]) {
             seed_override = v;
             continue;
         }
-        ui_puts("demo start: invalid argument order\r\n");
+        ui_cmd_puts("demo start: invalid argument order\r\n");
         return 2;
     }
 
     if (train_count < 1) {
-        ui_puts("Usage: demo start <t1> [t2] [t3] [t4] [seed]\r\n");
+        ui_cmd_puts("Usage: demo start <t1> [t2] [t3] [t4] [seed]\r\n");
         return 2;
     }
 
@@ -474,26 +474,26 @@ static int demo_start_locate(int argc, char *argv[]) {
     for (int i = 2; i < argc; i++) {
         int v = 0;
         if (!parse_int_token_local(argv[i], &v)) {
-            ui_puts("findpos: train numbers required\r\n");
+            ui_cmd_puts("findpos: train numbers required\r\n");
             return 2;
         }
         if (!track_is_valid_train(v)) {
-            ui_puts("findpos: invalid train\r\n");
+            ui_cmd_puts("findpos: invalid train\r\n");
             return 2;
         }
         if (train_count >= DEMO_MAX_TRAINS) {
-            ui_puts("findpos: too many trains\r\n");
+            ui_cmd_puts("findpos: too many trains\r\n");
             return 2;
         }
         if (train_seen(trains, train_count, v)) {
-            ui_puts("findpos: duplicate train\r\n");
+            ui_cmd_puts("findpos: duplicate train\r\n");
             return 2;
         }
         trains[train_count++] = v;
     }
 
     if (train_count < 1) {
-        ui_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
+        ui_cmd_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
         return 2;
     }
 
@@ -507,69 +507,69 @@ int demo_handle_command(int argc, char *argv[]) {
     }
 
     if (argc == 1) {
-        ui_puts("Usage: demo <start|locate|stop|tune|seed> ...\r\n");
+        ui_cmd_puts("Usage: demo <start|locate|stop|tune|seed> ...\r\n");
         return 2;
     }
 
     if (tok_eq(argv[1], "stop")) {
         if (g_demo_mode == DEMO_MODE_OFF) {
-            ui_puts("demo: already stopped\r\n");
+            ui_cmd_puts("demo: already stopped\r\n");
             return 2;
         }
         if (argc >= 3 && tok_eq(argv[2], "force")) {
             demo_force_stop();
-            ui_puts("demo: force-stopped\r\n");
+            ui_cmd_puts("demo: force-stopped\r\n");
             return 2;
         }
         if (g_demo_state == DEMO_RUN_STOPPING) {
-            ui_puts("demo: still stopping; use `demo stop force` to reset immediately\r\n");
+            ui_cmd_puts("demo: still stopping; use `demo stop force` to reset immediately\r\n");
             return 2;
         }
         g_demo_state = DEMO_RUN_STOPPING;
         g_demo_stop_request_us = read_timer();
         ui_mark_position_dirty();
-        ui_puts("demo: stopping (no new missions)\r\n");
+        ui_cmd_puts("demo: stopping (no new missions)\r\n");
         return 2;
     }
 
     if (tok_eq(argv[1], "seed")) {
         if (argc != 3) {
-            ui_puts("Usage: demo seed <u32>\r\n");
+            ui_cmd_puts("Usage: demo seed <u32>\r\n");
             return 2;
         }
         int sv = 0;
         if (!parse_int_token_local(argv[2], &sv)) {
-            ui_puts("demo seed: numeric value required\r\n");
+            ui_cmd_puts("demo seed: numeric value required\r\n");
             return 2;
         }
         demo_seed_rng((uint32_t)sv);
         ui_mark_position_dirty();
-        ui_puts("demo seed: updated\r\n");
+        ui_cmd_puts("demo seed: updated\r\n");
         return 2;
     }
 
     if (tok_eq(argv[1], "tune")) {
         if (argc != 4) {
-            ui_puts("Usage: demo tune <trip> <mm>\r\n");
+            ui_cmd_puts("Usage: demo tune <trip> <mm>\r\n");
             return 2;
         }
         int mm = 0;
         if (!parse_int_token_local(argv[3], &mm) || mm <= 0) {
-            ui_puts("demo tune: positive mm required\r\n");
+            ui_cmd_puts("demo tune: positive mm required\r\n");
             return 2;
         }
         if (tok_eq(argv[2], "trip")) {
             g_gold_min_trip_mm = mm;
-            ui_puts("demo tune trip: updated\r\n");
+            ui_cmd_puts("demo tune trip: updated\r\n");
             return 2;
         }
-        ui_puts("demo tune: unknown key\r\n");
+        ui_cmd_puts("demo tune: unknown key\r\n");
         return 2;
     }
 
     if (tok_eq(argv[1], "start")) {
         if (argc < 3 || argc > 7) {
-            ui_puts("Usage: demo start <t1> [t2] [t3] [t4] [seed]\r\n");
+            ui_cmd_puts("Usage: demo start <t1> [t2] [t3] [t4] [seed]\r\n");
             return 2;
         }
         return demo_start_gold(argc, argv);
@@ -577,13 +577,13 @@ int demo_handle_command(int argc, char *argv[]) {
 
     if (tok_eq(argv[1], "locate")) {
         if (argc < 3 || argc > 6) {
-            ui_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
+            ui_cmd_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
             return 2;
         }
         return demo_start_locate(argc, argv);
     }
 
-    ui_puts("demo: unknown subcommand\r\n");
+    ui_cmd_puts("demo: unknown subcommand\r\n");
     return 2;
 }
 

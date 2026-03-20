@@ -18,6 +18,7 @@
 #define IO_NOTIFIER_PRIORITY          1  // Notifiers: highest after nameserver
 #define TERMINAL_SERVER_PRIORITY      2  // Same as clock server
 #define CAN_SERVER_PRIORITY           2  // Same as clock server
+#define UI_SERVER_PRIORITY            2  // Serialized terminal UI output
 #define TRAIN_CONTROL_PRIORITY        3  // Application task
 #define TRAIN_COURIER_PRIORITY        4  
 

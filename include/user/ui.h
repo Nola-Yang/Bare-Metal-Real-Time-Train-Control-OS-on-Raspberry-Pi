@@ -36,5 +36,6 @@ void ui_mark_prediction_dirty(void);
 
 // Output helper
 void ui_puts(const char *str);
+void ui_cmd_puts(const char *str);
 
 #endif /* _ui_h_ */

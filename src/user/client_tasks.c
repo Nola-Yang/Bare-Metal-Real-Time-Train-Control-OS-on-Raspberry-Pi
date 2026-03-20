@@ -7,6 +7,7 @@
 #include "min_heap.h"
 #include "server/terminal_server.h"
 #include "server/can_server.h"
+#include "server/ui_server.h"
 #include "train_control.h"
 #include "spi.h"
 #include "mcp2515.h"
@@ -27,6 +28,9 @@ void first_user_task() {
 
     int term_tid = Create(TERMINAL_SERVER_PRIORITY, terminal_server_task);
     KASSERT(term_tid >= 0);
+
+    int ui_tid = Create(UI_SERVER_PRIORITY, ui_server_task);
+    KASSERT(ui_tid >= 0);
 
     int clock_tid = Create(CLOCK_SERVER_PRIORITY, clock_server_task);
     KASSERT(clock_tid >= 0);

@@ -1,9 +1,12 @@
 #include "ui.h"
 #include "ui_priv.h"
 #include "util.h"
-#include "server/terminal_server.h"
+#include "server/nameserver.h"
+#include "server/ui_server.h"
+#include "syscall.h"
+#include "kassert.h"
 
-static int term_tid = -1;
+static int ui_server_tid = -1;
 static int ui_switches_dirty  = 1;
 static int ui_sensors_dirty   = 1;
 static int ui_position_dirty  = 1;
@@ -11,27 +14,39 @@ static int ui_position_dirty  = 1;
 static char last_clock_buf[8] = "00:00.0";
 static int last_idle_percent = -1;
 
+static int ui_strlen(const char *str) {
+    int len = 0;
+    while (str != NULL && str[len]) {
+        len++;
+    }
+    return len;
+}
+
 void ui_puts(const char *str) {
-    if (term_tid < 0 || str == NULL) {
+    if (ui_server_tid < 0 || str == NULL) {
         return;
     }
 
-    const char *p = str;
-    while (*p) {
-        const char *chunk = p;
-        int len = 0;
-        while (*p && len < TERM_MAX_STR_LEN) {
-            ++p;
-            ++len;
-        }
-        if (len > 0) {
-            Puts(term_tid, TERM_CHANNEL_CONSOLE, chunk, len);
-        }
+    UIServerPuts(ui_server_tid, str, ui_strlen(str));
+}
+
+void ui_cmd_puts(const char *str) {
+    if (ui_server_tid < 0 || str == NULL) {
+        return;
     }
+
+    UIServerCmdPuts(ui_server_tid, str, ui_strlen(str));
 }
 
 void ui_init(int terminal_tid) {
-    term_tid = terminal_tid;
+    (void)terminal_tid;
+
+    while (ui_server_tid < 0) {
+        ui_server_tid = WhoIs(UI_SERVER_NAME);
+        if (ui_server_tid < 0) {
+            Yield();
+        }
+    }
 
     ui_puts("\033[2J\033[H\033[?25l");
     ui_puts("=== Train Control System CS652 K4 ===\r\n");
@@ -53,47 +68,43 @@ void ui_init(int terminal_tid) {
 }
 
 void ui_prepare_cmd(void) {
-    if (term_tid < 0) {
+    if (ui_server_tid < 0) {
         return;
     }
 
-    char *temp_buf = buf_get_temp();
-    char *p = temp_buf;
-
-    p = buf_append(p, "\033[");
-    p = buf_append_int(p, UI_CMD_SCROLL_TOP);
-    p = buf_append(p, ";");
-    p = buf_append_int(p, UI_CMD_SCROLL_BOTTOM);
-    p = buf_append(p, "r");
-
-    p = buf_append(p, "\033[");
-    p = buf_append_int(p, UI_CMD_SCROLL_TOP);
-    p = buf_append(p, ";1Hcmd> ");
-
-    *p = '\0';
-    ui_puts(temp_buf);
+    UIServerPrepareCmd(ui_server_tid);
 }
 
 void ui_scroll_cmd(void) {
-    if (term_tid < 0) {
+    if (ui_server_tid < 0) {
         return;
     }
-    ui_puts("\r\n");
+
+    UIServerCmdEnter(ui_server_tid);
 }
 
 void ui_cmd_newprompt(void) {
-    if (term_tid < 0) {
+    if (ui_server_tid < 0) {
         return;
     }
-    ui_puts("\r\033[2Kcmd> ");
+
+    UIServerCmdPrompt(ui_server_tid);
 }
 
 void ui_cmd_backspace(void) {
-    ui_puts("\b \b");
+    if (ui_server_tid < 0) {
+        return;
+    }
+
+    UIServerCmdBackspace(ui_server_tid);
 }
 
 void ui_cmd_putc(char c) {
-    Putc(term_tid, TERM_CHANNEL_CONSOLE, c);
+    if (ui_server_tid < 0) {
+        return;
+    }
+
+    UIServerCmdPutc(ui_server_tid, c);
 }
 
 void ui_update_clock(uint64_t start_us, uint64_t now) {
@@ -101,32 +112,29 @@ void ui_update_clock(uint64_t start_us, uint64_t now) {
     char clock_buf[8];
     clock_render(elapsed, clock_buf);
 
-    {
-        int has_changes = 0;
+    int has_changes = 0;
+    for (int i = 0; i < 7; i++) {
+        if (clock_buf[i] != last_clock_buf[i]) {
+            has_changes = 1;
+            break;
+        }
+    }
+
+    if (has_changes) {
+        char *temp_buf = buf_get_temp();
+        char *p = temp_buf;
+
         for (int i = 0; i < 7; i++) {
             if (clock_buf[i] != last_clock_buf[i]) {
-                has_changes = 1;
-                break;
+                p = buf_append(p, "\033[5;");
+                p = buf_append_int(p, 7 + i);
+                p = buf_append_char(p, 'H');
+                p = buf_append_char(p, clock_buf[i]);
+                last_clock_buf[i] = clock_buf[i];
             }
         }
-
-        if (has_changes) {
-            char *temp_buf = buf_get_temp();
-            char *p = temp_buf;
-
-            for (int i = 0; i < 7; i++) {
-                if (clock_buf[i] != last_clock_buf[i]) {
-                    p = buf_append(p, "\033[s\033[5;");
-                    p = buf_append_int(p, 7 + i);
-                    p = buf_append_char(p, 'H');
-                    p = buf_append_char(p, clock_buf[i]);
-                    p = buf_append(p, "\033[u");
-                    last_clock_buf[i] = clock_buf[i];
-                }
-            }
-            *p = '\0';
-            ui_puts(temp_buf);
-        }
+        *p = '\0';
+        ui_puts(temp_buf);
     }
 }
 
@@ -144,9 +152,9 @@ void ui_update_idle(int percent) {
     char *temp_buf = buf_get_temp();
     char *p = temp_buf;
 
-    p = buf_append(p, "\033[s\033[6;1HIdle: ");
+    p = buf_append(p, "\033[6;1HIdle: ");
     p = buf_append_int(p, percent);
-    p = buf_append(p, "%\033[K\033[u");
+    p = buf_append(p, "%\033[K");
     *p = '\0';
 
     ui_puts(temp_buf);
