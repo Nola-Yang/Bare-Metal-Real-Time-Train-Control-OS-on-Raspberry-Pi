@@ -19,8 +19,9 @@ extern uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS];
  * from the predicted next sensor (off-route / skip detection). */
 #define OFF_ROUTE_PATH_MAX_HOPS 120
 
-/* Dead-track timeout multiplier relative to the next predicted sensor interval. */
-#define DEAD_TRACK_TIMEOUT 10000000
+/* Dead-track timeout is prediction-relative, but never shorter than this floor. */
+#define DEAD_TRACK_TIMEOUT_MIN_US 5000000ULL
+#define DEAD_TRACK_TIMEOUT_MULTIPLIER 3ULL
 
 /* Fixed user speed used for all goto operations. */
 #define GOTO_USER_SPEED 8
@@ -100,6 +101,9 @@ void pos_clear_prediction(train_pos_t *pos);
 /* Refresh dead-track timeout using the current prediction when available,
  * otherwise fall back to the current sensor anchor (used after reversals). */
 void pos_refresh_dead_track_deadline(train_pos_t *pos, uint64_t now_us);
+
+/* Convert a predicted next-sensor interval into an absolute dead-track deadline. */
+uint64_t pos_dead_track_deadline_from_interval(uint64_t now_us, uint64_t interval_us);
 
 /* If pending_target is NULL but orig_user_target is set, restore it so the
  * next replan attempt can reach the original destination. */

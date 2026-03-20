@@ -114,6 +114,7 @@ static void handle_normal_stop(train_pos_t *pos) {
     pos->route_state = TRAIN_STATE_STOPPED;
     arrived_target = pos->target_sensor;
     release_stop_reservation(pos);
+    pos_clear_prediction(pos);
 
     if (pos->queued_valid && pos->queued_target) {
         pos->orig_user_target = NULL;
@@ -203,6 +204,7 @@ static int tick_handle_stopping_tr(train_pos_t *pos, uint64_t now_us) {
                                     TRAIN_BODY_MM,
                                     pos_release_keep_end(pos->cur_sensor,
                                                          pos->pred.next_sensor));
+    pos_clear_prediction(pos);
     start_queued_goto_if_any(pos);
     ui_mark_position_dirty();
     return 1;
@@ -221,6 +223,7 @@ static int tick_handle_stopping_goto(train_pos_t *pos, uint64_t now_us) {
                                         TRAIN_BODY_MM,
                                         pos_release_keep_end(pos->cur_sensor,
                                                              pos->pred.next_sensor));
+        pos_clear_prediction(pos);
         ui_mark_position_dirty();
     } else {
         int ok = pos_try_direct_goto(pos);
@@ -260,6 +263,7 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
         if (rem <= d_early) {
             pos->route_state = TRAIN_STATE_STOPPING;
             pos->stopping_since_us = now_us;
+            pos->dead_track_deadline_us = 0;
             track_set_speed(pos->train_num, 0);
             ui_mark_position_dirty();
             return 1;
@@ -329,8 +333,7 @@ static void enter_terminal_dead_track(train_pos_t *pos) {
 /* Detect dead-track: no sensor fired before the deadline. */
 static int tick_check_dead_track(train_pos_t *pos, uint64_t now_us) {
     if (pos->route_state != TRAIN_STATE_FIND_POS &&
-        pos->route_state != TRAIN_STATE_ON_ROUTE &&
-        pos->route_state != TRAIN_STATE_STOPPING) return 0;
+        pos->route_state != TRAIN_STATE_ON_ROUTE) return 0;
     if (pos->dead_track_deadline_us == 0) return 0;
     if (now_us <= pos->dead_track_deadline_us) return 0;
 
@@ -405,7 +408,6 @@ void pos_on_tick(uint64_t now_us) {
             continue;
         }
         if (pos->route_state == TRAIN_STATE_STOPPING) {
-            if (tick_check_dead_track(pos, now_us)) continue;
             tick_handle_stopping(pos, now_us);
             continue;
         }

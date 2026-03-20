@@ -141,11 +141,8 @@ static void update_next_prediction(train_pos_t *pos, track_node *hit, uint64_t t
 
     pos->pred.trigger_time = (dt_pred > 0) ? time_us + dt_pred : 0;
     
-    if (dt_pred > 0) {
-        pos->dead_track_deadline_us = time_us + DEAD_TRACK_TIMEOUT;
-    } else {
-        pos->dead_track_deadline_us = 0;
-    }
+    pos->dead_track_deadline_us =
+        pos_dead_track_deadline_from_interval(time_us, dt_pred);
 }
 
 static void enter_recovery_stop(train_pos_t *pos,

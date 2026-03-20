@@ -196,6 +196,25 @@ static track_node *predict_next_sensor_preserve_pred(train_pos_t *pos,
     return next;
 }
 
+uint64_t pos_dead_track_deadline_from_interval(uint64_t now_us, uint64_t interval_us) {
+    uint64_t timeout_us;
+
+    if (interval_us == 0) return 0;
+
+    if (interval_us > UINT64_MAX / DEAD_TRACK_TIMEOUT_MULTIPLIER) {
+        timeout_us = UINT64_MAX;
+    } else {
+        timeout_us = interval_us * DEAD_TRACK_TIMEOUT_MULTIPLIER;
+    }
+
+    if (timeout_us < DEAD_TRACK_TIMEOUT_MIN_US) {
+        timeout_us = DEAD_TRACK_TIMEOUT_MIN_US;
+    }
+
+    if (timeout_us > UINT64_MAX - now_us) return UINT64_MAX;
+    return now_us + timeout_us;
+}
+
 void pos_refresh_dead_track_deadline(train_pos_t *pos, uint64_t now_us) {
     if (!pos) return;
 
@@ -207,11 +226,7 @@ void pos_refresh_dead_track_deadline(train_pos_t *pos, uint64_t now_us) {
         (void)predict_next_sensor_preserve_pred(pos, pos->cur_sensor, &t1);
     }
 
-    if (t1 > 0) {
-        pos->dead_track_deadline_us = now_us + DEAD_TRACK_TIMEOUT;
-    } else {
-        pos->dead_track_deadline_us = 0;
-    }
+    pos->dead_track_deadline_us = pos_dead_track_deadline_from_interval(now_us, t1);
 }
 
 void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
