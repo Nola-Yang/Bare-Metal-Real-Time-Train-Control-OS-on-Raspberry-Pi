@@ -74,6 +74,18 @@ static inline uint8_t pos_deadlock_train_bit(int train_num) {
  * pos->pending_target. Returns 1 and sets ON_ROUTE if route found; 0 otherwise. */
 int pos_try_direct_goto(train_pos_t *pos);
 
+/* Return 1 when `hit` lies on the alternate leg of the next predicted branch. */
+int pos_hit_matches_alt_branch(const train_pos_t *pos, track_node *hit);
+
+/* Advance the per-train sensor FSM after attribution selects an owner. */
+void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us);
+
+/* Restore a dead-track train into recovery if the current hit revives it. */
+void pos_revive_dead_track_for_current_hit(train_pos_t *pos);
+
+/* Update effective_v while the train is still in the acceleration ramp. */
+void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us);
+
 /* Pick the nearest safe deadlock-yield sensor target for the current stopped train.
  * Returns 1 and stores the chosen sensor in *out_target, 0 if none is available. */
 int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
@@ -118,6 +130,12 @@ void pos_save_ema_and_stop(train_pos_t *pos);
 
 /* Clear any pending deadlock-resume chain on the train. */
 void pos_clear_deadlock_recover(train_pos_t *pos);
+
+/* Try to resume a yielded deadlock victim once the blocked peers have moved. */
+int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos);
+
+/* Resume the stored second leg of a mid-route reversal after the stop completes. */
+int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us);
 
 /* Internal deadlock notice state shared with the UI. */
 void pos_set_deadlock_notice(const pos_deadlock_notice_t *notice);
