@@ -1,4 +1,4 @@
-# TC1
+# TC2
 
 [![C](https://img.shields.io/badge/C-005697?style=for-the-badge)](https://en.cppreference.com/w/c/language.html)
 [![ARMv8 Assembly](https://img.shields.io/badge/ARMv8%20Assembly-00BEDB?style=for-the-badge)](https://developer.arm.com/documentation/ddi0602/latest/)
@@ -77,10 +77,13 @@ Restart the selected Raspberry Pi that you have uploaded the image into.
 ### STEP 3.
 Enter commands at the prompt:
 
-   - tr <train> <speed> : set train speed (from 0 to 14)
-   - sw <switch> <S|C>  : set switch direction
-   - rv <train>         : reverse train (stop -> reverse -> restore speed)
-   - q/Q                  : quit/reboot
-   - init               : init all switch to straight
-   - li <train> <1|0>   :turn on/off the train light
-   - goto <train> <node id> [offset+-mm]  (fixed at speed 8)
+| Command | Description |
+| ------- | ----------- |
+| `tr <train> <speed>` | Set train speed (from 0 to 14) |
+| `sw <switch> <S|C>`  | Set switch direction |
+| `rv <train>` | Reverse train (stop -> reverse -> restore speed) |
+| `q/Q` | quit/reboot |
+| `init` | init all switch to straight |
+| `li <train> <1|0>` | Turn on/off the train light |
+| `goto <train> <node id> [offset+-mm]` | Make the train pick up a constant speed (fixed at speed step 8) and stops at a specific track node |
+| `demo start <train1> <train2> [train3] [train4]` | Controls multiple trains on the track | 
