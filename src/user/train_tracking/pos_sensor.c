@@ -189,7 +189,9 @@ void pos_revive_dead_track_for_current_hit(train_pos_t *pos) {
     pos->awaiting_post_launch_sensor = 0;
     pos->route_path_count = 0;
     pos->route_path_cursor = 0;
+    pos->route_reserved_end_cursor = 0;
     pos->route_rem_tick_us = 0;
+    pos_route_authority_reset(pos);
     pos->offroute_valid = 0;
     pos->offroute_expected_sensor = NULL;
     pos->force_offroute_on_next_sensor = 1;
@@ -297,12 +299,7 @@ void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) 
         pos->target_sensor) {
         if (route_hit_cursor >= 0) {
             pos->route_path_cursor = route_hit_cursor;
-            int32_t pd = route_path_dist_from(pos->route_path, route_hit_cursor,
-                                              pos->route_path_count);
-            if (pd >= 0) {
-                pos->dist_to_target_mm = pd + pos->target_offset_mm;
-                if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
-            }
+            pos_route_authority_sync_target(pos);
             pos->route_rem_tick_us = time_us;
         }
     }
@@ -316,6 +313,7 @@ void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) 
                                           pos->pred.next_sensor,
                                           pos->route_path,
                                           pos->route_path_cursor,
+                                          pos->route_reserved_end_cursor,
                                           pos->route_path_count);
     }
 

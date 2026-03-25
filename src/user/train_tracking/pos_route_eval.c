@@ -120,9 +120,9 @@ static void pos_build_fixed_switch_dirs(int requester_train,
     }
 }
 
-static pos_route_eval_result_t pos_evaluate_target(train_pos_t *pos,
-                                                   track_node *user_target,
-                                                   pos_route_eval_t *out) {
+pos_route_eval_result_t pos_evaluate_target_plan(train_pos_t *pos,
+                                                 track_node *user_target,
+                                                 pos_route_eval_t *out) {
     route_plan_t *rp = &g_pos_try_rp;
     route_plan_t *rp_unconstrained = &g_pos_try_rp_unconstrained;
     route_plan_t *rp_temp = &g_pos_try_rp_temp;
@@ -137,9 +137,6 @@ static pos_route_eval_result_t pos_evaluate_target(train_pos_t *pos,
     int have_blocked_plan = 0;
     int32_t best_total = 0;
     int need_initial_reverse = 0;
-    int32_t tv;
-    int32_t ta;
-    int32_t d_brake;
     int32_t d_stop;
     int32_t threshold;
 
@@ -163,12 +160,9 @@ static pos_route_eval_result_t pos_evaluate_target(train_pos_t *pos,
     origins[0] = plan_start;
     origins[1] = reverse_plan_start;
 
-    tv        = speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
-    ta        = speed_table_get_nominal_decel(pos->train_ind, GOTO_USER_SPEED);
-    d_brake   = tv * tv / (2 * ta);
-    d_stop    = d_brake + (int32_t)((int64_t)tv * (int64_t)STOP_EARLY_US[pos->train_ind]
-                                    / 1000000LL);
-    threshold = GOTO_MIN_DIST_FACTOR * d_stop;
+    d_stop    = pos_route_authority_stop_dist_mm(pos);
+    threshold = pos_route_authority_min_mm(pos);
+    if (d_stop <= 0 || threshold <= 0) return POS_ROUTE_EVAL_UNREACHABLE;
 
     traffic_build_constraints(pos->train_num, blocked);
     pos_build_fixed_switch_dirs(pos->train_num, fixed_sw_dirs);
@@ -216,6 +210,7 @@ static pos_route_eval_result_t pos_evaluate_target(train_pos_t *pos,
 
     if (!chosen_origin) {
         if (out && have_blocked_plan) {
+            out->plan = *best_blocked_plan;
             out->blocker_mask = pos_route_blocker_mask_from_plan(pos->train_num,
                                                                  best_blocked_plan);
         }
@@ -237,7 +232,7 @@ pos_route_eval_result_t pos_evaluate_target_ready_now(train_pos_t *pos,
                                                       pos_route_eval_t *out) {
     pos_route_eval_t *eval = out ? out : &g_pos_try_eval_ready;
     route_plan_t reserve_plan;
-    pos_route_eval_result_t result = pos_evaluate_target(pos, user_target, eval);
+    pos_route_eval_result_t result = pos_evaluate_target_plan(pos, user_target, eval);
 
     if (result != POS_ROUTE_EVAL_READY) return result;
 

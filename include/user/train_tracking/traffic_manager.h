@@ -45,6 +45,7 @@ void traffic_release_train_keep_body(int train_num, track_node *last_hit,
 void traffic_refresh_route_reservation(int train_num, track_node *cur_sensor,
                                        track_node *next_hit,
                                        const uint16_t *path, int path_cursor,
+                                       int path_end_cursor,
                                        int path_count);
 
 /* Check if it is safe to set a switch.

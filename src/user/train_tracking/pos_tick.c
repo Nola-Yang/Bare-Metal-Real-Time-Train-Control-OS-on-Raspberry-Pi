@@ -85,19 +85,21 @@ static void release_stop_reservation(train_pos_t *pos) {
 
     keep_end = pos_release_keep_end(pos->cur_sensor, pos->pred.next_sensor);
     keep_after_target = NULL;
-    if (pos->target_sensor != NULL && pos->cur_sensor == pos->target_sensor) {
+    if (pos->target_sensor != NULL &&
+        pos->cur_sensor == pos->target_sensor &&
+        pos_route_authority_is_leg_goal_stop(pos)) {
         track_edge *e = traffic_tm_get_next_edge(pos->cur_sensor);
         if (e) keep_after_target = e->dest;
     }
     keep_remaining_route =
         pos->route_path_count > 0 &&
         pos->route_path_cursor >= 0 &&
-        pos->route_path_cursor < pos->route_path_count - 1;
+        pos->route_path_cursor < pos->route_reserved_end_cursor;
 
     if (keep_after_target != NULL) {
         traffic_refresh_route_reservation(pos->train_num, pos->cur_sensor,
                                           keep_after_target,
-                                          NULL, 0, 0);
+                                          NULL, 0, 0, 0);
         return;
     }
 
@@ -106,6 +108,7 @@ static void release_stop_reservation(train_pos_t *pos) {
                                           keep_end,
                                           pos->route_path,
                                           pos->route_path_cursor,
+                                          pos->route_reserved_end_cursor,
                                           pos->route_path_count);
         return;
     }
@@ -124,6 +127,7 @@ static void handle_normal_stop(train_pos_t *pos) {
 
     pos->route_state = TRAIN_STATE_STOPPED;
     pos->stopped_on_target_hit =
+        pos_route_authority_is_leg_goal_stop(pos) &&
         pos->cur_sensor != NULL &&
         pos_targets_same_sensor(pos->cur_sensor, pos->target_sensor);
     /* STOPPING -> STOPPED means the train reached the planned stop target even
@@ -150,6 +154,13 @@ static void handle_normal_stop(train_pos_t *pos) {
         return;
     }
 
+    if (!pos_route_authority_is_leg_goal_stop(pos)) {
+        pos_restore_pending_target(pos);
+        KASSERT(pos->pending_target != NULL);
+        KASSERT(pos_try_direct_goto(pos));
+        return;
+    }
+
     pos->orig_user_target = NULL;
     pos->orig_target_offset = 0;
 }
@@ -161,7 +172,7 @@ static int tick_handle_stopping(train_pos_t *pos, uint64_t now_us) {
 
     pos_save_ema_and_stop(pos);
 
-    if (pos->midrev.active) {
+    if (pos->midrev.active && pos_route_authority_is_leg_goal_stop(pos)) {
         pos_handle_midrev_resume(pos, now_us);
     } else {
         handle_normal_stop(pos);
@@ -274,6 +285,11 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
         }
 
         if (rem <= d_early) {
+            if (pos_route_authority_try_top_up(pos, now_us, 1)) {
+                pos->route_rem_tick_us = now_us;
+                ui_mark_position_dirty();
+                return 0;
+            }
             pos->route_state = TRAIN_STATE_STOPPING;
             pos->stopping_since_us = now_us;
             pos->dead_track_deadline_us = 0;
@@ -335,6 +351,7 @@ static void enter_terminal_dead_track(train_pos_t *pos) {
     pos->replan.next_us = 0;
     pos->replan.retry_count = 0;
     pos->replan.blocker_mask = 0;
+    pos_route_authority_reset(pos);
     pos->force_offroute_on_next_sensor = 0;
     pos->dead_track_rescue_pending = 0;
     pos_clear_deadlock_recover(pos);

@@ -52,6 +52,7 @@ static void pos_reset_target_fields(train_pos_t *pos) {
     pos->orig_target_offset = 0;
     pos->offroute_valid = 0;
     pos->offroute_expected_sensor = NULL;
+    pos_route_authority_reset(pos);
 }
 
 static void pos_reset_midrev_fields(train_pos_t *pos) {
@@ -110,7 +111,10 @@ static void pos_init_slot(train_pos_t *slot, int train_num, int train_ind) {
     pos_reset_midrev_fields(slot);
     slot->route_path_count = 0;
     slot->route_path_cursor = 0;
+    slot->route_reserved_end_cursor = 0;
     slot->route_rem_tick_us = 0;
+    slot->authority_seen_generation = traffic_get_change_generation();
+    slot->authority_next_us = 0;
     slot->stop_after_find_pos = 0;
 }
 
@@ -164,6 +168,7 @@ void pos_reset_dead_train(int train_num) {
     pos->dead_track_rescue_pending = 0;
     pos->dead_track_recover.valid = 0;
     pos->replan.blocker_mask = 0;
+    pos_route_authority_reset(pos);
     pos_clear_deadlock_recover(pos);
 }
 
@@ -197,6 +202,7 @@ void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int32_t offs
     pos->target_offset_mm = offset_mm;
     pos->dist_to_target_mm = 0;
     pos->replan.next_us = 0;
+    pos_route_authority_reset(pos);
     pos->stop_after_find_pos = 0;
 }
 
@@ -215,6 +221,7 @@ void pos_prepare_find_pos_request(train_pos_t *pos) {
     pos->replan.next_us = 0;
     pos->offroute_valid = 0;
     pos->offroute_expected_sensor = NULL;
+    pos_route_authority_reset(pos);
     pos->stop_after_find_pos = 1;
 }
 

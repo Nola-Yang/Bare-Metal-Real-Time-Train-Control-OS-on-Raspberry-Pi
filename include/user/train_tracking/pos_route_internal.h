@@ -29,6 +29,10 @@ uint8_t pos_route_blocker_mask_from_switches(const int *sw_nums,
 
 int pos_route_blocker_mask_bit_count(uint8_t mask);
 
+pos_route_eval_result_t pos_evaluate_target_plan(train_pos_t *pos,
+                                                 track_node *user_target,
+                                                 pos_route_eval_t *out);
+
 pos_route_eval_result_t pos_evaluate_target_ready_now(train_pos_t *pos,
                                                       track_node *user_target,
                                                       pos_route_eval_t *out);

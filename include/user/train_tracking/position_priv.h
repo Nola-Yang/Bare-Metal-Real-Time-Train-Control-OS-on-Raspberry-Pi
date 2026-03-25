@@ -47,6 +47,11 @@ train_pos_t *pos_find_or_create_slot(int train_num);
 /* Give turnout commands a short settle window before launching the train. */
 #define SWITCH_SETTLE_TICKS     5
 
+/* Rolling reservation window tuning.
+ * threshold    = GOTO_MIN_DIST_FACTOR * brake_dist + early_stop_dist
+ * auth_target  = threshold
+ * extend point = actual stop distance (brake + early stop) */
+
 /* Train order used for deadlock blocker masks. */
 static inline int pos_deadlock_train_to_index(int train_num) {
     switch (train_num) {
@@ -103,6 +108,20 @@ void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us);
 int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
                                    track_node **out_target, uint8_t *out_unblocked_mask);
 
+/* Compute authority-window parameters from the train's braking model. */
+int32_t pos_route_authority_stop_dist_mm(const train_pos_t *pos);
+int32_t pos_route_authority_min_mm(const train_pos_t *pos);
+int32_t pos_route_authority_target_mm(const train_pos_t *pos);
+int32_t pos_route_authority_extend_trigger_mm(const train_pos_t *pos);
+int32_t pos_route_authority_remaining_mm(const train_pos_t *pos);
+int pos_route_authority_is_leg_goal_stop(const train_pos_t *pos);
+void pos_route_authority_reset(train_pos_t *pos);
+void pos_route_authority_sync_target(train_pos_t *pos);
+int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *full_plan,
+                                       route_plan_t *out_prefix,
+                                       int *out_reserved_end_cursor);
+int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force);
+
 /* Stop and wait for resources; pending_target remains unchanged for retries. */
 void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us, uint8_t blocker_mask);
 
@@ -158,6 +177,8 @@ void pos_clear_deadlock_recover(train_pos_t *pos);
 
 /* Try to resume a yielded deadlock victim once the blocked peers have moved. */
 int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos);
+void pos_deadlock_refresh_notice_state(void);
+void pos_deadlock_replan_waiter(train_pos_t *pos, uint64_t now_us);
 
 /* Resume the stored second leg of a mid-route reversal after the stop completes. */
 int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us);

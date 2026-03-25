@@ -304,6 +304,7 @@ void traffic_release_train_keep_body(int train_num, track_node *last_hit,
 void traffic_refresh_route_reservation(int train_num, track_node *cur_sensor,
                                        track_node *next_hit,
                                        const uint16_t *path, int path_cursor,
+                                       int path_end_cursor,
                                        int path_count) {
     if (train_num < 0 || !cur_sensor) return;
 
@@ -321,7 +322,9 @@ void traffic_refresh_route_reservation(int train_num, track_node *cur_sensor,
     if (path && path_count > 0) {
         if (path_cursor < 0) path_cursor = 0;
         if (path_cursor > path_count) path_cursor = path_count;
-        for (int i = path_cursor; i < path_count; i++) {
+        if (path_end_cursor < path_cursor) path_end_cursor = path_cursor;
+        if (path_end_cursor >= path_count) path_end_cursor = path_count - 1;
+        for (int i = path_cursor; i <= path_end_cursor && i < path_count; i++) {
             int idx = (int)path[i];
             if (idx < 0 || idx >= TRACK_MAX) continue;
             keep[idx] = 1;

@@ -293,7 +293,7 @@ static int deadlock_notice_still_active(const pos_deadlock_notice_t *notice) {
     return (cycle_mask & expected_mask) == expected_mask;
 }
 
-static void deadlock_refresh_notice_state(void) {
+void pos_deadlock_refresh_notice_state(void) {
     pos_deadlock_notice_t notice;
     pos_get_deadlock_notice(&notice);
     if (!notice.active || !notice.unresolved) return;
@@ -415,7 +415,9 @@ static int deadlock_apply_reroute(train_pos_t *victim, uint8_t cycle_mask,
     victim->dist_to_target_mm = 0;
     victim->route_path_count = 0;
     victim->route_path_cursor = 0;
+    victim->route_reserved_end_cursor = 0;
     victim->route_rem_tick_us = 0;
+    pos_route_authority_reset(victim);
     deadlock_reset_midrev_for_reroute(victim);
 
     if (!pos_try_direct_goto_strict(victim) ||
@@ -516,66 +518,64 @@ int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos) {
     pos->dist_to_target_mm = 0;
     pos->replan.blocker_mask = 0;
     pos->replan.next_us = 0;
+    pos_route_authority_reset(pos);
     KASSERT(pos_try_direct_goto(pos));
     return 1;
 }
 
-void pos_replan_on_tick(uint64_t now_us) {
-    /* Higher train numbers win WAIT_RESOURCE replans so a yielded smaller
-     * train does not immediately reclaim the route before the blocked peer
-     * can plan and launch. */
-    static const int ORDER[6] = {55, 18, 17, 15, 14, 13};
-    deadlock_refresh_notice_state();
-    for (int wi = 0; wi < 6; wi++) {
-        train_pos_t *pos = pos_get(ORDER[wi]);
-        uint8_t cycle_mask = 0;
-        int victim_train = -1;
-        deadlock_kind_t deadlock_kind = DEADLOCK_KIND_NONE;
-        if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) continue;
+void pos_deadlock_replan_waiter(train_pos_t *pos, uint64_t now_us) {
+    uint8_t cycle_mask = 0;
+    int victim_train = -1;
+    deadlock_kind_t deadlock_kind = DEADLOCK_KIND_NONE;
+    uint32_t generation;
+    int woke_on_change = 0;
+    int backoff_exp;
+    uint64_t backoff_us;
+    uint64_t jitter_us;
+    int ok;
 
-        uint32_t generation = traffic_get_change_generation();
-        int woke_on_change = 0;
-        if (generation != pos->replan.seen_generation) {
-            pos->replan.seen_generation = generation;
-            pos->replan.retry_count = 0;
-            woke_on_change = 1;
-        }
-        if (!woke_on_change &&
-            pos->replan.next_us > 0 && now_us < pos->replan.next_us) {
-            continue;
-        }
+    if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) return;
 
-        int backoff_exp = pos->replan.retry_count;
-        if (backoff_exp > REPLAN_MAX_BACKOFF) backoff_exp = REPLAN_MAX_BACKOFF;
-        uint64_t backoff_us = REPLAN_INTERVAL_US << backoff_exp;
-
-        pos->replan.rand_state = pos->replan.rand_state * 1664525u + 1013904223u;
-        uint64_t jitter_us = (pos->replan.rand_state >> 16) % (uint32_t)REPLAN_INTERVAL_US;
-        pos->replan.next_us = now_us + backoff_us + jitter_us;
-        pos->replan.retry_count++;
-
-        pos_restore_pending_target(pos);
-
-        if (pos->pending_target == NULL) continue;
-
-        cycle_mask = deadlock_find_mask_for_train(pos->train_num, &deadlock_kind);
-        if (cycle_mask) {
-            if (deadlock_kind == DEADLOCK_KIND_STOPPED_BLOCKER) {
-                (void)deadlock_apply_stopped_blocker_reroute(cycle_mask, now_us,
-                                                             &victim_train);
-                continue;
-            }
-
-            victim_train = deadlock_choose_victim(cycle_mask, deadlock_kind);
-            deadlock_write_detected_notice(cycle_mask, victim_train);
-            if (victim_train != pos->train_num) continue;
-            (void)deadlock_apply_reroute(pos, cycle_mask, now_us, 1);
-            continue;
-        }
-
-        int ok = pos_try_direct_goto(pos);
-        KASSERT(ok);
+    generation = traffic_get_change_generation();
+    if (generation != pos->replan.seen_generation) {
+        pos->replan.seen_generation = generation;
+        pos->replan.retry_count = 0;
+        woke_on_change = 1;
     }
+    if (!woke_on_change &&
+        pos->replan.next_us > 0 && now_us < pos->replan.next_us) {
+        return;
+    }
+
+    backoff_exp = pos->replan.retry_count;
+    if (backoff_exp > REPLAN_MAX_BACKOFF) backoff_exp = REPLAN_MAX_BACKOFF;
+    backoff_us = REPLAN_INTERVAL_US << backoff_exp;
+
+    pos->replan.rand_state = pos->replan.rand_state * 1664525u + 1013904223u;
+    jitter_us = (pos->replan.rand_state >> 16) % (uint32_t)REPLAN_INTERVAL_US;
+    pos->replan.next_us = now_us + backoff_us + jitter_us;
+    pos->replan.retry_count++;
+
+    pos_restore_pending_target(pos);
+    if (pos->pending_target == NULL) return;
+
+    cycle_mask = deadlock_find_mask_for_train(pos->train_num, &deadlock_kind);
+    if (cycle_mask) {
+        if (deadlock_kind == DEADLOCK_KIND_STOPPED_BLOCKER) {
+            (void)deadlock_apply_stopped_blocker_reroute(cycle_mask, now_us,
+                                                         &victim_train);
+            return;
+        }
+
+        victim_train = deadlock_choose_victim(cycle_mask, deadlock_kind);
+        deadlock_write_detected_notice(cycle_mask, victim_train);
+        if (victim_train != pos->train_num) return;
+        (void)deadlock_apply_reroute(pos, cycle_mask, now_us, 1);
+        return;
+    }
+
+    ok = pos_try_direct_goto(pos);
+    KASSERT(ok);
 }
 
 /* A midpoint reversal may stop at the reversal sensor and then block before the
@@ -680,11 +680,9 @@ int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     for (int j = 0; j < pos->midrev.path2_count; j++)
         pos->route_path[j] = pos->midrev.path2[j];
     pos->route_path_cursor = 0;
-
-    int32_t pd2 = route_path_dist_from(pos->route_path, 0, pos->route_path_count);
-    int32_t d2 = (pd2 >= 0) ? pd2 : pos->midrev.dist_after;
-    pos->dist_to_target_mm = d2 + pos->midrev.final_offset;
-    if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
+    pos_route_authority_reset(pos);
+    pos->route_reserved_end_cursor = pos->route_path_count - 1;
+    pos_route_authority_sync_target(pos);
 
     pos_arm_switch_settle(pos, pos->midrev.sw_count,
                           POS_SWITCH_SETTLE_REVERSED, now_us);
