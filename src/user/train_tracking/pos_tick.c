@@ -144,15 +144,8 @@ static void handle_normal_stop(train_pos_t *pos) {
     if (pos->deadlock_recover.valid &&
         pos->deadlock_recover.resume_target != NULL &&
         pos_targets_same_sensor(stopped_target, pos->deadlock_recover.yield_target)) {
-        pos->pending_target = pos->deadlock_recover.resume_target;
-        pos->pending_offset_mm = pos->deadlock_recover.resume_offset_mm;
-        pos->orig_user_target = pos->deadlock_recover.resume_target;
-        pos->orig_target_offset = pos->deadlock_recover.resume_offset_mm;
-        pos->target_sensor = pos->deadlock_recover.resume_target;
-        pos->target_offset_mm = pos->deadlock_recover.resume_offset_mm;
-        pos->dist_to_target_mm = 0;
-        pos->replan.blocker_mask = 0;
-        pos->replan.next_us = 0;
+        /* Keep the train logically parked here until
+         * the deadlock recovery logic explicitly decides to resume. */
         pos->deadlock_recover.parked_at_yield = 1;
         return;
     }
