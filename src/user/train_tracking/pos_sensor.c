@@ -141,6 +141,14 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
  * and keep the train parked in place. */
 static void handle_dead_track_sensor(train_pos_t *pos) {
     if (!pos) return;
+    if (pos->cur_sensor) {
+        track_node *keep_pred = pos_release_keep_end(pos->cur_sensor, NULL);
+        pos->offroute_expected_sensor = keep_pred;
+        traffic_refresh_sensor_prediction_reservation(pos->train_num,
+                                                      pos->cur_sensor,
+                                                      keep_pred,
+                                                      TRAIN_BODY_MM);
+    }
     track_set_speed(pos->train_num, 0);
     pos->effective_v = 0;
     pos->is_accelerating = 0;
@@ -309,6 +317,14 @@ void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) 
         pos->offroute_expected_sensor = NULL;
     }
     update_next_prediction(pos, hit, time_us);
+    if (pos->route_state == TRAIN_STATE_STOPPING_GOTO &&
+        pos->stop_after_find_pos) {
+        traffic_refresh_sensor_prediction_reservation(pos->train_num,
+                                                      pos->cur_sensor,
+                                                      pos_release_keep_end(pos->cur_sensor,
+                                                                           pos->pred.next_sensor),
+                                                      TRAIN_BODY_MM);
+    }
     if (pos->route_state == TRAIN_STATE_ON_ROUTE) {
         traffic_refresh_route_reservation(pos->train_num, hit,
                                           pos->pred.next_sensor,

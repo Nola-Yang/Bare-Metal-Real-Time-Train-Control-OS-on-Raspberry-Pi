@@ -239,13 +239,17 @@ static int tick_handle_stopping_goto(train_pos_t *pos, uint64_t now_us) {
 
     pos_save_ema_and_stop(pos);
     if (pos->stop_after_find_pos) {
+        track_node *keep_pred = pos->cur_sensor
+                                ? pos_release_keep_end(pos->cur_sensor,
+                                                       pos->pred.next_sensor)
+                                : NULL;
         pos->stop_after_find_pos = 0;
         pos->route_state = TRAIN_STATE_STOPPED;
         pos->stopped_on_target_hit = 0;
-        traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
-                                        TRAIN_BODY_MM,
-                                        pos_release_keep_end(pos->cur_sensor,
-                                                             pos->pred.next_sensor));
+        traffic_refresh_sensor_prediction_reservation(pos->train_num,
+                                                      pos->cur_sensor,
+                                                      keep_pred,
+                                                      TRAIN_BODY_MM);
         pos_clear_prediction(pos);
         ui_mark_position_dirty();
     } else {
@@ -304,6 +308,8 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
 }
 
 static void enter_terminal_dead_track(train_pos_t *pos, uint64_t now_us) {
+    track_node *guessed_end;
+
     if (!pos) return;
 
     int can_rescue_dead_track =
@@ -322,15 +328,18 @@ static void enter_terminal_dead_track(train_pos_t *pos, uint64_t now_us) {
         pos->dead_track_recover.orig_offset_mm = 0;
     }
 
-    track_node *guessed_end = pos->offroute_expected_sensor
-                              ? pos->offroute_expected_sensor
-                              : pos->pred.next_sensor;
-    guessed_end = pos_release_keep_end(pos->cur_sensor, guessed_end);
+    guessed_end = pos->offroute_expected_sensor
+                  ? pos->offroute_expected_sensor
+                  : pos->pred.next_sensor;
+    if (pos->cur_sensor) {
+        guessed_end = pos_release_keep_end(pos->cur_sensor, guessed_end);
+    }
 
     track_set_speed(pos->train_num, 0);
-    traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
-                                    TRAIN_BODY_MM,
-                                    guessed_end);
+    traffic_refresh_sensor_prediction_reservation(pos->train_num,
+                                                  pos->cur_sensor,
+                                                  guessed_end,
+                                                  TRAIN_BODY_MM);
 
     pos->effective_v = 0;
     pos->user_speed = 0;

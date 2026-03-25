@@ -358,6 +358,58 @@ void traffic_refresh_route_reservation(int train_num, track_node *cur_sensor,
     if (changed) traffic_note_change(1);
 }
 
+void traffic_refresh_sensor_prediction_reservation(int train_num,
+                                                   track_node *cur_sensor,
+                                                   track_node *pred_sensor,
+                                                   int32_t rear_mm) {
+    if (train_num < 0 || !cur_sensor) return;
+
+    uint8_t keep[TRACK_MAX];
+    for (int i = 0; i < TRACK_MAX; i++) keep[i] = 0;
+
+    keep_mark_node(keep, cur_sensor);
+
+    if (rear_mm > 0 && cur_sensor->reverse) {
+        keep_mark_walk_dist(keep, cur_sensor->reverse, rear_mm);
+    }
+
+    if (pred_sensor) {
+        int keep_to_pred = (cur_sensor == pred_sensor) ||
+                           (follow_dist(cur_sensor, pred_sensor, 120) >= 0);
+        if (keep_to_pred) keep_mark_walk_to(keep, cur_sensor, pred_sensor);
+    }
+
+    expand_marks_with_zones(keep);
+
+    int changed = 0;
+    for (int i = 0; i < TRACK_MAX; i++) {
+        if (node_owner[i] != train_num) continue;
+        if (!keep[i]) {
+            node_owner[i] = -1;
+            changed = 1;
+        }
+    }
+
+    for (int i = 0; i < TRACK_MAX; i++) {
+        if (!keep[i] || node_owner[i] >= 0) continue;
+        node_owner[i] = train_num;
+        changed = 1;
+    }
+
+    int idx = traffic_node_index(cur_sensor);
+    int ridx = traffic_reverse_index(idx);
+    if (idx >= 0 && node_owner[idx] != train_num) {
+        node_owner[idx] = train_num;
+        changed = 1;
+    }
+    if (ridx >= 0 && node_owner[ridx] != train_num) {
+        node_owner[ridx] = train_num;
+        changed = 1;
+    }
+
+    if (changed) traffic_note_change(1);
+}
+
 int traffic_can_set_switch(int sw_num, int requester_train) {
     (void)requester_train;
     for (int i = 0; i < TRACK_MAX; i++) {

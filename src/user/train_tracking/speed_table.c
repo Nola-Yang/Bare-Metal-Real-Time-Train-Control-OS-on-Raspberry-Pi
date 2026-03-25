@@ -45,6 +45,7 @@ int32_t speed_table_get_nominal_decel(int32_t train_ind, int user_speed) {
 int32_t speed_table_get_decel(int32_t train_ind, int user_speed, track_node *target) {
     int32_t nominal = speed_table_get_nominal_decel(train_ind, user_speed);
     if (nominal <= 0) return 0;
+    if (!target) return nominal;
 
     if (target->type == NODE_SENSOR) {
         int32_t override = GOTO_DECEL_OVERRIDE[target->num];

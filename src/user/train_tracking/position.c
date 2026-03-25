@@ -262,10 +262,26 @@ int pos_start_find_pos(int train_num) {
 }
 
 void pos_enter_find_pos(train_pos_t *pos, uint64_t now_us) {
+    track_node *keep_pred = NULL;
+
     if (!pos) return;
 
-    traffic_release_train(pos->train_num);
+    if (pos->cur_sensor) {
+        track_node *keep_hint = pos->offroute_expected_sensor
+                                ? pos->offroute_expected_sensor
+                                : pos->pred.next_sensor;
+        keep_pred = pos_release_keep_end(pos->cur_sensor, keep_hint);
+    }
+
     pos_prepare_find_pos_request(pos);
+    if (pos->cur_sensor) {
+        traffic_refresh_sensor_prediction_reservation(pos->train_num,
+                                                      pos->cur_sensor,
+                                                      keep_pred,
+                                                      TRAIN_BODY_MM);
+    } else {
+        traffic_release_train(pos->train_num);
+    }
     pos_begin_pos_find(pos, now_us);
     ui_mark_position_dirty();
 }
