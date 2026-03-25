@@ -10,7 +10,7 @@
 /* Parse node name token -> track_node*. Returns NULL on failure. */
 static track_node *parse_node(const char *tok) {
     if (!tok || !tok[0]) return NULL;
-    return pos_find_node(tok);
+    return track_find_node(tok);
 }
 
 static int parse_int_token(const char *tok, int *out) {

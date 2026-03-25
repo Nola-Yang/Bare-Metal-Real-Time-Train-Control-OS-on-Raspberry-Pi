@@ -158,6 +158,23 @@ const switch_entry_t* track_get_switch_state(void) {
     return switch_state;
 }
 
+track_node *track_find_node(const char *name) {
+    if (!name) return NULL;
+
+    for (int i = 0; i < TRACK_MAX; i++) {
+        if (g_track[i].type == NODE_NONE || g_track[i].name == NULL) continue;
+
+        const char *a = g_track[i].name;
+        const char *b = name;
+        while (*a && *b && *a == *b) {
+            a++;
+            b++;
+        }
+        if (*a == '\0' && *b == '\0') return &g_track[i];
+    }
+    return NULL;
+}
+
 void track_set_speed(int train, int speed) {
     KASSERT(can_tid >= 0);
     if (!track_is_valid_train(train)) return;

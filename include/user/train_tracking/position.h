@@ -287,8 +287,4 @@ void pos_reset_dead_train(int train_num);
 
 void pos_get_deadlock_notice(pos_deadlock_notice_t *out);
 
-/* Find a track node by name.
- * Returns NULL if not found. */
-track_node *pos_find_node(const char *name);
-
 #endif /* _position_h_ */

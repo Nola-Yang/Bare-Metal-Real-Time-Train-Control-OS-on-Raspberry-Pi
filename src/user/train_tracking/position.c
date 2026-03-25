@@ -3,7 +3,6 @@
 #include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
 #include "track.h"
-#include "train_tracking/track_data.h"
 #include "train_tracking/speed_table.h"
 #include "server/clock_server.h"
 #include "server/nameserver.h"
@@ -14,22 +13,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-train_pos_t g_pos[MAX_POS_TRAINS];
-static pos_deadlock_notice_t g_deadlock_notice;
-
 static uint32_t Speed_Warmup_Distance = 1000;
 
 /* Time from sending the command to the train actually starting
  * to move */
 #define GO_LATENCY_US 1000000ULL
-
-#ifdef TRACK_D
-    static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {37, 37, 38, 38, 38};
-#else
-    static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {37, 37, 38, 38, 38};
-#endif
 
 /* Start train moving at GOTO_USER_SPEED to acquire position (FIND_POS).
  * Used by pos_goto (UNKNOWN state) and pos_start_direction_find. */
@@ -51,136 +39,6 @@ static void pos_begin_pos_find(train_pos_t *pos) {
 }
 
 /* ===== Position slot management ===== */
-
-static train_pos_t *find_pos(int train_num) {
-    for (int i = 0; i < MAX_POS_TRAINS; i++) {
-        if (g_pos[i].train_num == train_num) return &g_pos[i];
-    }
-    return NULL;
-}
-
-static int32_t train_num_to_ind(int train_num) {
-    if (13 <= train_num && train_num <= 15) {
-        return train_num - 13;
-    } else if (17 <= train_num && train_num <= 18) {
-        return train_num - 14;
-    } else if (train_num == 55) {
-        return 0; /* use train-13 speed/decel calibration */
-    }
-
-    return -1;
-}
-
-static train_pos_t *find_or_create_pos(int train_num) {
-    train_pos_t *p = find_pos(train_num);
-    if (p) return p;
-    for (int i = 0; i < MAX_POS_TRAINS; i++) {
-        if (g_pos[i].train_num < 0) {
-            int32_t train_ind = train_num_to_ind(train_num);
-            if (train_ind < 0 || train_ind >= MAX_PHYSICAL_TRAINS) return NULL;
-
-            train_pos_t *slot = &g_pos[i];
-            slot->train_num             = train_num;
-            slot->train_ind             = train_ind;
-            slot->cur_sensor            = NULL;
-            slot->cur_sensor_time       = 0;
-            slot->effective_v           = 0;
-            slot->user_speed            = 0;
-            slot->pred.next_sensor      = NULL;
-            slot->pred.alt_sensor       = NULL;
-            slot->pred.branch_node      = NULL;
-            slot->pred.trigger_time     = 0;
-            slot->pred.skipped_sensor_count = 0;
-            slot->pred.last_time_err_us = 0;
-            slot->pred.last_dist_err_mm = 0;
-            slot->route_state           = TRAIN_STATE_UNKNOWN;
-            slot->target_sensor         = NULL;
-            slot->target_offset_mm      = 0;
-            slot->dist_to_target_mm     = 0;
-            slot->pending_target        = NULL;
-            slot->pending_offset_mm     = 0;
-            slot->queued_target         = NULL;
-            slot->queued_offset_mm      = 0;
-            slot->queued_valid          = 0;
-            slot->going_forward         = 1;
-            slot->position_known        = 1;
-            track_send_direction(train_num, 0x01);  /* init direction: forward */
-            slot->orig_user_target      = NULL;
-            slot->orig_target_offset    = 0;
-            slot->offroute_valid           = 0;
-            slot->offroute_expected_sensor = NULL;
-            slot->stopping_since_us        = 0;
-            slot->stopped_on_target_hit    = 0;
-            slot->switch_settle_due_us     = 0;
-            slot->switch_settle_mode       = POS_SWITCH_SETTLE_NONE;
-            slot->replan.next_us           = 0;
-            slot->replan.retry_count       = 0;
-            slot->replan.rand_state        = (uint32_t)(slot->train_num * 1234567u + 1u);
-            slot->replan.seen_generation   = traffic_get_change_generation();
-            slot->replan.blocker_mask      = 0;
-            slot->dead_track_deadline_us   = 0;
-            for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
-            slot->speed_warmup_mm      = 0;
-            slot->accel_a_eff          = GOTO_ACCEL_MM_S2[train_ind];
-            slot->is_accelerating      = 0;
-            slot->accel_start_us       = 0;
-            slot->awaiting_post_launch_sensor = 0;
-            slot->force_offroute_on_next_sensor = 0;
-            slot->dead_track_rescue_pending = 0;
-            slot->dead_track_recover.valid = 0;
-            slot->dead_track_recover.orig_target = NULL;
-            slot->dead_track_recover.orig_offset_mm = 0;
-            slot->deadlock_recover.valid = 0;
-            slot->deadlock_recover.resume_target = NULL;
-            slot->deadlock_recover.resume_offset_mm = 0;
-            slot->deadlock_recover.yield_target = NULL;
-            slot->deadlock_recover.wait_start_mask = 0;
-            slot->deadlock_recover.parked_at_yield = 0;
-            slot->midrev.active        = 0;
-            slot->midrev.sensor        = NULL;
-            slot->midrev.final_target  = NULL;
-            slot->midrev.final_offset  = 0;
-            slot->route_path_count   = 0;
-            slot->route_path_cursor  = 0;
-            slot->route_rem_tick_us  = 0;
-            slot->midrev.path2_count   = 0;
-            slot->midrev.sw_count      = 0;
-            slot->midrev.dist_after    = 0;
-            for (int k = 0; k < 20; k++) {
-                slot->midrev.sw_nums[k] = 0;
-                slot->midrev.sw_dirs[k] = '?';
-            }
-            slot->find_pos_only = 0;
-            return slot;
-        }
-    }
-    return NULL;
-}
-
-void pos_reset_dead_train(int train_num) {
-    train_pos_t *p = find_pos(train_num);
-    if (!p) return;
-
-    p->route_state = TRAIN_STATE_STOPPED;
-    p->stopped_on_target_hit = 0;
-    p->switch_settle_due_us = 0;
-    p->switch_settle_mode = POS_SWITCH_SETTLE_NONE;
-    p->awaiting_post_launch_sensor = 0;
-    p->force_offroute_on_next_sensor = 0;
-    p->dead_track_rescue_pending = 0;
-    p->dead_track_recover.valid = 0;
-    p->replan.blocker_mask = 0;
-    pos_clear_deadlock_recover(p);
-}
-
-void pos_clear_prediction(train_pos_t *pos) {
-    pos->pred.next_sensor  = NULL;
-    pos->pred.alt_sensor   = NULL;
-    pos->pred.branch_node  = NULL;
-    pos->pred.trigger_time = 0;
-    pos->pred.skipped_sensor_count = 0;
-    pos->dead_track_deadline_us = 0;
-}
 
 static track_node *predict_next_sensor_preserve_pred(train_pos_t *pos,
                                                      track_node *cur,
@@ -250,99 +108,6 @@ void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
     pos->stopped_on_target_hit = 0;
 }
 
-void pos_clear_deadlock_recover(train_pos_t *pos) {
-    if (!pos) return;
-    pos->deadlock_recover.valid = 0;
-    pos->deadlock_recover.resume_target = NULL;
-    pos->deadlock_recover.resume_offset_mm = 0;
-    pos->deadlock_recover.yield_target = NULL;
-    pos->deadlock_recover.wait_start_mask = 0;
-    pos->deadlock_recover.parked_at_yield = 0;
-}
-
-void pos_get_deadlock_notice(pos_deadlock_notice_t *out) {
-    if (!out) return;
-    *out = g_deadlock_notice;
-}
-
-void pos_set_deadlock_notice(const pos_deadlock_notice_t *notice) {
-    if (!notice) {
-        pos_clear_deadlock_notice();
-        return;
-    }
-    g_deadlock_notice = *notice;
-    ui_mark_position_dirty();
-}
-
-void pos_clear_deadlock_notice(void) {
-    g_deadlock_notice.active = 0;
-    g_deadlock_notice.unresolved = 0;
-    g_deadlock_notice.victim_train = -1;
-    g_deadlock_notice.cycle_count = 0;
-    for (int i = 0; i < 6; i++) g_deadlock_notice.cycle_trains[i] = -1;
-    g_deadlock_notice.blocked_target = NULL;
-    g_deadlock_notice.yield_target = NULL;
-    g_deadlock_notice.resume_target = NULL;
-    g_deadlock_notice.expire_us = 0;
-    ui_mark_position_dirty();
-}
-
-void pos_complete_switch_settle(train_pos_t *pos, uint64_t now_us) {
-    if (!pos) return;
-
-    pos->switch_settle_due_us = 0;
-    pos->route_state = TRAIN_STATE_ON_ROUTE;
-
-    if (pos->switch_settle_mode == POS_SWITCH_SETTLE_NORMAL) {
-        uint64_t dt = 0;
-        pos->pred.next_sensor = predict_next_sensor(pos, pos->cur_sensor, &dt);
-        pos->pred.trigger_time = (dt > 0) ? now_us + dt : 0;
-        pos->pred.skipped_sensor_count = 0;
-    } else if (pos->switch_settle_mode == POS_SWITCH_SETTLE_REVERSED) {
-        pos->pred.next_sensor = pos->cur_sensor;
-        pos->pred.alt_sensor = NULL;
-        pos->pred.branch_node = NULL;
-        pos->pred.trigger_time = 0;
-        pos->pred.skipped_sensor_count = 0;
-    }
-
-    pos_launch_at_goto_speed(pos, now_us);
-    pos->route_rem_tick_us = now_us;
-    pos->stopping_since_us = 0;
-    pos_refresh_dead_track_deadline(pos, now_us);
-    pos->switch_settle_mode = POS_SWITCH_SETTLE_NONE;
-    ui_mark_position_dirty();
-}
-
-void pos_arm_switch_settle(train_pos_t *pos, int sw_count,
-                           pos_switch_settle_mode_t mode, uint64_t now_us) {
-    if (!pos) return;
-
-    pos->switch_settle_mode = mode;
-    if (sw_count <= 0) {
-        pos_complete_switch_settle(pos, now_us);
-        return;
-    }
-
-    pos->switch_settle_due_us = now_us + (uint64_t)SWITCH_SETTLE_TICKS * 10000ULL;
-    pos->route_state = TRAIN_STATE_WAIT_SWITCH_SETTLE;
-    ui_mark_position_dirty();
-}
-
-void pos_restore_pending_target(train_pos_t *pos) {
-    if (pos->pending_target == NULL && pos->orig_user_target != NULL) {
-        pos->pending_target    = pos->orig_user_target;
-        pos->pending_offset_mm = pos->orig_target_offset;
-    }
-}
-
-void pos_save_ema_and_stop(train_pos_t *pos) {
-    if (pos->user_speed > 0 && pos->user_speed <= 14)
-        pos->cached_v[pos->user_speed] = pos->effective_v;
-    pos->effective_v = 0;
-    pos->awaiting_post_launch_sensor = 0;
-}
-
 static int state_is_goto_active(train_route_state_t st) {
     return (st == TRAIN_STATE_STOPPING_GOTO     ||
             st == TRAIN_STATE_FIND_POS     ||
@@ -371,18 +136,8 @@ void pos_init(void) {
     route_init();
 }
 
-void pos_on_switch_settle_tick(uint64_t now_us) {
-    for (int i = 0; i < MAX_POS_TRAINS; i++) {
-        train_pos_t *pos = &g_pos[i];
-        if (pos->train_num < 0) continue;
-        if (pos->route_state != TRAIN_STATE_WAIT_SWITCH_SETTLE) continue;
-        if (pos->switch_settle_due_us == 0 || now_us < pos->switch_settle_due_us) continue;
-        pos_complete_switch_settle(pos, now_us);
-    }
-}
-
 void pos_on_reverse(int train_num) {
-    train_pos_t *pos = find_pos(train_num);
+    train_pos_t *pos = pos_find_slot(train_num);
     if (!pos) return;
 
     pos->going_forward = !pos->going_forward;
@@ -399,7 +154,7 @@ void pos_on_reverse(int train_num) {
 }
 
 void pos_on_speed_change(int train_num, int user_speed) {
-    train_pos_t *pos = find_or_create_pos(train_num);
+    train_pos_t *pos = pos_find_or_create_slot(train_num);
     if (!pos) return;
 
     /* Save calibrated EMA before a stop wipes effective_v.
@@ -440,7 +195,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     KASSERT(target != NULL);
     if (!target) return 0;
 
-    train_pos_t *pos = find_or_create_pos(train_num);
+    train_pos_t *pos = pos_find_or_create_slot(train_num);
     KASSERT(pos != NULL);
     if (!pos) return 0;
     if (pos->route_state == TRAIN_STATE_DEAD_TRACK) return 0;
@@ -462,19 +217,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
         traffic_release_train(train_num);
     }
 
-    pos->pending_target     = target;
-    pos->pending_offset_mm  = offset_mm;
-    pos->orig_user_target   = target;
-    pos->orig_target_offset = offset_mm;
-    pos->replan.blocker_mask = 0;
-    pos_clear_deadlock_recover(pos);
-    pos->offroute_valid           = 0;
-    pos->offroute_expected_sensor = NULL;
-
-    pos->target_sensor     = target;
-    pos->target_offset_mm  = offset_mm;
-    pos->dist_to_target_mm = 0;
-    pos->replan.next_us = 0;
+    pos_prepare_goto_request(pos, target, offset_mm);
     ui_mark_position_dirty();
 
     if (pos->route_state == TRAIN_STATE_UNKNOWN) {
@@ -503,25 +246,12 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
 }
 
 int pos_start_direction_find(int train_num) {
-    train_pos_t *pos = find_or_create_pos(train_num);
+    train_pos_t *pos = pos_find_or_create_slot(train_num);
     if (!pos) return 0;
     if (pos->route_state != TRAIN_STATE_UNKNOWN) return 0;
 
     traffic_release_train(train_num);
-
-    pos->pending_target           = NULL;
-    pos->pending_offset_mm        = 0;
-    pos->orig_user_target         = NULL;
-    pos->orig_target_offset       = 0;
-    pos->replan.blocker_mask      = 0;
-    pos_clear_deadlock_recover(pos);
-    pos->target_sensor            = NULL;
-    pos->target_offset_mm         = 0;
-    pos->dist_to_target_mm        = 0;
-    pos->replan.next_us           = 0;
-    pos->offroute_valid           = 0;
-    pos->offroute_expected_sensor = NULL;
-    pos->find_pos_only            = 1;
+    pos_prepare_direction_find_request(pos);
 
     pos_begin_pos_find(pos);
 
@@ -530,28 +260,19 @@ int pos_start_direction_find(int train_num) {
 }
 
 int pos_is_train_goto_active(int train_num) {
-    train_pos_t *pos = find_pos(train_num);
+    train_pos_t *pos = pos_find_slot(train_num);
     if (!pos) return 0;
     return state_is_goto_active(pos->route_state);
 }
 
 int pos_is_train_position_known(int train_num) {
-    train_pos_t *pos = find_pos(train_num);
+    train_pos_t *pos = pos_find_slot(train_num);
     if (!pos) return 0;
     return pos->cur_sensor != NULL && pos->position_known;
 }
 
-train_pos_t *pos_get(int train_num) {
-    return find_pos(train_num);
-}
-
-train_pos_t *pos_get_by_index(int i) {
-    if (i < 0 || i >= MAX_POS_TRAINS) return NULL;
-    return &g_pos[i];
-}
-
 int pos_queue_goto(int train_num, track_node *target, int32_t offset_mm) {
-    train_pos_t *pos = find_or_create_pos(train_num);
+    train_pos_t *pos = pos_find_or_create_slot(train_num);
     if (!pos || !target) return 0;
     if (pos->route_state == TRAIN_STATE_DEAD_TRACK) return 0;
     pos->queued_target = target;
@@ -569,17 +290,4 @@ void pos_mark_routes_dirty(void) {
             pos->replan.next_us = 0;
         }
     }
-}
-
-track_node *pos_find_node(const char *name) {
-    if (!name) return NULL;
-    for (int i = 0; i < TRACK_MAX; i++) {
-        if (g_track[i].type != NODE_NONE && g_track[i].name != NULL) {
-            const char *a = g_track[i].name;
-            const char *b = name;
-            while (*a && *b && *a == *b) { a++; b++; }
-            if (*a == '\0' && *b == '\0') return &g_track[i];
-        }
-    }
-    return NULL;
 }

@@ -13,6 +13,12 @@ extern train_pos_t g_pos[MAX_POS_TRAINS];
 /* stop-command lead time per train (microseconds). */
 extern uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS];
 
+/* Find an existing train-position slot, or NULL if none exists. */
+train_pos_t *pos_find_slot(int train_num);
+
+/* Find or allocate a train-position slot for a valid train number. */
+train_pos_t *pos_find_or_create_slot(int train_num);
+
 /* ===== Shared constants ===== */
 
 /* Maximum path hops allowed when checking whether a sensor is reachable
@@ -99,6 +105,12 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
 
 /* Stop and wait for resources; pending_target remains unchanged for retries. */
 void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us, uint8_t blocker_mask);
+
+/* Seed a new goto request onto an existing train slot. */
+void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int32_t offset_mm);
+
+/* Clear any active destination so FIND_POS can run without a planned target. */
+void pos_prepare_direction_find_request(train_pos_t *pos);
 
 /* Zero all prediction fields (pred.* + dead_track_deadline_us). */
 void pos_clear_prediction(train_pos_t *pos);
