@@ -113,17 +113,47 @@ static char *ui_append_field(char *p, const char *text, int width) {
     return p;
 }
 
-static void ui_build_dest_text(const train_pos_t *pos, char *out, int cap) {
+static int ui_targets_same_sensor(track_node *a, track_node *b) {
+    if (!a || !b) return 0;
+    return a == b || a->reverse == b || b->reverse == a;
+}
+
+/* Keep the final mission target stable in UI even when authority top-up or a
+ * mid-route reversal temporarily changes pos->target_sensor. */
+static track_node *ui_final_target_node(const train_pos_t *pos) {
+    if (!pos) return NULL;
+    if (pos->orig_user_target) return pos->orig_user_target;
+    if (pos->midrev.active && pos->midrev.final_target) return pos->midrev.final_target;
+    return pos->target_sensor;
+}
+
+static void ui_build_final_target_text(const train_pos_t *pos, char *out, int cap) {
     int n = 0;
-    if (!pos || !pos->target_sensor || !pos->target_sensor->name) {
+    track_node *final_target = ui_final_target_node(pos);
+
+    if (!final_target || !final_target->name) {
         n = ui_limited_append_char(out, n, cap, '-');
     } else {
+        n = ui_limited_append_str(out, n, cap, final_target->name);
+    }
+    ui_limited_finish(out, n, cap);
+}
+
+static void ui_build_stage_target_text(const train_pos_t *pos, char *out, int cap) {
+    int n = 0;
+    track_node *final_target = ui_final_target_node(pos);
+
+    if (!pos || !pos->target_sensor || !pos->target_sensor->name ||
+        ui_targets_same_sensor(pos->target_sensor, final_target)) {
+        n = ui_limited_append_char(out, n, cap, '-');
+    } else {
+        const char *prefix =
+            (pos->midrev.active &&
+             ui_targets_same_sensor(pos->target_sensor, pos->midrev.sensor))
+                ? "REV:"
+                : "AUTH:";
+        n = ui_limited_append_str(out, n, cap, prefix);
         n = ui_limited_append_str(out, n, cap, pos->target_sensor->name);
-        if (pos->midrev.active && pos->midrev.final_target &&
-            pos->midrev.final_target->name) {
-            n = ui_limited_append_char(out, n, cap, '>');
-            n = ui_limited_append_str(out, n, cap, pos->midrev.final_target->name);
-        }
     }
     ui_limited_finish(out, n, cap);
 }
@@ -176,7 +206,8 @@ static char *ui_append_blank_row(char *p, int row) {
 }
 
 static char *ui_append_position_row(char *p, int row, int train, const train_pos_t *pos) {
-    char dest_buf[64];
+    char final_buf[32];
+    char stage_buf[32];
     char rem_buf[24];
     const char *cur_name = (pos && pos->cur_sensor && pos->cur_sensor->name)
                            ? pos->cur_sensor->name : "-";
@@ -186,7 +217,8 @@ static char *ui_append_position_row(char *p, int row, int train, const train_pos
                                pos->queued_target->name)
                               ? pos->queued_target->name : "-";
 
-    ui_build_dest_text(pos, dest_buf, sizeof(dest_buf));
+    ui_build_final_target_text(pos, final_buf, sizeof(final_buf));
+    ui_build_stage_target_text(pos, stage_buf, sizeof(stage_buf));
     ui_build_rem_text(pos, rem_buf, sizeof(rem_buf));
 
     p = ui_move_to_row(p, row);
@@ -195,10 +227,11 @@ static char *ui_append_position_row(char *p, int row, int train, const train_pos
     p = ui_append_field(p, "", (train > 0) ? 1 : 2);
     p = ui_append_field(p, cur_name, 7);
     p = ui_append_field(p, next_name, 7);
-    p = ui_append_field(p, dest_buf, 24);
-    p = ui_append_field(p, pos ? ui_state_long(pos->route_state) : "-", 15);
+    p = ui_append_field(p, final_buf, 10);
+    p = ui_append_field(p, stage_buf, 12);
+    p = ui_append_field(p, pos ? ui_state_long(pos->route_state) : "-", 13);
     p = ui_append_field(p, rem_buf, 9);
-    p = ui_append_field(p, queued_name, 24);
+    p = ui_append_field(p, queued_name, 10);
     p = buf_append(p, "\033[K");
     return p;
 }
@@ -536,9 +569,10 @@ void ui_draw_position(void) {
     p = ui_append_field(p, "TR", 3);
     p = ui_append_field(p, "CUR", 7);
     p = ui_append_field(p, "NEXT", 7);
-    p = ui_append_field(p, "TARGET", 24);
-    p = ui_append_field(p, "STATE", 15);
-    p = ui_append_field(p, "REMAIN", 9);
+    p = ui_append_field(p, "FINAL", 10);
+    p = ui_append_field(p, "STAGE", 12);
+    p = ui_append_field(p, "STATE", 13);
+    p = ui_append_field(p, "LEG_MM", 9);
     p = buf_append(p, "QUEUED\033[K");
 
     for (int i = 0; i < 5; i++) {
