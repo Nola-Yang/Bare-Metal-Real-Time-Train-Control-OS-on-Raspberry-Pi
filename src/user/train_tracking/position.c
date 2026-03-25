@@ -213,13 +213,15 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
         return 1;
     }
 
-    if (pos->cur_sensor) {
-        traffic_release_train_keep_body(train_num, pos->cur_sensor,
-                                        TRAIN_BODY_MM,
-                                        pos_release_keep_end(pos->cur_sensor,
-                                                             pos->pred.next_sensor));
-    } else {
-        traffic_release_train(train_num);
+    if (pos->route_state != TRAIN_STATE_STOPPED) {
+        if (pos->cur_sensor) {
+            traffic_release_train_keep_body(train_num, pos->cur_sensor,
+                                            TRAIN_BODY_MM,
+                                            pos_release_keep_end(pos->cur_sensor,
+                                                                 pos->pred.next_sensor));
+        } else {
+            traffic_release_train(train_num);
+        }
     }
 
     pos_prepare_goto_request(pos, target, offset_mm);
