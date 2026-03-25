@@ -110,7 +110,7 @@ void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us, uint8_t blocker_
 void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int32_t offset_mm);
 
 /* Clear any active destination so FIND_POS can run without a planned target. */
-void pos_prepare_direction_find_request(train_pos_t *pos);
+void pos_prepare_find_pos_request(train_pos_t *pos);
 
 /* Zero all prediction fields (pred.* + dead_track_deadline_us). */
 void pos_clear_prediction(train_pos_t *pos);

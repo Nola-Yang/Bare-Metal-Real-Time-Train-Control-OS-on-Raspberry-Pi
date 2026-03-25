@@ -228,14 +228,14 @@ static int tick_handle_stopping_tr(train_pos_t *pos, uint64_t now_us) {
     return 1;
 }
 
-/* Handle STOPPING_GOTO -> replan (or STOPPED if find_pos_only).
+/* Handle STOPPING_GOTO -> replan (or STOPPED if stop_after_find_pos).
  * Returns 1 when braking is complete. */
 static int tick_handle_stopping_goto(train_pos_t *pos, uint64_t now_us) {
     if (!brake_elapsed(pos, now_us)) return 0;
 
     pos_save_ema_and_stop(pos);
-    if (pos->find_pos_only) {
-        pos->find_pos_only = 0;
+    if (pos->stop_after_find_pos) {
+        pos->stop_after_find_pos = 0;
         pos->route_state = TRAIN_STATE_STOPPED;
         pos->stopped_on_target_hit = 0;
         traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
@@ -337,7 +337,7 @@ static void enter_terminal_dead_track(train_pos_t *pos) {
     pos->queued_valid = 0;
     pos->orig_user_target = NULL;
     pos->orig_target_offset = 0;
-    pos->find_pos_only = 0;
+    pos->stop_after_find_pos = 0;
     pos->midrev.active = 0;
     pos->replan.next_us = 0;
     pos->replan.retry_count = 0;

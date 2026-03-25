@@ -281,7 +281,7 @@ void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) 
         return;
     }
 
-    /* FIND_POS: stop on first sensor to acquire position. */
+    /* FIND_POS: stop on the first sensor hit to acquire position. */
     if (pos->route_state == TRAIN_STATE_FIND_POS) {
         track_set_speed(pos->train_num, 0);
         pos->stopping_since_us = time_us;

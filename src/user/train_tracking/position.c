@@ -20,7 +20,7 @@ static uint32_t Speed_Warmup_Distance = 1000;
 #define GO_LATENCY_US 1000000ULL
 
 /* Start train moving at GOTO_USER_SPEED to acquire position (FIND_POS).
- * Used by pos_goto (UNKNOWN state) and pos_start_direction_find. */
+ * Used by pos_goto (UNKNOWN state) and pos_start_find_pos. */
 static void pos_begin_pos_find(train_pos_t *pos) {
     pos->user_speed      = GOTO_USER_SPEED;
     int can_spd          = 1 + (GOTO_USER_SPEED - 1) * 77;
@@ -245,13 +245,13 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     return 1;
 }
 
-int pos_start_direction_find(int train_num) {
+int pos_start_find_pos(int train_num) {
     train_pos_t *pos = pos_find_or_create_slot(train_num);
     if (!pos) return 0;
     if (pos->route_state != TRAIN_STATE_UNKNOWN) return 0;
 
     traffic_release_train(train_num);
-    pos_prepare_direction_find_request(pos);
+    pos_prepare_find_pos_request(pos);
 
     pos_begin_pos_find(pos);
 

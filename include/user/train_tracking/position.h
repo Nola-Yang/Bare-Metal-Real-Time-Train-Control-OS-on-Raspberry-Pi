@@ -199,9 +199,9 @@ typedef struct {
     int      route_path_cursor;
     uint64_t route_rem_tick_us;
 
-    /* If 1: started via pos_start_direction_find; stop after direction confirmed
+    /* If 1: started via pos_start_find_pos; stop after the first sensor hit
      * instead of planning a route to a target. */
-    uint8_t  find_pos_only;
+    uint8_t  stop_after_find_pos;
 
 } train_pos_t;
 
@@ -259,10 +259,10 @@ void pos_on_reverse(int train_num);
 /* Execute a goto */
 int pos_goto(int train_num, track_node *target, int32_t offset_mm);
 
-/* Start an UNKNOWN train moving to find direction; stop once direction is confirmed.
- * No destination is planned — train transitions to STOPPED at the second sensor.
+/* Start an UNKNOWN train moving to find its current sensor anchor.
+ * No destination is planned — train transitions to STOPPED after the first hit.
  * Returns 1 on success, 0 if train is not UNKNOWN or slot unavailable. */
-int pos_start_direction_find(int train_num);
+int pos_start_find_pos(int train_num);
 
 
 /* Returns 1 if the given train has an active goto in progress; 0 otherwise. */

@@ -111,7 +111,7 @@ static void pos_init_slot(train_pos_t *slot, int train_num, int train_ind) {
     slot->route_path_count = 0;
     slot->route_path_cursor = 0;
     slot->route_rem_tick_us = 0;
-    slot->find_pos_only = 0;
+    slot->stop_after_find_pos = 0;
 }
 
 static int32_t train_num_to_ind(int train_num) {
@@ -197,10 +197,10 @@ void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int32_t offs
     pos->target_offset_mm = offset_mm;
     pos->dist_to_target_mm = 0;
     pos->replan.next_us = 0;
-    pos->find_pos_only = 0;
+    pos->stop_after_find_pos = 0;
 }
 
-void pos_prepare_direction_find_request(train_pos_t *pos) {
+void pos_prepare_find_pos_request(train_pos_t *pos) {
     if (!pos) return;
 
     pos->pending_target = NULL;
@@ -215,7 +215,7 @@ void pos_prepare_direction_find_request(train_pos_t *pos) {
     pos->replan.next_us = 0;
     pos->offroute_valid = 0;
     pos->offroute_expected_sensor = NULL;
-    pos->find_pos_only = 1;
+    pos->stop_after_find_pos = 1;
 }
 
 train_pos_t *pos_get(int train_num) {

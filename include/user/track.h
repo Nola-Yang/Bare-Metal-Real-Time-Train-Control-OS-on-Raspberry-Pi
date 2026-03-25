@@ -30,9 +30,6 @@ typedef struct {
 /* Global track graph */
 extern track_node g_track[TRACK_MAX];
 
-// Initialize track module with the CAN server TID.
-void track_init(int can_server_tid);
-
 // State management functions
 void track_log_sensor(uint16_t sensor_id, uint64_t time_us, uint8_t state);
 void track_update_switch(int sw_id, char state);

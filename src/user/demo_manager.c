@@ -1,7 +1,9 @@
 #include "demo_manager.h"
+#include "server/position_server.h"
 #include "train_tracking/position.h"
 #include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
+#include "server/nameserver.h"
 #include "track.h"
 #include "ui.h"
 #include "util.h"
@@ -44,6 +46,7 @@ static uint64_t g_demo_start_us = 0;
 static uint64_t g_demo_stop_request_us = 0;
 static uint32_t g_demo_seed = 1;
 static uint32_t g_demo_rng_state = 1;
+static int g_position_server_tid = -1;
 
 static int g_gold_min_trip_mm = 1400;
 static uint32_t g_demo_last_ui_uptime_sec = UINT32_MAX;
@@ -52,6 +55,13 @@ static demo_train_slot_t g_slots[DEMO_MAX_TRAINS];
 
 static track_node *g_sensor_pool[TRACK_MAX];
 static int g_sensor_pool_count = 0;
+
+static int demo_position_server_tid(void) {
+    if (g_position_server_tid < 0) {
+        g_position_server_tid = WhoIs(POSITION_SERVER_NAME);
+    }
+    return g_position_server_tid;
+}
 
 int get_demo_train_ind(int train_num) {
     for (int i = 0; i < DEMO_MAX_TRAINS; ++i) {
@@ -157,9 +167,13 @@ static uint32_t demo_rand_u32(void) {
 }
 
 static int demo_dispatch_to_target(demo_train_slot_t *slot, track_node *target, int32_t offset_mm) {
+    int pos_tid;
     if (!slot || !target) return 0;
     if (!track_is_valid_train(slot->train_num)) return 0;
-    if (!pos_goto(slot->train_num, target, offset_mm)) return 0;
+    pos_tid = demo_position_server_tid();
+    if (pos_tid < 0) return 0;
+    if (!PositionServerGoto(pos_tid, slot->train_num,
+                            (int)(target - g_track), offset_mm)) return 0;
     slot->started = 1;
     slot->last_target_idx = (int)(target - g_track);
     slot->next_dispatch_us = 0;
@@ -292,6 +306,8 @@ static void demo_finish_locate(void) {
 }
 
 static int demo_start_next_unstarted(void) {
+    int pos_tid = demo_position_server_tid();
+
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         demo_train_slot_t *slot = &g_slots[i];
         if (!slot->enabled || slot->started) continue;
@@ -304,7 +320,8 @@ static int demo_start_next_unstarted(void) {
             slot->next_dispatch_us = 0;
             return 1;
         }
-        if (!pos_start_direction_find(slot->train_num)) return 0;
+        if (pos_tid < 0) return 0;
+        if (!PositionServerStartFindPos(pos_tid, slot->train_num)) return 0;
         slot->started = 1;
         return 1;
     }
@@ -312,10 +329,14 @@ static int demo_start_next_unstarted(void) {
 }
 
 static void demo_force_stop(void) {
+    int pos_tid = demo_position_server_tid();
+
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         if (!g_slots[i].enabled) continue;
         if (demo_slot_is_dead_track(&g_slots[i])) continue;
-        traffic_release_train(g_slots[i].train_num);
+        if (pos_tid >= 0) {
+            PositionServerReleaseTrain(pos_tid, g_slots[i].train_num);
+        }
     }
     g_demo_mode = DEMO_MODE_OFF;
     g_demo_state = DEMO_RUN_IDLE;
@@ -358,6 +379,7 @@ int demo_is_auto_dispatching_targets(void) {
 }
 
 void demo_init(void) {
+    g_position_server_tid = -1;
     demo_reset_slots();
     g_demo_mode = DEMO_MODE_OFF;
     g_demo_state = DEMO_RUN_IDLE;
