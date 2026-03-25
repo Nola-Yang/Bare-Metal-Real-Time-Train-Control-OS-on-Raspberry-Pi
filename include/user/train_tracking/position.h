@@ -20,7 +20,7 @@ typedef enum {
     TRAIN_STATE_FIND_POS     = 6,  /* position unknown; running until first sensor hit */
     TRAIN_STATE_RECOVERY_STOPPING = 7,  /* off-route deviation; stopping -> replan */
     TRAIN_STATE_STOPPING_GOTO     = 8, /* goto while running; stop sent -> replan */
-    TRAIN_STATE_DEAD_TRACK        = 9, /* terminal: stuck on dead track, reservation held in place */
+    TRAIN_STATE_DEAD_TRACK        = 9, /* stopped on dead track; auto-reenters bootstrap after a delay */
     TRAIN_STATE_WAIT_RESOURCE     = 10, /* route blocked by reservation; stopped and waiting */
     TRAIN_STATE_WAIT_SWITCH_SETTLE = 11, /* switches set; waiting for turnout settle before launch */
 } train_route_state_t;
@@ -159,6 +159,7 @@ typedef struct {
     /* Deadline for observing the next predicted progress sensor.
      * Typically now + DEAD_TRACK_DEADLINE_MULTIPLIER * T1. */
     uint64_t    dead_track_deadline_us;
+    uint64_t    dead_track_bootstrap_due_us;
 
     /* Per-speed EMA cache.
      * cached_v[s] holds the last calibrated effective_v for user speed s.

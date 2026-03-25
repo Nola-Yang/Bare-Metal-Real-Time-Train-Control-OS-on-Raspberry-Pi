@@ -98,6 +98,7 @@ static void pos_init_slot(train_pos_t *slot, int train_num, int train_ind) {
     slot->replan.seen_generation = traffic_get_change_generation();
     slot->replan.blocker_mask = 0;
     slot->dead_track_deadline_us = 0;
+    slot->dead_track_bootstrap_due_us = 0;
     for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
     slot->speed_warmup_mm = 0;
     slot->accel_a_eff = GOTO_ACCEL_MM_S2[train_ind];
@@ -167,6 +168,7 @@ void pos_reset_dead_train(int train_num) {
     pos->force_offroute_on_next_sensor = 0;
     pos->dead_track_rescue_pending = 0;
     pos->dead_track_recover.valid = 0;
+    pos->dead_track_bootstrap_due_us = 0;
     pos->replan.blocker_mask = 0;
     pos_route_authority_reset(pos);
     pos_clear_deadlock_recover(pos);
@@ -196,6 +198,8 @@ void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int32_t offs
     pos->orig_target_offset = offset_mm;
     pos->replan.blocker_mask = 0;
     pos_clear_deadlock_recover(pos);
+    pos_reset_dead_track_recover(pos);
+    pos->dead_track_bootstrap_due_us = 0;
     pos->offroute_valid = 0;
     pos->offroute_expected_sensor = NULL;
     pos->target_sensor = target;
@@ -215,6 +219,8 @@ void pos_prepare_find_pos_request(train_pos_t *pos) {
     pos->orig_target_offset = 0;
     pos->replan.blocker_mask = 0;
     pos_clear_deadlock_recover(pos);
+    pos_reset_dead_track_recover(pos);
+    pos->dead_track_bootstrap_due_us = 0;
     pos->target_sensor = NULL;
     pos->target_offset_mm = 0;
     pos->dist_to_target_mm = 0;

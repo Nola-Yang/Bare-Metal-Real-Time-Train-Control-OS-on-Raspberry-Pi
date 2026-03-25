@@ -28,6 +28,7 @@ train_pos_t *pos_find_or_create_slot(int train_num);
 /* Dead-track timeout is prediction-relative, but never shorter than this floor. */
 #define DEAD_TRACK_TIMEOUT_MIN_US 7000000ULL
 #define DEAD_TRACK_TIMEOUT_MULTIPLIER 3ULL
+#define DEAD_TRACK_BOOTSTRAP_DELAY_US 10000000ULL
 
 /* Fixed user speed used for all goto operations. */
 #define GOTO_USER_SPEED 8
@@ -130,6 +131,9 @@ void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int32_t offs
 
 /* Clear any active destination so FIND_POS can run without a planned target. */
 void pos_prepare_find_pos_request(train_pos_t *pos);
+
+/* Launch the train into FIND_POS/bootstrap from its current slot state. */
+void pos_enter_find_pos(train_pos_t *pos, uint64_t now_us);
 
 /* Zero all prediction fields (pred.* + dead_track_deadline_us). */
 void pos_clear_prediction(train_pos_t *pos);

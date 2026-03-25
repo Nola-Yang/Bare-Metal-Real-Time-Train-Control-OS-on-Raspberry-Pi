@@ -303,7 +303,7 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
     return 0;
 }
 
-static void enter_terminal_dead_track(train_pos_t *pos) {
+static void enter_terminal_dead_track(train_pos_t *pos, uint64_t now_us) {
     if (!pos) return;
 
     int can_rescue_dead_track =
@@ -358,6 +358,10 @@ static void enter_terminal_dead_track(train_pos_t *pos) {
     pos->offroute_valid = 1;
     pos->offroute_expected_sensor = guessed_end;
     pos_clear_prediction(pos);
+    pos->dead_track_bootstrap_due_us =
+        (now_us > UINT64_MAX - DEAD_TRACK_BOOTSTRAP_DELAY_US)
+            ? UINT64_MAX
+            : now_us + DEAD_TRACK_BOOTSTRAP_DELAY_US;
 }
 
 /* Detect dead-track: no sensor fired before the deadline. */
@@ -367,8 +371,17 @@ static int tick_check_dead_track(train_pos_t *pos, uint64_t now_us) {
     if (pos->dead_track_deadline_us == 0) return 0;
     if (now_us <= pos->dead_track_deadline_us) return 0;
 
-    enter_terminal_dead_track(pos);
+    enter_terminal_dead_track(pos, now_us);
     ui_mark_position_dirty();
+    return 1;
+}
+
+static int tick_handle_dead_track(train_pos_t *pos, uint64_t now_us) {
+    if (!pos || pos->route_state != TRAIN_STATE_DEAD_TRACK) return 0;
+    if (pos->dead_track_bootstrap_due_us == 0) return 1;
+    if (now_us < pos->dead_track_bootstrap_due_us) return 1;
+
+    pos_enter_find_pos(pos, now_us);
     return 1;
 }
 
@@ -411,7 +424,10 @@ void pos_on_tick(uint64_t now_us) {
         if (pos->train_num < 0) continue;
         if (pos->route_state == TRAIN_STATE_WAIT_RESOURCE) continue;
         if (pos->route_state == TRAIN_STATE_WAIT_SWITCH_SETTLE) continue;
-        if (pos->route_state == TRAIN_STATE_DEAD_TRACK) continue;
+        if (pos->route_state == TRAIN_STATE_DEAD_TRACK) {
+            tick_handle_dead_track(pos, now_us);
+            continue;
+        }
 
         /* Update kinematic velocity every tick for accelerating trains.
          * For stopping/stopped states, the train is no longer accelerating:

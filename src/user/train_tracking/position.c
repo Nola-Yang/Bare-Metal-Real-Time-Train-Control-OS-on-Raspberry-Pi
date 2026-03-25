@@ -21,19 +21,23 @@ static uint32_t Speed_Warmup_Distance = 1000;
 
 /* Start train moving at GOTO_USER_SPEED to acquire position (FIND_POS).
  * Used by pos_goto (UNKNOWN state) and pos_start_find_pos. */
-static void pos_begin_pos_find(train_pos_t *pos) {
+static void pos_begin_pos_find(train_pos_t *pos, uint64_t now_us) {
     pos->user_speed      = GOTO_USER_SPEED;
     int can_spd          = 1 + (GOTO_USER_SPEED - 1) * 77;
     track_set_speed(pos->train_num, can_spd);
     pos->effective_v     = 0;               /* will be ramped by tick */
     pos->speed_warmup_mm = Speed_Warmup_Distance;
-    pos->cur_sensor_time = read_timer();
+    pos->cur_sensor_time = now_us;
     pos->is_accelerating = 1;
-    pos->accel_start_us  = pos->cur_sensor_time + GO_LATENCY_US;
+    pos->accel_start_us  = now_us + GO_LATENCY_US;
     pos->awaiting_post_launch_sensor = 1;
     pos->force_offroute_on_next_sensor = 0;
     pos->dead_track_rescue_pending = 0;
     pos->dead_track_recover.valid = 0;
+    pos->dead_track_recover.orig_target = NULL;
+    pos->dead_track_recover.orig_offset_mm = 0;
+    pos->dead_track_bootstrap_due_us = 0;
+    pos->stopped_on_target_hit = 0;
     pos_clear_deadlock_recover(pos);
     pos->route_state     = TRAIN_STATE_FIND_POS;
 }
@@ -105,6 +109,7 @@ void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
     pos->force_offroute_on_next_sensor = 0;
     pos->dead_track_rescue_pending = 0;
     pos->dead_track_recover.valid = 0;
+    pos->dead_track_bootstrap_due_us = 0;
     pos->stopped_on_target_hit = 0;
 }
 
@@ -223,7 +228,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     if (pos->route_state == TRAIN_STATE_UNKNOWN) {
         /* Position unknown — start moving to trigger a sensor and acquire position.
          * handle_sensor will stop the train and transition to STOPPING_GOTO. */
-        pos_begin_pos_find(pos);
+        pos_begin_pos_find(pos, read_timer());
 
     } else if (pos->route_state == TRAIN_STATE_KNOWN) {
         /* Position known, train running via tr. Stop and replan. */
@@ -248,15 +253,21 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
 int pos_start_find_pos(int train_num) {
     train_pos_t *pos = pos_find_or_create_slot(train_num);
     if (!pos) return 0;
-    if (pos->route_state != TRAIN_STATE_UNKNOWN) return 0;
+    if (pos->route_state != TRAIN_STATE_UNKNOWN &&
+        pos->route_state != TRAIN_STATE_DEAD_TRACK) return 0;
 
-    traffic_release_train(train_num);
-    pos_prepare_find_pos_request(pos);
+    pos_enter_find_pos(pos, read_timer());
 
-    pos_begin_pos_find(pos);
-
-    ui_mark_position_dirty();
     return 1;
+}
+
+void pos_enter_find_pos(train_pos_t *pos, uint64_t now_us) {
+    if (!pos) return;
+
+    traffic_release_train(pos->train_num);
+    pos_prepare_find_pos_request(pos);
+    pos_begin_pos_find(pos, now_us);
+    ui_mark_position_dirty();
 }
 
 int pos_is_train_goto_active(int train_num) {

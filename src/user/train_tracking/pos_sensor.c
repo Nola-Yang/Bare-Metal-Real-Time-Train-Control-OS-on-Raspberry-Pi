@@ -137,8 +137,8 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
     }
 }
 
-/* DEAD_TRACK is terminal: ignore any later attributed sensor and keep the train
- * parked in place. */
+/* While waiting out the dead-track timeout, ignore any later attributed sensor
+ * and keep the train parked in place. */
 static void handle_dead_track_sensor(train_pos_t *pos) {
     if (!pos) return;
     track_set_speed(pos->train_num, 0);
@@ -196,6 +196,7 @@ void pos_revive_dead_track_for_current_hit(train_pos_t *pos) {
     pos->offroute_expected_sensor = NULL;
     pos->force_offroute_on_next_sensor = 1;
     pos->dead_track_rescue_pending = 1;
+    pos->dead_track_bootstrap_due_us = 0;
     pos_clear_prediction(pos);
 }
 
