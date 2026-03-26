@@ -66,8 +66,8 @@ static void start_queued_goto_if_any(train_pos_t *pos) {
     pos_goto(pos->train_num, qt, pos->goto_speed, qo);
 }
 
-/* When the braking estimate stops the train before the final target sensor
- * actually fires, keep the remaining planned tail reserved up to the target. */
+/* On stop completion, either keep one step past the current stop sensor or
+ * keep the remaining planned tail up to the current stop target. */
 static void release_stop_reservation(train_pos_t *pos) {
     track_node *keep_end;
     track_node *keep_after_target;
@@ -78,8 +78,7 @@ static void release_stop_reservation(train_pos_t *pos) {
     keep_end = pos_release_keep_end(pos->cur_sensor, pos->pred.next_sensor);
     keep_after_target = NULL;
     if (pos->target_sensor != NULL &&
-        pos->cur_sensor == pos->target_sensor &&
-        pos_route_authority_is_leg_goal_stop(pos)) {
+        pos->cur_sensor == pos->target_sensor) {
         track_edge *e = traffic_tm_get_next_edge(pos->cur_sensor);
         if (e) keep_after_target = e->dest;
     }
@@ -104,9 +103,6 @@ static void release_stop_reservation(train_pos_t *pos) {
                                           pos->route_path_count);
         return;
     }
-
-    traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
-                                    TRAIN_BODY_MM, keep_end);
 }
 
 static int pos_targets_same_sensor(track_node *a, track_node *b) {
