@@ -8,15 +8,19 @@
 #ifdef TRACK_D
     static const int32_t GOTO_SPEED_MM_S[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
         {{227, 232, 242, 229, 230},
-         {227, 232, 242, 229, 230}};
+         {365, 365, 365, 365, 365}};
 
     static const int32_t GOTO_DECEL_MM_S2[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
         {{144, 144, 144, 144, 144},
-         {144, 144, 144, 144, 144}};
+         {175, 175, 175, 175, 175}};
 
     static const int32_t GOTO_ACCEL_MM_S2[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
         {{37, 37, 38, 38, 38},
-         {37, 37, 38, 38, 38}};
+         {50, 50, 50, 50, 50}};
+
+    uint64_t STOP_EARLY_US[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
+        {{930000ULL, 930000ULL, 930000ULL, 930000ULL, 930000ULL},
+         {930000ULL, 930000ULL, 930000ULL, 930000ULL, 930000ULL}};
 #else
     static const int32_t GOTO_SPEED_MM_S[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
         {{226, 224, 226, 222, 236},
@@ -29,6 +33,10 @@
     static const int32_t GOTO_ACCEL_MM_S2[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
         {{37, 37, 38, 38, 38},
          {37, 37, 38, 38, 38}};
+
+    uint64_t STOP_EARLY_US[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
+        {{1200000ULL, 1200000ULL, 1200000ULL, 1200000ULL, 1200000ULL},
+         {1200000ULL, 1200000ULL, 1200000ULL, 1200000ULL, 1200000ULL}};
 #endif
 
 
@@ -70,4 +78,11 @@ int32_t speed_table_get_accel(int32_t train_ind, int user_speed) {
     if (speed_ind == -1) return 0;
 
     return GOTO_ACCEL_MM_S2[speed_ind][train_ind];
+}
+
+uint64_t speed_table_get_early_stop(int32_t train_ind, int user_speed) {
+    int speed_ind = get_speed_ind(user_speed);
+    if (speed_ind == -1) return 0;
+
+    return STOP_EARLY_US[speed_ind][train_ind];
 }

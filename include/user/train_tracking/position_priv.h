@@ -10,9 +10,6 @@
 /* Defined in position.c; all position-tracking modules share this array. */
 extern train_pos_t g_pos[MAX_POS_TRAINS];
 
-/* stop-command lead time per train (microseconds). */
-extern uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS];
-
 /* Find an existing train-position slot, or NULL if none exists. */
 train_pos_t *pos_find_slot(int train_num);
 

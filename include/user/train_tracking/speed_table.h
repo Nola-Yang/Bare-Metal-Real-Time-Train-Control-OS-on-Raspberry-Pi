@@ -19,5 +19,8 @@ int32_t speed_table_get_decel(int32_t train_ind, int user_speed);
 /* Lookup the caliberated acceleration */
 int32_t speed_table_get_accel(int32_t train_ind, int user_speed);
 
+/* Lookup the caliberated early stopping time */
+uint64_t speed_table_get_early_stop(int32_t train_ind, int user_speed);
+
 
 #endif

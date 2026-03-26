@@ -2,6 +2,7 @@
 #include "train_tracking/pos_route_internal.h"
 #include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
+#include "train_tracking/speed_table.h"
 #include "traffic_window_internal.h"
 #include "track.h"
 #include "ui.h"
@@ -35,8 +36,7 @@ static int32_t authority_early_stop_mm(const train_pos_t *pos) {
     if (!pos) return 0;
     tv = speed_table_get_v(pos->train_ind, pos->goto_speed);
     if (tv <= 0) return 0;
-    return (int32_t)((int64_t)tv * (int64_t)STOP_EARLY_US[pos->train_ind]
-                     / 1000000LL);
+    return (int32_t)((int64_t)tv * (int64_t)speed_table_get_early_stop(pos->train_ind, pos->goto_speed) / 1000000LL);
 }
 
 static int32_t authority_brake_dist_mm(const train_pos_t *pos) {

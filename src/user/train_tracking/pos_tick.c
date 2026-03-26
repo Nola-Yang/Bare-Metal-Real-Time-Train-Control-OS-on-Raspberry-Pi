@@ -10,14 +10,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Stop command lead time for overshoot compensation (microseconds). */
-#ifdef TRACK_D
-uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] =
-    {930000ULL, 930000ULL, 930000ULL, 930000ULL, 930000ULL};
-#else
-uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS] =
-    {1200000ULL, 1200000ULL, 1200000ULL, 1200000ULL, 1200000ULL};
-#endif
 
 /* Offsets at end of train with undershoot of 2 cm. */
 static uint32_t Train_Forward_Stop_Offset = 64;
@@ -48,7 +40,7 @@ void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us) {
 static uint64_t calc_brake_us(train_pos_t *pos) {
     int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed);
     if (pos->effective_v > 0 && decel > 0) {
-        return STOP_EARLY_US[pos->train_ind] +
+        return speed_table_get_early_stop(pos->train_ind, pos->goto_speed) +
                (uint64_t)pos->effective_v * 1500000ULL / (uint64_t)decel;
     }
     return 1000000ULL;
@@ -280,7 +272,7 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
     if (a > 0) {
         int32_t d_brake = (int32_t)((int64_t)pos->effective_v * pos->effective_v / (2LL * a));
         int32_t d_early = d_brake + (int32_t)((int64_t)pos->effective_v *
-                                              (int64_t)STOP_EARLY_US[pos->train_ind] / 1000000LL);
+                                              (int64_t)speed_table_get_early_stop(pos->train_ind, pos->goto_speed) / 1000000LL);
 
         if (pos->going_forward) {
             d_early += Train_Forward_Stop_Offset;
