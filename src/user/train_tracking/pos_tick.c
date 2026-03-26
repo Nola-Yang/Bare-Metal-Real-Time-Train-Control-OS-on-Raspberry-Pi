@@ -4,6 +4,7 @@
 #include "traffic_manager_internal.h"
 #include "track.h"
 #include "train_tracking/speed_table.h"
+#include "timer.h"
 #include "syscall.h"
 #include "kassert.h"
 #include "ui.h"
@@ -134,6 +135,9 @@ static void handle_normal_stop(train_pos_t *pos) {
      * if that final sensor never physically fired; use the planned target, not
      * cur_sensor, to arm deadlock-yield resume. */
     stopped_target = pos->target_sensor;
+    if (pos_route_authority_is_leg_goal_stop(pos) && stopped_target != NULL) {
+        pos_publish_game_goal_stop(pos, stopped_target, read_timer());
+    }
     release_stop_reservation(pos);
     pos_clear_prediction(pos);
 

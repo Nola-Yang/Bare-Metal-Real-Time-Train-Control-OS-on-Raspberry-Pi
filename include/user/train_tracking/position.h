@@ -235,6 +235,32 @@ typedef struct {
     uint16_t   path_nodes2[TRACK_MAX];
 } route_plan_t;
 
+typedef enum {
+    POS_TARGET_UNREACHABLE = 0,
+    POS_TARGET_BLOCKED     = 1,
+    POS_TARGET_READY       = 2,
+} pos_target_query_status_t;
+
+typedef struct {
+    pos_target_query_status_t status;
+    route_plan_t             plan;
+    uint8_t                  blocker_mask;
+} pos_target_query_t;
+
+typedef enum {
+    POS_GAME_EVENT_NONE       = 0,
+    POS_GAME_EVENT_SENSOR_HIT = 1,
+    POS_GAME_EVENT_GOAL_STOP  = 2,
+} pos_game_event_type_t;
+
+typedef struct {
+    uint32_t              seq;
+    pos_game_event_type_t type;
+    int                   train_num;
+    uint16_t              sensor_num;
+    uint64_t              time_us;
+} pos_game_event_t;
+
 /* ---------- Public API ---------- */
 
 void pos_init(void);
@@ -284,6 +310,16 @@ train_pos_t *pos_get_by_index(int i);
 
 /* Queue a goto for an already-active train. last-write-wins. */
 int pos_queue_goto(int train_num, track_node *target, int32_t offset_mm);
+
+/* Read recent attributed sensor and goal-stop events in sequence order.
+ * `*io_seq` is updated to the last delivered sequence number. */
+int pos_read_game_events(uint32_t *io_seq, pos_game_event_t *out, int max_events);
+
+/* Evaluate whether `train_num` can currently target `target`.
+ * READY means dispatchable now, BLOCKED means planner-valid but currently
+ * blocked by reservation/switch ownership, UNREACHABLE means no valid route. */
+pos_target_query_status_t pos_query_target(int train_num, track_node *target,
+                                           pos_target_query_t *out);
 
 void pos_mark_routes_dirty(void);
 

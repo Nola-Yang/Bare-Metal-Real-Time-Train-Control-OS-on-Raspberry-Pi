@@ -41,5 +41,7 @@ int UIServerCmdBackspace(int tid);
 int UIServerCmdEnter(int tid);
 int UIServerCmdPrompt(int tid);
 int UIServerPrepareCmd(int tid);
+int UIServerCmdPromptLabel(int tid, const char *label, int len);
+int UIServerPrepareCmdLabel(int tid, const char *label, int len);
 
 #endif /* _ui_server_h_ */

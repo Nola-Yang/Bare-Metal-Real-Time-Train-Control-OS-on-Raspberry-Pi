@@ -137,6 +137,7 @@ void pos_init(void) {
         g_pos[i].replan.seen_generation = 0;
     }
     pos_clear_deadlock_notice();
+    pos_reset_game_events();
     traffic_init();
     route_init();
 }

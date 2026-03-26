@@ -10,6 +10,7 @@ static int ui_server_tid = -1;
 static int ui_switches_dirty  = 1;
 static int ui_sensors_dirty   = 1;
 static int ui_position_dirty  = 1;
+static char ui_cmd_prompt_label[16] = "cmd> ";
 
 static char last_clock_buf[8] = "00:00.0";
 static int last_idle_percent = -1;
@@ -51,7 +52,7 @@ void ui_init(int terminal_tid) {
     ui_puts("\033[2J\033[H\033[?25l");
     ui_puts("=== Train Control System CS652 K4 ===\r\n");
     ui_puts("Version: " __DATE__ " / " __TIME__ "\r\n");
-    ui_puts("Cmds: tr|sw|rv|li|goto|findpos|demo|q\r\n");
+    ui_puts("Cmds: tr|sw|rv|li|goto|findpos|demo|game|pick|q\r\n");
     ui_puts("\r\n");
     ui_puts("Time: 00:00.0\r\n");
     ui_puts("Idle: 0%\r\n");
@@ -72,7 +73,9 @@ void ui_prepare_cmd(void) {
         return;
     }
 
-    UIServerPrepareCmd(ui_server_tid);
+    UIServerPrepareCmdLabel(ui_server_tid,
+                            ui_cmd_prompt_label,
+                            ui_strlen(ui_cmd_prompt_label));
 }
 
 void ui_scroll_cmd(void) {
@@ -88,7 +91,9 @@ void ui_cmd_newprompt(void) {
         return;
     }
 
-    UIServerCmdPrompt(ui_server_tid);
+    UIServerCmdPromptLabel(ui_server_tid,
+                           ui_cmd_prompt_label,
+                           ui_strlen(ui_cmd_prompt_label));
 }
 
 void ui_cmd_backspace(void) {
@@ -105,6 +110,20 @@ void ui_cmd_putc(char c) {
     }
 
     UIServerCmdPutc(ui_server_tid, c);
+}
+
+void ui_set_cmd_prompt_label(const char *label) {
+    int i = 0;
+
+    if (!label || !label[0]) {
+        label = "cmd> ";
+    }
+
+    while (label[i] && i + 1 < (int)sizeof(ui_cmd_prompt_label)) {
+        ui_cmd_prompt_label[i] = label[i];
+        i++;
+    }
+    ui_cmd_prompt_label[i] = '\0';
 }
 
 void ui_update_clock(uint64_t start_us, uint64_t now) {

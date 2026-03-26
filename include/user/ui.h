@@ -10,6 +10,7 @@ void ui_scroll_cmd(void);
 void ui_cmd_newprompt(void);
 void ui_cmd_backspace(void);
 void ui_cmd_putc(char c);
+void ui_set_cmd_prompt_label(const char *label);
 
 // Draw components
 void ui_switches(void);

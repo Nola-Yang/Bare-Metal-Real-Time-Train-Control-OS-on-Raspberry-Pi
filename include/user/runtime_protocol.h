@@ -19,7 +19,9 @@ typedef enum {
     TRAIN_CMD_GOTO = 7,
     TRAIN_CMD_DEMO = 8,
     TRAIN_CMD_FINDPOS = 9,
-    TRAIN_CMD_UNKNOWN = 10,
+    TRAIN_CMD_GAME = 10,
+    TRAIN_CMD_PICK = 11,
+    TRAIN_CMD_UNKNOWN = 12,
 } train_command_type_t;
 
 typedef enum {
@@ -31,6 +33,8 @@ typedef enum {
     TRAIN_CMD_ERR_USAGE_GOTO,
     TRAIN_CMD_ERR_USAGE_DEMO,
     TRAIN_CMD_ERR_USAGE_FINDPOS,
+    TRAIN_CMD_ERR_USAGE_GAME,
+    TRAIN_CMD_ERR_USAGE_PICK,
     TRAIN_CMD_ERR_TRAIN_NOT_NUMBER,
     TRAIN_CMD_ERR_TRAIN_INVALID,
     TRAIN_CMD_ERR_SPEED_NOT_NUMBER,
@@ -72,6 +76,7 @@ typedef enum {
     RUNTIME_EVENT_RV_REQUEST = 8,
     RUNTIME_EVENT_RV_COMPLETE = 9,
     RUNTIME_EVENT_CAN_FRAME = 10,
+    RUNTIME_EVENT_GAME_TICK = 11,
 } runtime_event_type_t;
 
 typedef struct {

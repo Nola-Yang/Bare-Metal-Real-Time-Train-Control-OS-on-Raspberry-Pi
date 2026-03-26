@@ -7,10 +7,12 @@
 #include "server/track_server.h"
 #include "server/position_server.h"
 #include "server/demo_server.h"
+#include "server/game_server.h"
 #include "track.h"
 #include "train_tracking/position.h"
 #include "train_tracking/traffic_manager.h"
 #include "demo_manager.h"
+#include "game_manager.h"
 #include "ui.h"
 #include "timer.h"
 #include "util.h"
@@ -94,6 +96,23 @@ static void runtime_demo_tick_task(void) {
     }
 }
 
+static void runtime_game_tick_task(void) {
+    int parent = MyParentTid();
+    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
+    runtime_event_t event;
+    runtime_reply_t reply;
+
+    KASSERT(clock_tid >= 0);
+    event.type = RUNTIME_EVENT_GAME_TICK;
+
+    for (;;) {
+        Delay(clock_tid, 100);
+        event.now_us = read_timer();
+        Send(parent, (const char *)&event, sizeof(event),
+             (char *)&reply, sizeof(reply));
+    }
+}
+
 static void runtime_switch_settle_tick_task(void) {
     int parent = MyParentTid();
     int clock_tid = WhoIs(CLOCK_SERVER_NAME);
@@ -135,6 +154,12 @@ static void runtime_print_parse_error(const train_command_t *cmd) {
             break;
         case TRAIN_CMD_ERR_USAGE_FINDPOS:
             ui_cmd_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
+            break;
+        case TRAIN_CMD_ERR_USAGE_GAME:
+            ui_cmd_puts("Usage: game <start|stop|status> ...\r\n");
+            break;
+        case TRAIN_CMD_ERR_USAGE_PICK:
+            ui_cmd_puts("Usage: pick <sensor>\r\n");
             break;
         case TRAIN_CMD_ERR_TRAIN_NOT_NUMBER:
             ui_cmd_puts("Train must be a number\r\n");
@@ -182,8 +207,21 @@ static void runtime_print_parse_error(const train_command_t *cmd) {
 static int runtime_handle_command(const train_command_t *cmd,
                                   int position_tid,
                                   int demo_tid,
+                                  int game_tid,
                                   int *rv_pending_count) {
     if (!cmd) return 2;
+
+    if (game_is_active()) {
+        switch (cmd->type) {
+        case TRAIN_CMD_QUIT:
+        case TRAIN_CMD_GAME:
+        case TRAIN_CMD_PICK:
+            break;
+        default:
+            ui_cmd_puts("game mode active: use `pick` or `game ...` only\r\n");
+            return 2;
+        }
+    }
 
     if (cmd->type == TRAIN_CMD_PARSE_ERROR || cmd->type == TRAIN_CMD_UNKNOWN) {
         runtime_print_parse_error(cmd);
@@ -259,6 +297,10 @@ static int runtime_handle_command(const train_command_t *cmd,
         case TRAIN_CMD_FINDPOS:
             return DemoServerHandleCommand(demo_tid, cmd);
 
+        case TRAIN_CMD_GAME:
+        case TRAIN_CMD_PICK:
+            return GameServerHandleCommand(game_tid, cmd);
+
         default:
             runtime_print_parse_error(cmd);
             return 2;
@@ -273,6 +315,7 @@ void runtime_core_task(void) {
     int track_tid;
     int position_tid;
     int demo_tid;
+    int game_tid;
     runtime_event_t event;
     runtime_reply_t reply;
 
@@ -292,6 +335,10 @@ void runtime_core_task(void) {
     KASSERT(demo_tid >= 0);
     KASSERT(DemoServerInit(demo_tid) == 0);
 
+    game_tid = Create(GAME_SERVER_PRIORITY, game_server_task);
+    KASSERT(game_tid >= 0);
+    KASSERT(GameServerInit(game_tid) == 0);
+
     event.type = RUNTIME_EVENT_RUNTIME_READY;
     Send(parent, (const char *)&event, sizeof(event),
          (char *)&reply, sizeof(reply));
@@ -300,6 +347,7 @@ void runtime_core_task(void) {
     Create(RUNTIME_FAST_TICK_PRIORITY, runtime_switch_settle_tick_task);
     Create(RUNTIME_SLOW_TICK_PRIORITY, runtime_replan_tick_task);
     Create(RUNTIME_SLOW_TICK_PRIORITY, runtime_demo_tick_task);
+    Create(RUNTIME_SLOW_TICK_PRIORITY, runtime_game_tick_task);
 
     for (;;) {
         int msglen = Receive(&tid, (char *)&event, sizeof(event));
@@ -314,6 +362,7 @@ void runtime_core_task(void) {
                 reply.status = runtime_handle_command(&event.command,
                                                       position_tid,
                                                       demo_tid,
+                                                      game_tid,
                                                       &rv_pending_count);
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
@@ -348,6 +397,11 @@ void runtime_core_task(void) {
             case RUNTIME_EVENT_DEMO_TICK:
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 DemoServerOnTick(demo_tid, event.now_us);
+                break;
+
+            case RUNTIME_EVENT_GAME_TICK:
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                GameServerOnTick(game_tid, event.now_us);
                 break;
 
             case RUNTIME_EVENT_RV_REQUEST: {

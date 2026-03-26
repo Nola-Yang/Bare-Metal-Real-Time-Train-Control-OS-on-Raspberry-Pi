@@ -378,6 +378,10 @@ int demo_is_auto_dispatching_targets(void) {
             g_demo_state == DEMO_RUN_RUNNING);
 }
 
+int demo_is_active(void) {
+    return g_demo_mode != DEMO_MODE_OFF;
+}
+
 void demo_init(void) {
     g_position_server_tid = -1;
     demo_reset_slots();

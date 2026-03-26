@@ -148,6 +148,33 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
         return 1;
     }
 
+    if (tok_eq(argv[0], "game")) {
+        out->type = TRAIN_CMD_GAME;
+        if (argc < 2) {
+            command_set_parse_error(out, TRAIN_CMD_ERR_USAGE_GAME);
+        }
+        return 1;
+    }
+
+    if (tok_eq(argv[0], "pick")) {
+        track_node *target;
+
+        out->type = TRAIN_CMD_PICK;
+        if (argc != 2) {
+            command_set_parse_error(out, TRAIN_CMD_ERR_USAGE_PICK);
+            return 1;
+        }
+
+        target = track_find_node(argv[1]);
+        if (!target) {
+            command_set_parse_error(out, TRAIN_CMD_ERR_NODE_UNKNOWN);
+            return 1;
+        }
+
+        out->target_idx = (int)(target - g_track);
+        return 1;
+    }
+
     if (tok_eq(argv[0], "findpos")) {
         out->type = TRAIN_CMD_FINDPOS;
         if (argc < 2 || argc > 5) {
