@@ -28,7 +28,8 @@ static uint8_t pos_simulate_deadlock_unblocked_mask(train_pos_t *victim,
 
     keep_end = pos_release_keep_end(yield_target, NULL);
     traffic_snapshot_reservations(g_pos_try_snapshot);
-    traffic_simulate_parked_train(victim->train_num, yield_target, keep_end);
+    traffic_simulate_parked_train(victim->train_num, yield_target,
+                                  TRAIN_BODY_MM, keep_end);
 
     for (int i = 0; i < 6; i++) {
         uint8_t bit = (uint8_t)(1u << i);

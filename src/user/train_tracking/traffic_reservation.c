@@ -159,7 +159,7 @@ static int append_unique_train(int *out, int count, int max_trains, int train_nu
 }
 
 static void build_keep_body_marks(uint8_t keep[TRACK_MAX], track_node *last_hit,
-                                  track_node *next_hit) {
+                                  int32_t body_mm, track_node *next_hit) {
     int keep_to_next = 0;
 
     for (int i = 0; i < TRACK_MAX; i++) keep[i] = 0;
@@ -175,13 +175,13 @@ static void build_keep_body_marks(uint8_t keep[TRACK_MAX], track_node *last_hit,
 
     keep_mark_node(keep, last_hit);
     if (last_hit->reverse) {
-        keep_mark_walk_dist(keep, last_hit->reverse, 0);
+        keep_mark_walk_dist(keep, last_hit->reverse, body_mm);
     }
     if (keep_to_next) {
         if (last_hit != next_hit) {
             keep_mark_walk_to(keep, last_hit, next_hit);
         }
-        keep_mark_walk_dist(keep, next_hit, 0);
+        keep_mark_walk_dist(keep, next_hit, body_mm);
     }
     expand_marks_with_zones(keep);
 }
@@ -273,9 +273,8 @@ void traffic_release_train(int train_num) {
 
 void traffic_release_train_keep_body(int train_num, track_node *last_hit,
                                      int32_t body_mm, track_node *next_hit) {
-    (void)body_mm;
     uint8_t keep[TRACK_MAX];
-    build_keep_body_marks(keep, last_hit, next_hit);
+    build_keep_body_marks(keep, last_hit, body_mm, next_hit);
 
     int changed = 0;
     for (int i = 0; i < TRACK_MAX; i++) {
@@ -513,9 +512,9 @@ void traffic_restore_reservations(const int owners[TRACK_MAX]) {
 }
 
 void traffic_simulate_parked_train(int train_num, track_node *last_hit,
-                                   track_node *next_hit) {
+                                   int32_t body_mm, track_node *next_hit) {
     uint8_t keep[TRACK_MAX];
-    build_keep_body_marks(keep, last_hit, next_hit);
+    build_keep_body_marks(keep, last_hit, body_mm, next_hit);
 
     for (int i = 0; i < TRACK_MAX; i++) {
         if (node_owner[i] == train_num) node_owner[i] = -1;

@@ -77,7 +77,7 @@ void traffic_restore_reservations(const int owners[TRACK_MAX]);
 /* Simulate a stopped train holding the same keep-body window that
  * traffic_release_train_keep_body() would preserve after stopping at last_hit. */
 void traffic_simulate_parked_train(int train_num, track_node *last_hit,
-                                   track_node *next_hit);
+                                   int32_t body_mm, track_node *next_hit);
 
 /* Attribute a sensor hit to the best train, or return owner=NULL when the
  * event remains spurious after all rescue logic. */
