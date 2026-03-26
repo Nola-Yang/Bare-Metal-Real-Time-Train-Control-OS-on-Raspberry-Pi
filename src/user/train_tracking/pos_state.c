@@ -187,6 +187,7 @@ void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int speed_le
     if (!pos || !target) return;
 
     pos->goto_speed = speed_level;
+    pos->accel_a_eff = speed_table_get_accel(pos->train_ind, speed_level);
     pos->pending_target = target;
     pos->pending_offset_mm = offset_mm;
     pos->orig_user_target = target;

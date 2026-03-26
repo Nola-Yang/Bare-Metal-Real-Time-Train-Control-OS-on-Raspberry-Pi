@@ -28,8 +28,11 @@ static int get_can_speed(int speed_level) {
  * Used by pos_goto (UNKNOWN state) and pos_start_find_pos. */
 static void pos_begin_pos_find(train_pos_t *pos, uint64_t now_us) {
     pos->user_speed      = DEFAULT_SPEED_LEVEL;
+    pos->accel_a_eff = speed_table_get_accel(pos->train_ind, DEFAULT_SPEED_LEVEL);
+
     int can_spd          = get_can_speed(DEFAULT_SPEED_LEVEL);
     track_set_speed(pos->train_num, can_spd);
+
     pos->effective_v     = 0;               /* will be ramped by tick */
     pos->speed_warmup_mm = Speed_Warmup_Distance;
     pos->cur_sensor_time = now_us;
