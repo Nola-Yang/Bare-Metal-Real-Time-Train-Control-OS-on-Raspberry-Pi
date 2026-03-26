@@ -106,6 +106,7 @@ typedef struct {
     uint64_t    cur_sensor_time;   // us 
     int32_t     effective_v;    /* EMA-corrected speed estimate (mm/s) */
     int         user_speed;     /* 0-14 */
+    int         goto_speed;
 
     /* Prediction */
     pos_pred_t  pred;
@@ -172,7 +173,7 @@ typedef struct {
      * Decremented by the measured edge distance on each sensor trigger. */
     int32_t     speed_warmup_mm;
 
-    /* Acceleration model (0 → GOTO_USER_SPEED).
+    /* Acceleration model (0 → constant speed).
      * accel_a_eff : fixed mm/s² constant seeded from GOTO_ACCEL_MM_S2.
      * is_accelerating : 1 while the train is in the ramp-up phase;
      *                   cleared automatically when full speed is reached.
@@ -261,12 +262,12 @@ void pos_on_reverse(int train_num);
 
 
 /* Execute a goto */
-int pos_goto(int train_num, track_node *target, int32_t offset_mm);
+int pos_goto(int train_num, track_node *target, int speed_level, int32_t offset_mm);
 
 /* Start an UNKNOWN train moving to find its current sensor anchor.
  * No destination is planned — train transitions to STOPPED after the first hit.
  * Returns 1 on success, 0 if train is not UNKNOWN or slot unavailable. */
-int pos_start_find_pos(int train_num);
+int pos_start_find_pos(int train_num, int speed_level);
 
 
 /* Returns 1 if the given train has an active goto in progress; 0 otherwise. */
@@ -283,7 +284,7 @@ train_pos_t *pos_get(int train_num);
 train_pos_t *pos_get_by_index(int i);
 
 /* Queue a goto for an already-active train. last-write-wins. */
-int pos_queue_goto(int train_num, track_node *target, int32_t offset_mm);
+int pos_queue_goto(int train_num, track_node *target, int speed_level, int32_t offset_mm);
 
 void pos_mark_routes_dirty(void);
 

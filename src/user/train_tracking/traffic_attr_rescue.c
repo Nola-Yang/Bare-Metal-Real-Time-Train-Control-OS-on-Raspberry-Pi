@@ -68,7 +68,7 @@ static int attr_travel_time_from_launch_us(const train_pos_t *pos,
     if (!pos || dist_mm < 0) return 0;
 
     int32_t a = pos->accel_a_eff;
-    int32_t v_end = speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
+    int32_t v_end = speed_table_get_v(pos->train_ind, pos->goto_speed);
 
     if (a <= 0 || v_end <= 0) return 0;
 

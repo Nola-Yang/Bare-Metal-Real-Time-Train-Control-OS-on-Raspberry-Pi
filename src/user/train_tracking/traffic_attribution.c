@@ -23,7 +23,7 @@ static int attr_estimate_speed_mm_s(const train_pos_t *pos) {
     if (pos->effective_v > 0) return pos->effective_v;
 
     int user_speed = pos->user_speed;
-    if (user_speed <= 0 || user_speed > 14) user_speed = GOTO_USER_SPEED;
+    if (user_speed <= 0 || user_speed > 14) user_speed = pos->goto_speed;
     return speed_table_get_v(pos->train_ind, user_speed);
 }
 

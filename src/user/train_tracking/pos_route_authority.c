@@ -33,7 +33,7 @@ static int32_t authority_early_stop_mm(const train_pos_t *pos) {
     int32_t tv;
 
     if (!pos) return 0;
-    tv = speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
+    tv = speed_table_get_v(pos->train_ind, pos->goto_speed);
     if (tv <= 0) return 0;
     return (int32_t)((int64_t)tv * (int64_t)STOP_EARLY_US[pos->train_ind]
                      / 1000000LL);
@@ -44,8 +44,8 @@ static int32_t authority_brake_dist_mm(const train_pos_t *pos) {
     int32_t ta;
 
     if (!pos) return 0;
-    tv = speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
-    ta = speed_table_get_nominal_decel(pos->train_ind, GOTO_USER_SPEED);
+    tv = speed_table_get_v(pos->train_ind, pos->goto_speed);
+    ta = speed_table_get_nominal_decel(pos->train_ind, pos->goto_speed);
     if (tv <= 0 || ta <= 0) return 0;
     return tv * tv / (2 * ta);
 }

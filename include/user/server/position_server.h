@@ -13,7 +13,7 @@ int PositionServerOnReplanTick(int tid, uint64_t now_us);
 int PositionServerOnSwitchSettleTick(int tid, uint64_t now_us);
 int PositionServerSpeedChange(int tid, int train_num, int user_speed);
 int PositionServerReverse(int tid, int train_num);
-int PositionServerGoto(int tid, int train_num, int target_idx, int32_t offset_mm);
+int PositionServerGoto(int tid, int train_num, int target_idx, int speed_level, int32_t offset_mm);
 int PositionServerStartFindPos(int tid, int train_num);
 int PositionServerMarkRoutesDirty(int tid);
 int PositionServerReleaseTrain(int tid, int train_num);

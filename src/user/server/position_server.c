@@ -4,6 +4,7 @@
 #include "server/nameserver.h"
 #include "syscall.h"
 #include "kassert.h"
+#include "train_tracking/speed_table.h"
 
 typedef enum {
     POS_REQ_INIT = 0,
@@ -95,13 +96,13 @@ void position_server_task(void) {
                     reply.status = 0;
                 } else {
                     reply.status = pos_goto(req.train, &g_track[req.target_idx],
-                                            req.offset_mm);
+                                            req.value, req.offset_mm);
                 }
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
 
             case POS_REQ_START_FIND_POS:
-                reply.status = pos_start_find_pos(req.train);
+                reply.status = pos_start_find_pos(req.train, req.value);
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
 
@@ -187,7 +188,7 @@ int PositionServerReverse(int tid, int train_num) {
     return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
 }
 
-int PositionServerGoto(int tid, int train_num, int target_idx, int32_t offset_mm) {
+int PositionServerGoto(int tid, int train_num, int target_idx, int speed_level, int32_t offset_mm) {
     PositionRequest_t req;
     PositionReply_t reply;
 
@@ -195,6 +196,8 @@ int PositionServerGoto(int tid, int train_num, int target_idx, int32_t offset_mm
     req.train = train_num;
     req.target_idx = target_idx;
     req.offset_mm = offset_mm;
+    req.value = speed_level;
+
     return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
 }
 
@@ -204,6 +207,8 @@ int PositionServerStartFindPos(int tid, int train_num) {
 
     req.type = POS_REQ_START_FIND_POS;
     req.train = train_num;
+    req.value = DEFAULT_SPEED_LEVEL;
+    
     return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
 }
 

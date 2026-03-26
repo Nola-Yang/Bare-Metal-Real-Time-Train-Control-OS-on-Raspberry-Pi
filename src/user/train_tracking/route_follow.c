@@ -136,7 +136,7 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
                  *   Conservative estimate: use v0 as constant speed (overestimates t,
                  *   safe for dead-track deadline). */
                 int32_t v0    = pos->effective_v;
-                int32_t v_end = speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
+                int32_t v_end = speed_table_get_v(pos->train_ind, pos->goto_speed);
                 int32_t a     = pos->accel_a_eff;
                 /* d1 = (v_end+v0)*(v_end-v0) / (2*a), computed to avoid overflow */
                 int32_t d1 = (v_end > v0)

@@ -6,13 +6,6 @@
 
 train_pos_t g_pos[MAX_POS_TRAINS];
 
-#ifdef TRACK_D
-    static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {37, 37, 38, 38, 38};
-#else
-    static const int32_t GOTO_ACCEL_MM_S2[MAX_PHYSICAL_TRAINS] =
-        {37, 37, 38, 38, 38};
-#endif
 
 static void pos_reset_dead_track_recover(train_pos_t *pos) {
     pos->dead_track_recover.valid = 0;
@@ -69,9 +62,10 @@ static void pos_reset_midrev_fields(train_pos_t *pos) {
     }
 }
 
-static void pos_init_slot(train_pos_t *slot, int train_num, int train_ind) {
+static void pos_init_slot(train_pos_t *slot, int train_num, int train_ind, int speed_level) {
     slot->train_num = train_num;
     slot->train_ind = train_ind;
+    slot->goto_speed = speed_level;
     slot->cur_sensor = NULL;
     slot->cur_sensor_time = 0;
     slot->effective_v = 0;
@@ -101,7 +95,7 @@ static void pos_init_slot(train_pos_t *slot, int train_num, int train_ind) {
     slot->dead_track_bootstrap_due_us = 0;
     for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
     slot->speed_warmup_mm = 0;
-    slot->accel_a_eff = GOTO_ACCEL_MM_S2[train_ind];
+    slot->accel_a_eff = speed_table_get_accel(train_ind, speed_level);
     slot->is_accelerating = 0;
     slot->accel_start_us = 0;
     slot->awaiting_post_launch_sensor = 0;
@@ -138,7 +132,7 @@ train_pos_t *pos_find_slot(int train_num) {
     return NULL;
 }
 
-train_pos_t *pos_find_or_create_slot(int train_num) {
+train_pos_t *pos_find_or_create_slot(int train_num, int speed_level) {
     train_pos_t *slot = pos_find_slot(train_num);
     if (slot) return slot;
 
@@ -150,7 +144,7 @@ train_pos_t *pos_find_or_create_slot(int train_num) {
         if (train_ind < 0 || train_ind >= MAX_PHYSICAL_TRAINS) return NULL;
 
         slot = &g_pos[i];
-        pos_init_slot(slot, train_num, train_ind);
+        pos_init_slot(slot, train_num, train_ind, speed_level);
         return slot;
     }
     return NULL;
@@ -189,9 +183,10 @@ void pos_save_ema_and_stop(train_pos_t *pos) {
     pos->awaiting_post_launch_sensor = 0;
 }
 
-void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int32_t offset_mm) {
+void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int speed_level, int32_t offset_mm) {
     if (!pos || !target) return;
 
+    pos->goto_speed = speed_level;
     pos->pending_target = target;
     pos->pending_offset_mm = offset_mm;
     pos->orig_user_target = target;

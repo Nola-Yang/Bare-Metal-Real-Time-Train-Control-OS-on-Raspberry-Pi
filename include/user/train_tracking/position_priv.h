@@ -17,7 +17,7 @@ extern uint64_t STOP_EARLY_US[MAX_PHYSICAL_TRAINS];
 train_pos_t *pos_find_slot(int train_num);
 
 /* Find or allocate a train-position slot for a valid train number. */
-train_pos_t *pos_find_or_create_slot(int train_num);
+train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
 
 /* ===== Shared constants ===== */
 
@@ -127,7 +127,7 @@ int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force)
 void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us, uint8_t blocker_mask);
 
 /* Seed a new goto request onto an existing train slot. */
-void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int32_t offset_mm);
+void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int speed_level, int32_t offset_mm);
 
 /* Clear any active destination so FIND_POS can run without a planned target. */
 void pos_prepare_find_pos_request(train_pos_t *pos);

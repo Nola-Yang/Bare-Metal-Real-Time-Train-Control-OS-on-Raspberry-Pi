@@ -8,6 +8,7 @@
 #include "ui.h"
 #include "util.h"
 #include "timer.h"
+#include "command.h"
 #include <stdint.h>
 
 #define DEMO_MAX_TRAINS 4
@@ -30,6 +31,7 @@ typedef enum {
 typedef struct {
     int enabled;
     int train_num;
+    int speed_level;
     int started;
     int last_target_idx;
     uint64_t next_dispatch_us;
@@ -121,15 +123,17 @@ static void demo_reset_slots(void) {
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         g_slots[i].enabled = 0;
         g_slots[i].train_num = -1;
+        g_slots[i].speed_level = 0;
         demo_clear_slot(&g_slots[i]);
     }
 }
 
-static demo_train_slot_t *demo_alloc_slot(int train_num) {
+static demo_train_slot_t *demo_alloc_slot(int train_num, int speed_level) {
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         if (!g_slots[i].enabled) {
             g_slots[i].enabled = 1;
             g_slots[i].train_num = train_num;
+            g_slots[i].speed_level = speed_level;
             demo_clear_slot(&g_slots[i]);
             return &g_slots[i];
         }
@@ -173,7 +177,7 @@ static int demo_dispatch_to_target(demo_train_slot_t *slot, track_node *target, 
     pos_tid = demo_position_server_tid();
     if (pos_tid < 0) return 0;
     if (!PositionServerGoto(pos_tid, slot->train_num,
-                            (int)(target - g_track), offset_mm)) return 0;
+                            (int)(target - g_track), slot->speed_level, offset_mm)) return 0;
     slot->started = 1;
     slot->last_target_idx = (int)(target - g_track);
     slot->next_dispatch_us = 0;
@@ -398,6 +402,7 @@ static int train_seen(const int *arr, int n, int v) {
 
 static int demo_start_session(demo_mode_t mode,
                               int train_count,
+                              int speed_level,
                               const int *trains,
                               int seed_override) {
     const char *mode_prefix = (mode == DEMO_MODE_GOLD) ? "demo gold" : "findpos";
@@ -426,7 +431,7 @@ static int demo_start_session(demo_mode_t mode,
     demo_build_sensor_pool();
 
     for (int i = 0; i < train_count; i++) {
-        demo_train_slot_t *slot = demo_alloc_slot(trains[i]);
+        demo_train_slot_t *slot = demo_alloc_slot(trains[i], speed_level);
         if (!slot) {
             g_demo_mode = DEMO_MODE_OFF;
             g_demo_state = DEMO_RUN_FAILED;
@@ -463,8 +468,24 @@ static int demo_start_gold(int argc, char *argv[]) {
     int trains[DEMO_MAX_TRAINS];
     int train_count = 0;
     int seed_override = -1;
+    int speed_level = 0;
 
-    for (int i = 2; i < argc; i++) {
+    if (!parse_int_token_local(argv[2], &speed_level)) {
+        ui_cmd_puts("Usage: demo start <speed> <t1> [t2] [t3] [t4] [seed]\r\n");
+        return 2;
+    }
+
+    if (!is_valid_speed_level(speed_level)) {
+        ui_cmd_puts("Invalid speed level\r\n");
+        return 2;
+    }
+
+    if (!is_valid_goto_speed(speed_level)) {
+        ui_cmd_puts("Speed level not supported\r\n");
+        return 2;
+    }
+
+    for (int i = 3; i < argc; i++) {
         int v = 0;
         if (!parse_int_token_local(argv[i], &v)) {
             ui_cmd_puts("demo start: numeric args required\r\n");
@@ -487,16 +508,27 @@ static int demo_start_gold(int argc, char *argv[]) {
     }
 
     if (train_count < 1) {
-        ui_cmd_puts("Usage: demo start <t1> [t2] [t3] [t4] [seed]\r\n");
+        ui_cmd_puts("Usage: demo start <speed> <t1> [t2] [t3] [t4] [seed]\r\n");
         return 2;
     }
 
-    return demo_start_session(DEMO_MODE_GOLD, train_count, trains, seed_override);
+    return demo_start_session(DEMO_MODE_GOLD, train_count, speed_level, trains, seed_override);
 }
 
 static int demo_start_locate(int argc, char *argv[]) {
     int trains[DEMO_MAX_TRAINS];
     int train_count = 0;
+    int speed_level = 0;
+
+    if (!is_valid_speed_level(speed_level)) {
+        ui_cmd_puts("Invalid speed level\r\n");
+        return 2;
+    }
+
+    if (!is_valid_goto_speed(speed_level)) {
+        ui_cmd_puts("Speed level not supported\r\n");
+        return 2;
+    }
 
     for (int i = 2; i < argc; i++) {
         int v = 0;
@@ -524,7 +556,7 @@ static int demo_start_locate(int argc, char *argv[]) {
         return 2;
     }
 
-    return demo_start_session(DEMO_MODE_LOCATE, train_count, trains, -1);
+    return demo_start_session(DEMO_MODE_LOCATE, train_count, speed_level, trains, -1);
 }
 
 int demo_handle_command(int argc, char *argv[]) {
@@ -595,16 +627,16 @@ int demo_handle_command(int argc, char *argv[]) {
     }
 
     if (tok_eq(argv[1], "start")) {
-        if (argc < 3 || argc > 7) {
-            ui_cmd_puts("Usage: demo start <t1> [t2] [t3] [t4] [seed]\r\n");
+        if (argc < 4 || argc > 8) {
+            ui_cmd_puts("Usage: demo start <speed> <t1> [t2] [t3] [t4] [seed]\r\n");
             return 2;
         }
         return demo_start_gold(argc, argv);
     }
 
     if (tok_eq(argv[1], "locate")) {
-        if (argc < 3 || argc > 6) {
-            ui_cmd_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
+        if (argc < 4 || argc > 7) {
+            ui_cmd_puts("Usage: findpos <speed> <t1> [t2] [t3] [t4]\r\n");
             return 2;
         }
         return demo_start_locate(argc, argv);

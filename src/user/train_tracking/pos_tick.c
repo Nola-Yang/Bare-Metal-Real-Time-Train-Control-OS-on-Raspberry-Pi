@@ -32,7 +32,7 @@ void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us) {
         return;
     }
 
-    int32_t v_goto = speed_table_get_v(pos->train_ind, GOTO_USER_SPEED);
+    int32_t v_goto = speed_table_get_v(pos->train_ind, pos->goto_speed);
     int64_t t_accel_us = (int64_t)v_goto * 1000000LL / (int64_t)pos->accel_a_eff;
 
     if (t_moving_us >= t_accel_us) {
@@ -46,7 +46,7 @@ void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us) {
 
 /* Estimate time (us) for a braking train to reach a full stop. */
 static uint64_t calc_brake_us(train_pos_t *pos) {
-    int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
+    int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed);
     if (pos->effective_v > 0 && decel > 0) {
         return STOP_EARLY_US[pos->train_ind] +
                (uint64_t)pos->effective_v * 1500000ULL / (uint64_t)decel;
@@ -71,7 +71,7 @@ static void start_queued_goto_if_any(train_pos_t *pos) {
     pos->queued_target = NULL;
     pos->queued_offset_mm = 0;
     pos->queued_valid = 0;
-    pos_goto(pos->train_num, qt, qo);
+    pos_goto(pos->train_num, qt, pos->goto_speed, qo);
 }
 
 /* When the braking estimate stops the train before the final target sensor
@@ -276,7 +276,7 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
 
     int32_t rem = pos->dist_to_target_mm;
 
-    int32_t a = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
+    int32_t a = speed_table_get_decel(pos->train_ind, pos->user_speed);
     if (a > 0) {
         int32_t d_brake = (int32_t)((int64_t)pos->effective_v * pos->effective_v / (2LL * a));
         int32_t d_early = d_brake + (int32_t)((int64_t)pos->effective_v *

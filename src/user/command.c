@@ -19,6 +19,21 @@ static int parse_int_token(const char *tok, int *out) {
     return 1;
 }
 
+bool is_valid_goto_speed(int speed_level) {
+    switch (speed_level) {
+        case 8:
+        case 10:
+            return true;
+        
+        default:
+            return false;
+    }
+}
+
+bool is_valid_speed_level(int speed_level) {
+    return (0 <= speed_level && speed_level <= 14);
+}
+
 static int tok_eq(const char *a, const char *b) {
     if (!a || !b) return 0;
     while (*a && *b && *a == *b) {
@@ -170,7 +185,7 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
             command_set_parse_error(out, TRAIN_CMD_ERR_SPEED_NOT_NUMBER);
             return 1;
         }
-        if (speed < 0 || speed > 14) {
+        if (!is_valid_speed_level(speed)) {
             command_set_parse_error(out, TRAIN_CMD_ERR_SPEED_RANGE);
             return 1;
         }
@@ -249,10 +264,12 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
     if (tok_eq(argv[0], "goto")) {
         int train = 0;
         int offset = 0;
+        int speed = 0;
+
         track_node *target;
 
         out->type = TRAIN_CMD_GOTO;
-        if (argc < 3 || argc > 4) {
+        if (argc < 4 || argc > 5) {
             command_set_parse_error(out, TRAIN_CMD_ERR_USAGE_GOTO);
             return 1;
         }
@@ -263,7 +280,23 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
             command_set_parse_error(out, TRAIN_CMD_ERR_NODE_UNKNOWN);
             return 1;
         }
-        if (argc >= 4 && !parse_int_token(argv[3], &offset)) {
+
+        if (!parse_int_token(argv[3], &speed)) {
+            command_set_parse_error(out, TRAIN_CMD_ERR_SPEED_NOT_NUMBER);
+            return 1;
+        }
+
+        if (!is_valid_speed_level(speed)) {
+            command_set_parse_error(out, TRAIN_CMD_ERR_SPEED_RANGE);
+            return 1;
+        }
+
+        if (!is_valid_goto_speed(speed)) {
+            command_set_parse_error(out, TRAIN_CMD_ERR_INVALID_GOTO_SPEED);
+            return 1;
+        }
+
+        if (argc >= 5 && !parse_int_token(argv[4], &offset)) {
             command_set_parse_error(out, TRAIN_CMD_ERR_OFFSET_NOT_NUMBER);
             return 1;
         }
@@ -271,6 +304,7 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
         out->train = train;
         out->target_idx = (int)(target - g_track);
         out->offset_mm = (int32_t)offset;
+        out->value = speed;
         return 1;
     }
 

@@ -169,6 +169,9 @@ static void runtime_print_parse_error(const train_command_t *cmd) {
         case TRAIN_CMD_ERR_NODE_UNKNOWN:
             ui_cmd_puts("Unknown node name\r\n");
             break;
+        case TRAIN_CMD_ERR_INVALID_GOTO_SPEED:
+            ui_cmd_puts("Speed level not supported\r\n");
+            break;
         default:
             if (cmd->type == TRAIN_CMD_UNKNOWN && cmd->argc > 0) {
                 ui_cmd_puts("Unknown command: ");
@@ -249,7 +252,7 @@ static int runtime_handle_command(const train_command_t *cmd,
                 return 2;
             }
             if (!PositionServerGoto(position_tid, cmd->train,
-                                    cmd->target_idx, cmd->offset_mm)) {
+                                    cmd->target_idx, cmd->value, cmd->offset_mm)) {
                 ui_cmd_puts("goto: no slot available\r\n");
                 return 2;
             }

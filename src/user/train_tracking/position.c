@@ -19,11 +19,16 @@ static uint32_t Speed_Warmup_Distance = 1000;
  * to move */
 #define GO_LATENCY_US 1000000ULL
 
-/* Start train moving at GOTO_USER_SPEED to acquire position (FIND_POS).
+
+static int get_can_speed(int speed_level) {
+    return 1 + (speed_level - 1) * 77;
+}
+
+/* Start train moving at constant speed to acquire position (FIND_POS).
  * Used by pos_goto (UNKNOWN state) and pos_start_find_pos. */
 static void pos_begin_pos_find(train_pos_t *pos, uint64_t now_us) {
-    pos->user_speed      = GOTO_USER_SPEED;
-    int can_spd          = 1 + (GOTO_USER_SPEED - 1) * 77;
+    pos->user_speed      = DEFAULT_SPEED_LEVEL;
+    int can_spd          = get_can_speed(DEFAULT_SPEED_LEVEL);
     track_set_speed(pos->train_num, can_spd);
     pos->effective_v     = 0;               /* will be ramped by tick */
     pos->speed_warmup_mm = Speed_Warmup_Distance;
@@ -97,8 +102,8 @@ void pos_refresh_dead_track_deadline(train_pos_t *pos, uint64_t now_us) {
 }
 
 void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
-    pos->user_speed      = GOTO_USER_SPEED;
-    int can_spd          = 1 + (GOTO_USER_SPEED - 1) * 77;
+    pos->user_speed      = pos->goto_speed;
+    int can_spd          = get_can_speed(pos->goto_speed);
     track_set_speed(pos->train_num, can_spd);
     pos->effective_v     = 0;               
     pos->speed_warmup_mm = Speed_Warmup_Distance;
@@ -159,7 +164,7 @@ void pos_on_reverse(int train_num) {
 }
 
 void pos_on_speed_change(int train_num, int user_speed) {
-    train_pos_t *pos = pos_find_or_create_slot(train_num);
+    train_pos_t *pos = pos_find_or_create_slot(train_num, user_speed);
     if (!pos) return;
 
     /* Save calibrated EMA before a stop wipes effective_v.
@@ -196,11 +201,11 @@ void pos_on_speed_change(int train_num, int user_speed) {
         }
     }
 }
-int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
+int pos_goto(int train_num, track_node *target, int speed_level, int32_t offset_mm) {
     KASSERT(target != NULL);
     if (!target) return 0;
 
-    train_pos_t *pos = pos_find_or_create_slot(train_num);
+    train_pos_t *pos = pos_find_or_create_slot(train_num, speed_level);
     KASSERT(pos != NULL);
     if (!pos) return 0;
     if (pos->route_state == TRAIN_STATE_DEAD_TRACK) return 0;
@@ -224,7 +229,7 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
         }
     }
 
-    pos_prepare_goto_request(pos, target, offset_mm);
+    pos_prepare_goto_request(pos, target, speed_level, offset_mm);
     ui_mark_position_dirty();
 
     if (pos->route_state == TRAIN_STATE_UNKNOWN) {
@@ -252,8 +257,8 @@ int pos_goto(int train_num, track_node *target, int32_t offset_mm) {
     return 1;
 }
 
-int pos_start_find_pos(int train_num) {
-    train_pos_t *pos = pos_find_or_create_slot(train_num);
+int pos_start_find_pos(int train_num, int speed_level) {
+    train_pos_t *pos = pos_find_or_create_slot(train_num, speed_level);
     if (!pos) return 0;
     if (pos->route_state != TRAIN_STATE_UNKNOWN &&
         pos->route_state != TRAIN_STATE_DEAD_TRACK) return 0;
@@ -300,8 +305,8 @@ int pos_is_train_position_known(int train_num) {
     return pos->cur_sensor != NULL && pos->position_known;
 }
 
-int pos_queue_goto(int train_num, track_node *target, int32_t offset_mm) {
-    train_pos_t *pos = pos_find_or_create_slot(train_num);
+int pos_queue_goto(int train_num, track_node *target, int speed_level, int32_t offset_mm) {
+    train_pos_t *pos = pos_find_or_create_slot(train_num, speed_level);
     if (!pos || !target) return 0;
     if (pos->route_state == TRAIN_STATE_DEAD_TRACK) return 0;
     pos->queued_target = target;
