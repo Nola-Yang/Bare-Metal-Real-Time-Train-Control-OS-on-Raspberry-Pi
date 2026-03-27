@@ -24,6 +24,32 @@ static uint8_t pos_blocker_mask_from_plan_and_switches(int requester_train,
                                                 plan->sw_count, requester_train);
 }
 
+static int pos_replan_from_current_stop(train_pos_t *pos) {
+    track_node *goal = NULL;
+    int32_t offset_mm = 0;
+
+    if (!pos) return 0;
+
+    if (pos->midrev.active && pos->midrev.final_target != NULL) {
+        goal = pos->midrev.final_target;
+        offset_mm = pos->midrev.final_offset;
+    } else if (pos->orig_user_target != NULL) {
+        goal = pos->orig_user_target;
+        offset_mm = pos->orig_target_offset;
+    } else if (pos->pending_target != NULL) {
+        goal = pos->pending_target;
+        offset_mm = pos->pending_offset_mm;
+    } else if (pos->target_sensor != NULL) {
+        goal = pos->target_sensor;
+        offset_mm = pos->target_offset_mm;
+    }
+
+    if (!goal) return 0;
+
+    pos_prepare_goto_request(pos, goal, pos->goto_speed, offset_mm);
+    return pos_try_direct_goto(pos);
+}
+
 static int pos_build_wait_plan(const train_pos_t *pos, route_plan_t *out_plan,
                                int *out_start_cursor) {
     int start_cursor;
@@ -50,6 +76,7 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
     int reserved_end_cursor = -1;
     int start_cursor = 0;
     int did_initial_reverse;
+    int switch_blocker_owner = -1;
     track_node *cur_sensor_orig;
     pos_wait_mode_t wait_mode;
 
@@ -66,7 +93,12 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
 
     if (!pos_route_authority_prepare_launch(pos, &g_pos_try_reserve_plan,
                                             &g_pos_try_authority_plan,
-                                            &reserved_end_cursor)) {
+                                            &reserved_end_cursor,
+                                            &switch_blocker_owner)) {
+        if (wait_mode == POS_WAIT_RESUME_ROUTE &&
+            switch_blocker_owner == pos->train_num) {
+            return pos_replan_from_current_stop(pos);
+        }
         uint8_t blocker_mask =
             pos_blocker_mask_from_plan_and_switches(pos->train_num,
                                                     &g_pos_try_reserve_plan);
@@ -314,9 +346,7 @@ int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     sw_owner = pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
                                         pos->midrev.sw_count, pos->train_num);
     if (sw_owner == pos->train_num) {
-        pos_refresh_stop_reservation(pos);
-        sw_owner = pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
-                                            pos->midrev.sw_count, pos->train_num);
+        return pos_replan_from_current_stop(pos);
     }
     if (sw_owner >= 0) {
         uint8_t blocker_mask =

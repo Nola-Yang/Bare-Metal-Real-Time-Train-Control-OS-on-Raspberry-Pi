@@ -70,15 +70,18 @@ static int authority_build_best_prefix(int requester_train, const uint16_t *path
                                        int32_t stop_dist_mm,
                                        int min_end_cursor,
                                        route_plan_t *out_prefix,
-                                       int *out_end_cursor) {
+                                       int *out_end_cursor,
+                                       int *out_switch_blocker_owner) {
     int have_short_goal = 0;
     int short_goal_end_cursor = -1;
 
     if (!path || !out_prefix || !out_end_cursor) return 0;
     if (path_count <= 0 || start_cursor < 0 || start_cursor >= path_count) return 0;
+    if (out_switch_blocker_owner) *out_switch_blocker_owner = -1;
 
     for (int end_cursor = start_cursor; end_cursor < path_count; end_cursor++) {
         int32_t dist_mm;
+        int switch_blocker;
         if (!traffic_window_build_prefix_plan(path, path_count, start_cursor,
                                               end_cursor, &g_authority_candidate_prefix)) {
             break;
@@ -92,10 +95,12 @@ static int authority_build_best_prefix(int requester_train, const uint16_t *path
             continue;
         }
 
-        if (pos_route_switch_blocker(g_authority_candidate_prefix.sw_nums,
-                                     g_authority_candidate_prefix.sw_dirs,
-                                     g_authority_candidate_prefix.sw_count,
-                                     requester_train) >= 0) {
+        switch_blocker = pos_route_switch_blocker(g_authority_candidate_prefix.sw_nums,
+                                                  g_authority_candidate_prefix.sw_dirs,
+                                                  g_authority_candidate_prefix.sw_count,
+                                                  requester_train);
+        if (switch_blocker >= 0) {
+            if (out_switch_blocker_owner) *out_switch_blocker_owner = switch_blocker;
             break;
         }
         if (!traffic_can_reserve_plan(requester_train,
@@ -179,7 +184,8 @@ void pos_route_authority_sync_target(train_pos_t *pos) {
 
 int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *full_plan,
                                        route_plan_t *out_prefix,
-                                       int *out_reserved_end_cursor) {
+                                       int *out_reserved_end_cursor,
+                                       int *out_switch_blocker_owner) {
     int32_t min_window_mm;
     int32_t stop_dist_mm;
 
@@ -192,7 +198,8 @@ int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *ful
                                        min_window_mm,
                                        stop_dist_mm,
                                        -1,
-                                       out_prefix, out_reserved_end_cursor);
+                                       out_prefix, out_reserved_end_cursor,
+                                       out_switch_blocker_owner);
 }
 
 int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force) {
@@ -216,7 +223,8 @@ int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force)
                                     pos_route_authority_target_mm(pos),
                                     pos_route_authority_stop_dist_mm(pos),
                                     pos->route_reserved_end_cursor,
-                                    &g_authority_candidate_prefix, &new_end_cursor) &&
+                                    &g_authority_candidate_prefix, &new_end_cursor,
+                                    NULL) &&
         new_end_cursor > pos->route_reserved_end_cursor) {
         if (pos_apply_route_switches_safe(g_authority_candidate_prefix.sw_nums,
                                           g_authority_candidate_prefix.sw_dirs,
