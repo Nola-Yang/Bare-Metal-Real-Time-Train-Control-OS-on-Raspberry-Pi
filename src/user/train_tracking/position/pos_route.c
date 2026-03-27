@@ -16,6 +16,30 @@ static route_plan_t g_pos_try_reserve_plan;
 static route_plan_t g_pos_try_authority_plan;
 static route_plan_t g_pos_midrev_second_leg_plan;
 
+static uint8_t pos_direction_cmd_from_planned_sensor(const train_pos_t *pos,
+                                                     track_node *planned_start) {
+    track_node *forward_start;
+    uint64_t ignored_dt_us = 0;
+
+    if (!pos || !pos->cur_sensor || !planned_start) return 0;
+
+    forward_start = pos->pred.next_sensor;
+    if (!forward_start) {
+        forward_start = predict_next_sensor((train_pos_t *)pos, pos->cur_sensor,
+                                            &ignored_dt_us);
+    }
+
+    if (forward_start == planned_start) return TRACK_DIR_FORWARD;
+    if (forward_start && forward_start->reverse == planned_start) {
+        return TRACK_DIR_BACKWARD;
+    }
+
+    if (pos->cur_sensor == planned_start) return TRACK_DIR_FORWARD;
+    if (pos->cur_sensor->reverse == planned_start) return TRACK_DIR_BACKWARD;
+
+    return 0;
+}
+
 static uint8_t pos_blocker_mask_from_plan_and_switches(int requester_train,
                                                        const route_plan_t *plan) {
     if (!plan) return 0;
@@ -78,6 +102,7 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
     int did_initial_reverse;
     int switch_blocker_owner = -1;
     track_node *cur_sensor_orig;
+    uint8_t planned_dir_cmd = 0;
     pos_wait_mode_t wait_mode;
 
     if (!pos || !pos->cur_sensor) return 0;
@@ -134,7 +159,11 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
     did_initial_reverse =
         wait_mode == POS_WAIT_PRELAUNCH_ROUTE && pos->replan.need_initial_reverse;
     if (did_initial_reverse) {
-        track_reverse(pos->train_num);
+        planned_dir_cmd = pos_direction_cmd_from_planned_sensor(
+            pos, pos->replan.launch_origin);
+        KASSERT(planned_dir_cmd == TRACK_DIR_FORWARD ||
+                planned_dir_cmd == TRACK_DIR_BACKWARD);
+        track_send_direction(pos->train_num, planned_dir_cmd);
         pos->cur_sensor = cur_sensor_orig->reverse;
         pos->going_forward = !pos->going_forward;
         pos->pred.next_sensor = cur_sensor_orig->reverse;
@@ -325,9 +354,11 @@ static int pos_build_midrev_second_leg_plan(const train_pos_t *pos,
 int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     route_plan_t *second_leg_plan = &g_pos_midrev_second_leg_plan;
     track_node *final_target;
+    track_node *planned_start;
     int32_t final_offset;
     int sw_count;
     int sw_owner;
+    uint8_t planned_dir_cmd;
 
     if (!pos || !pos->midrev.active || !pos->midrev.final_target) return 0;
 
@@ -379,7 +410,12 @@ int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
 
     pos->midrev.active = 0;
 
-    track_reverse(pos->train_num);
+    KASSERT(second_leg_plan->path_count > 0);
+    planned_start = &g_track[second_leg_plan->path_nodes[0]];
+    planned_dir_cmd = pos_direction_cmd_from_planned_sensor(pos, planned_start);
+    KASSERT(planned_dir_cmd == TRACK_DIR_FORWARD ||
+            planned_dir_cmd == TRACK_DIR_BACKWARD);
+    track_send_direction(pos->train_num, planned_dir_cmd);
     pos->prev_going_forward = pos->going_forward;
     pos->going_forward = !pos->going_forward;
 
