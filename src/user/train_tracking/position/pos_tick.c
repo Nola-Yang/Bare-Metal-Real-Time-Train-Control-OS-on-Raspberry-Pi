@@ -149,6 +149,9 @@ static void handle_normal_stop(train_pos_t *pos, uint64_t now_us) {
      * if that final sensor never physically fired; use the planned target, not
      * cur_sensor, to arm deadlock-yield resume. */
     stopped_target = pos->target_sensor;
+    if (pos_route_authority_is_leg_goal_stop(pos) && stopped_target != NULL) {
+        pos_publish_game_goal_stop(pos, stopped_target, now_us);
+    }
     pos_refresh_stop_reservation(pos);
     pos_clear_prediction(pos);
 

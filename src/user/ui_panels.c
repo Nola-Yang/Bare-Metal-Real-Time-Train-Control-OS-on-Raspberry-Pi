@@ -3,6 +3,7 @@
 #include "util.h"
 #include "track.h"
 #include "demo_manager.h"
+#include "game_manager.h"
 #include "timer.h"
 #include "train_tracking/position.h"
 #include "train_tracking/traffic_manager.h"
@@ -264,6 +265,70 @@ static void ui_build_demo_tuning_line(uint64_t now_us, char *out, int cap) {
     demo_get_ui_summary(&summary, now_us);
     n = ui_limited_append_str(out, n, cap, "Tuning: gold_min_trip_mm=");
     n = ui_limited_append_int(out, n, cap, summary.gold_min_trip_mm);
+    ui_limited_finish(out, n, cap);
+}
+
+static int ui_limited_append_score_half(char *dst, int pos, int cap, int half_points) {
+    int whole = half_points / 2;
+    int half = half_points & 1;
+
+    pos = ui_limited_append_int(dst, pos, cap, whole);
+    pos = ui_limited_append_char(dst, pos, cap, '.');
+    pos = ui_limited_append_char(dst, pos, cap, half ? '5' : '0');
+    return pos;
+}
+
+static void ui_build_game_header_line(uint64_t now_us, char *out, int cap) {
+    game_ui_summary_t summary;
+    int n = 0;
+
+    game_get_ui_summary(&summary, now_us);
+    n = ui_limited_append_str(out, n, cap, "Game: ");
+    n = ui_limited_append_str(out, n, cap, summary.state_name);
+    n = ui_limited_append_str(out, n, cap, "  R=");
+    n = ui_limited_append_int(out, n, cap, summary.round_num);
+    n = ui_limited_append_str(out, n, cap, "/4");
+    n = ui_limited_append_str(out, n, cap, "  Priority=");
+    n = ui_limited_append_str(out, n, cap, summary.priority_name);
+    n = ui_limited_append_str(out, n, cap, "  H=");
+    n = ui_limited_append_int(out, n, cap, summary.human_train);
+    n = ui_limited_append_str(out, n, cap, " AI=");
+    n = ui_limited_append_int(out, n, cap, summary.ai_train);
+    n = ui_limited_append_str(out, n, cap, " N=");
+    n = ui_limited_append_int(out, n, cap, summary.neutral_train);
+    ui_limited_finish(out, n, cap);
+}
+
+static void ui_build_game_score_line(uint64_t now_us, char *out, int cap) {
+    game_ui_summary_t summary;
+    int n = 0;
+
+    game_get_ui_summary(&summary, now_us);
+    n = ui_limited_append_str(out, n, cap, "Score: Human=");
+    n = ui_limited_append_score_half(out, n, cap, summary.human_score_half);
+    n = ui_limited_append_str(out, n, cap, "  AI=");
+    n = ui_limited_append_score_half(out, n, cap, summary.ai_score_half);
+    n = ui_limited_append_str(out, n, cap, "  Result=");
+    n = ui_limited_append_str(out, n, cap, summary.result_text);
+    ui_limited_finish(out, n, cap);
+}
+
+static void ui_build_game_detail_line(uint64_t now_us, char *out, int cap) {
+    game_ui_summary_t summary;
+    int n = 0;
+
+    game_get_ui_summary(&summary, now_us);
+    if (!summary.reveal_targets) {
+        n = ui_limited_append_str(out, n, cap, "Prompt: ");
+        n = ui_limited_append_str(out, n, cap, summary.hint_text);
+    } else {
+        n = ui_limited_append_str(out, n, cap, "Targets: H=");
+        n = ui_limited_append_str(out, n, cap, summary.human_target_name);
+        n = ui_limited_append_str(out, n, cap, " AI=");
+        n = ui_limited_append_str(out, n, cap, summary.ai_target_name);
+        n = ui_limited_append_str(out, n, cap, " N=");
+        n = ui_limited_append_str(out, n, cap, summary.neutral_target_name);
+    }
     ui_limited_finish(out, n, cap);
 }
 
@@ -636,18 +701,33 @@ void ui_draw_position(void) {
     }
     p = buf_append(p, "\033[K");
 
-    p = ui_append_section_bar(p, 30, "Demo Status");
-    ui_build_demo_sensor_line(now_us, line_buf, sizeof(line_buf));
+    p = ui_append_section_bar(p, 30, game_is_active() ? "Game Status" : "Demo Status");
+    if (game_is_active()) {
+        ui_build_game_header_line(now_us, line_buf, sizeof(line_buf));
+    } else {
+        ui_build_demo_sensor_line(now_us, line_buf, sizeof(line_buf));
+    }
     p = ui_move_to_row(p, 31);
     p = buf_append(p, line_buf);
     p = buf_append(p, "\033[K");
 
-    ui_build_demo_tuning_line(now_us, line_buf, sizeof(line_buf));
+    if (game_is_active()) {
+        ui_build_game_score_line(now_us, line_buf, sizeof(line_buf));
+    } else {
+        ui_build_demo_tuning_line(now_us, line_buf, sizeof(line_buf));
+    }
     p = ui_move_to_row(p, 32);
     p = buf_append(p, line_buf);
     p = buf_append(p, "\033[K");
 
-    p = ui_append_blank_row(p, 33);
+    if (game_is_active()) {
+        ui_build_game_detail_line(now_us, line_buf, sizeof(line_buf));
+        p = ui_move_to_row(p, 33);
+        p = buf_append(p, line_buf);
+        p = buf_append(p, "\033[K");
+    } else {
+        p = ui_append_blank_row(p, 33);
+    }
 
     p = ui_append_section_bar(p, 34, "Reservations");
     for (int i = 0; i < UI_RESERVATION_TRAIN_COUNT; i++) {

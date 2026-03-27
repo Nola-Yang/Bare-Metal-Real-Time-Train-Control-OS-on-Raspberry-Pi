@@ -208,4 +208,8 @@ int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us);
 void pos_set_deadlock_notice(const pos_deadlock_notice_t *notice);
 void pos_clear_deadlock_notice(void);
 
+void pos_reset_game_events(void);
+void pos_publish_game_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us);
+void pos_publish_game_goal_stop(train_pos_t *pos, track_node *target, uint64_t time_us);
+
 #endif /* _position_priv_h_ */

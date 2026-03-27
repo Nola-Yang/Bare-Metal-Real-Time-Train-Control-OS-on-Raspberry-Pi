@@ -33,4 +33,5 @@ void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us) {
     }
 
     pos_handle_sensor_hit(owner, hit, time_us);
+    pos_publish_game_sensor_hit(owner, hit, time_us);
 }

@@ -28,6 +28,7 @@
 #define KEYBOARD_BUFFER_PRIORITY      5
 #define RUNTIME_SLOW_TICK_PRIORITY    6
 #define DEMO_SERVER_PRIORITY          6
+#define GAME_SERVER_PRIORITY          6
 #define UI_TICK_PRIORITY              6
 #define TRAIN_COURIER_PRIORITY        6
 
