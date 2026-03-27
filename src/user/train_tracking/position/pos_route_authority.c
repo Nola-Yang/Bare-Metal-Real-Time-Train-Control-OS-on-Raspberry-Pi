@@ -66,6 +66,7 @@ static void authority_sync_target_internal(train_pos_t *pos) {
 static int authority_build_best_prefix(int requester_train, const uint16_t *path,
                                        int path_count, int start_cursor,
                                        int32_t min_window_mm,
+                                       int min_end_cursor,
                                        route_plan_t *out_prefix,
                                        int *out_end_cursor) {
     if (!path || !out_prefix || !out_end_cursor) return 0;
@@ -96,6 +97,7 @@ static int authority_build_best_prefix(int requester_train, const uint16_t *path
                                       &g_authority_candidate_prefix)) break;
 
         if (dist_mm < min_window_mm) continue;
+        if (end_cursor <= min_end_cursor) continue;
 
         *out_prefix = g_authority_candidate_prefix;
         *out_end_cursor = end_cursor;
@@ -167,6 +169,7 @@ int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *ful
     return authority_build_best_prefix(pos->train_num, full_plan->path_nodes,
                                        full_plan->path_count, 0,
                                        min_window_mm,
+                                       -1,
                                        out_prefix, out_reserved_end_cursor);
 }
 
@@ -189,6 +192,7 @@ int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force)
     if (authority_build_best_prefix(pos->train_num, pos->route_path,
                                     pos->route_path_count, pos->route_path_cursor,
                                     pos_route_authority_target_mm(pos),
+                                    pos->route_reserved_end_cursor,
                                     &g_authority_candidate_prefix, &new_end_cursor) &&
         new_end_cursor > pos->route_reserved_end_cursor) {
         if (pos_apply_route_switches_safe(g_authority_candidate_prefix.sw_nums,
