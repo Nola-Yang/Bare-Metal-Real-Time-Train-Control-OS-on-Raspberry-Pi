@@ -70,31 +70,40 @@ static void start_queued_goto_if_any(train_pos_t *pos) {
     pos_goto(pos->train_num, qt, pos->goto_speed, qo);
 }
 
-/* On stop completion, either keep one step past the current stop sensor or
- * keep the remaining planned tail up to the current stop target. */
+/* On stop completion, either keep the hit sensor plus the next sensor the
+ * train would hit if it kept moving in its current direction, or keep the
+ * remaining planned tail up to the current stop target.  If no such next
+ * sensor exists at a target hit, fall back to the stopped train body only. */
 void pos_refresh_stop_reservation(train_pos_t *pos) {
     track_node *keep_end;
-    track_node *keep_after_target;
+    track_node *keep_after_hit_sensor;
     int keep_remaining_route;
 
     if (!pos || !pos->cur_sensor) return;
 
     keep_end = pos_release_keep_end(pos->cur_sensor, pos->pred.next_sensor);
-    keep_after_target = NULL;
+    keep_after_hit_sensor = NULL;
     if (pos->target_sensor != NULL &&
         pos->cur_sensor == pos->target_sensor) {
-        track_edge *e = traffic_tm_get_next_edge(pos->cur_sensor);
-        if (e) keep_after_target = e->dest;
+        keep_after_hit_sensor = keep_end;
     }
     keep_remaining_route =
         pos->route_path_count > 0 &&
         pos->route_path_cursor >= 0 &&
         pos->route_path_cursor < pos->route_reserved_end_cursor;
 
-    if (keep_after_target != NULL) {
-        traffic_refresh_route_reservation(pos->train_num, pos->cur_sensor,
-                                          keep_after_target,
-                                          NULL, 0, 0, 0);
+    if (keep_after_hit_sensor != NULL) {
+        traffic_refresh_sensor_prediction_reservation(pos->train_num,
+                                                      pos->cur_sensor,
+                                                      keep_after_hit_sensor,
+                                                      0);
+        return;
+    }
+
+    if (pos->target_sensor != NULL &&
+        pos->cur_sensor == pos->target_sensor) {
+        traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
+                                        TRAIN_BODY_MM, NULL);
         return;
     }
 

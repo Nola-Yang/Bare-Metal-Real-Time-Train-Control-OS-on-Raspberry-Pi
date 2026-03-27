@@ -369,6 +369,28 @@ static void deadlock_write_notice(const deadlock_participants_t *parts,
     pos_set_deadlock_notice(&notice);
 }
 
+static void deadlock_note_detected(const deadlock_participants_t *parts,
+                                   uint8_t cycle_mask,
+                                   deadlock_kind_t kind) {
+    int victim_train;
+
+    if (!parts || deadlock_bit_count(cycle_mask) < 2) return;
+
+    victim_train = deadlock_choose_victim(parts, cycle_mask, kind);
+    if (victim_train < 0 && parts->count > 0) {
+        for (int i = 0; i < parts->count; i++) {
+            if (cycle_mask & (uint8_t)(1u << i)) {
+                victim_train = parts->train_nums[i];
+                break;
+            }
+        }
+    }
+    if (victim_train < 0) return;
+
+    deadlock_write_notice(parts, cycle_mask, victim_train,
+                          NULL, NULL, NULL, 0, 1);
+}
+
 static track_node *deadlock_actual_yield_target(const train_pos_t *pos,
                                                 track_node *fallback) {
     if (!pos) return fallback;
@@ -547,6 +569,8 @@ int pos_deadlock_maybe_reroute_waiter(train_pos_t *pos, uint64_t now_us) {
 
     cycle_mask = deadlock_find_mask_for_train(pos->train_num, &deadlock_kind, &parts);
     if (!cycle_mask) return 0;
+
+    deadlock_note_detected(&parts, cycle_mask, deadlock_kind);
 
     if (deadlock_kind == DEADLOCK_KIND_STOPPED_BLOCKER) {
         return deadlock_apply_stopped_blocker_reroute(cycle_mask, &parts, now_us,
