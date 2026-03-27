@@ -73,6 +73,18 @@ static int is_bootstrap_state(train_route_state_t st) {
             st == TRAIN_STATE_FIND_POS);
 }
 
+static int attr_is_bootstrap_fallback_candidate(const train_pos_t *pos) {
+    if (!should_consider_for_attr(pos)) return 0;
+    if (!is_bootstrap_state(pos->route_state)) return 0;
+
+    /* Dead-track recovery re-enters FIND_POS while preserving cur_sensor as a
+     * stale reservation anchor. Those trains still need the unmatched-hit
+     * bootstrap fallback to claim their first real sensor after relaunch. */
+    if (pos->route_state == TRAIN_STATE_FIND_POS) return 1;
+
+    return pos->cur_sensor == NULL;
+}
+
 static traffic_attr_result_t traffic_attr_null_result(void) {
     traffic_attr_result_t out = {0};
     return out;
@@ -400,9 +412,7 @@ static traffic_attr_result_t attr_handle_unmatched_hit(track_node *hit,
 
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         train_pos_t *pos = &g_pos[i];
-        if (!should_consider_for_attr(pos)) continue;
-        if (pos->cur_sensor != NULL) continue;
-        if (!is_bootstrap_state(pos->route_state)) continue;
+        if (!attr_is_bootstrap_fallback_candidate(pos)) continue;
         bootstrap = pos;
         bootstrap_count++;
         if (bootstrap_count > 1) break;

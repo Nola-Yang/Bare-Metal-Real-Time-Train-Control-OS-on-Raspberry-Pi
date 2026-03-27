@@ -24,7 +24,7 @@ typedef enum {
     TRAIN_STATE_FIND_POS     = 6,  /* position unknown; running until first sensor hit */
     TRAIN_STATE_RECOVERY_STOPPING = 7,  /* off-route deviation; stopping -> replan */
     TRAIN_STATE_STOPPING_GOTO     = 8, /* goto while running; stop sent -> replan */
-    TRAIN_STATE_DEAD_TRACK        = 9, /* stopped on dead track; auto-reenters bootstrap after a delay */
+    TRAIN_STATE_DEAD_TRACK        = 9, /* dead track detected; stop is sent and bootstrap may re-arm immediately */
     TRAIN_STATE_WAIT_RESOURCE     = 10, /* route blocked by reservation; stopped and waiting */
     TRAIN_STATE_WAIT_SWITCH_SETTLE = 11, /* switches set; waiting for turnout settle before launch */
 } train_route_state_t;

@@ -389,10 +389,9 @@ static void enter_terminal_dead_track(train_pos_t *pos, uint64_t now_us) {
     pos->offroute_valid = 1;
     pos->offroute_expected_sensor = guessed_end;
     pos_clear_prediction(pos);
-    pos->dead_track_bootstrap_due_us =
-        (now_us > UINT64_MAX - DEAD_TRACK_BOOTSTRAP_DELAY_US)
-            ? UINT64_MAX
-            : now_us + DEAD_TRACK_BOOTSTRAP_DELAY_US;
+    /* Keep the dead-track reservation anchor above, but allow the train to
+     * re-enter bootstrap on the very next tick after the stop command is sent. */
+    pos->dead_track_bootstrap_due_us = (now_us == 0) ? 1 : now_us;
 }
 
 /* Detect dead-track: no sensor fired before the deadline. */
