@@ -10,7 +10,6 @@
 static uint8_t      g_pos_try_blocked[TRACK_MAX];
 static char         g_pos_try_fixed_sw_dirs[TRACK_MAX];
 static route_plan_t g_pos_try_rp;
-static route_plan_t g_pos_try_rp_unconstrained;
 static route_plan_t g_pos_try_rp_temp;
 static route_plan_t g_pos_try_best_blocked_plan;
 static pos_route_eval_t g_pos_try_eval_ready;
@@ -73,22 +72,22 @@ static int route_plan_long_enough(const route_plan_t *plan, int32_t threshold) {
     return effective_d > threshold;
 }
 
-static void pos_note_blocked_plan(const route_plan_t *cand,
-                                  track_node *cand_origin,
-                                  int cand_need_initial_reverse,
-                                  route_plan_t *best_blocked_plan,
-                                  track_node **best_blocked_origin,
-                                  int *best_blocked_need_initial_reverse,
-                                  int *have_blocked_plan) {
-    if (!cand || !best_blocked_plan || !best_blocked_origin ||
-        !best_blocked_need_initial_reverse || !have_blocked_plan) {
+static void pos_note_best_plan(const route_plan_t *cand,
+                               track_node *cand_origin,
+                               int cand_need_initial_reverse,
+                               route_plan_t *best_plan,
+                               track_node **best_origin,
+                               int *best_need_initial_reverse,
+                               int *have_best_plan) {
+    if (!cand || !best_plan || !best_origin ||
+        !best_need_initial_reverse || !have_best_plan) {
         return;
     }
-    if (!*have_blocked_plan || cand->total_dist_mm < best_blocked_plan->total_dist_mm) {
-        *best_blocked_plan = *cand;
-        *best_blocked_origin = cand_origin;
-        *best_blocked_need_initial_reverse = cand_need_initial_reverse;
-        *have_blocked_plan = 1;
+    if (!*have_best_plan || cand->total_dist_mm < best_plan->total_dist_mm) {
+        *best_plan = *cand;
+        *best_origin = cand_origin;
+        *best_need_initial_reverse = cand_need_initial_reverse;
+        *have_best_plan = 1;
     }
 }
 
@@ -129,12 +128,59 @@ static void pos_build_fixed_switch_dirs(int requester_train,
     }
 }
 
-pos_route_eval_result_t pos_evaluate_target_plan(train_pos_t *pos,
-                                                 track_node *user_target,
-                                                 pos_route_eval_t *out) {
-    route_plan_t *rp = &g_pos_try_rp;
-    route_plan_t *rp_unconstrained = &g_pos_try_rp_unconstrained;
+static int pos_select_best_route_for_origins(track_node *origins[2],
+                                             track_node *user_target,
+                                             int32_t d_stop,
+                                             int32_t threshold,
+                                             const uint8_t *blocked,
+                                             const char *fixed_sw_dirs,
+                                             route_plan_t *out_plan,
+                                             track_node **out_origin,
+                                             int *out_need_initial_reverse) {
+    int have_best_plan = 0;
+    route_plan_t *best_plan = &g_pos_try_rp;
     route_plan_t *rp_temp = &g_pos_try_rp_temp;
+    track_node *best_origin = NULL;
+    int best_need_initial_reverse = 0;
+
+    if (out_plan) *out_plan = (route_plan_t){0};
+    if (out_origin) *out_origin = NULL;
+    if (out_need_initial_reverse) *out_need_initial_reverse = 0;
+
+    for (int o = 0; o < 2; o++) {
+        if (!origins[o]) continue;
+
+        if (bfs_find_route_optimal_constrained(origins[o], user_target, d_stop,
+                                               blocked, fixed_sw_dirs, rp_temp) &&
+            route_plan_long_enough(rp_temp, threshold)) {
+            pos_note_best_plan(rp_temp, origins[o], o == 1,
+                               best_plan, &best_origin,
+                               &best_need_initial_reverse, &have_best_plan);
+        }
+    }
+
+    if (!have_best_plan && origins[1] &&
+        bfs_find_bootstrap_midrev(origins[1], user_target, d_stop,
+                                  blocked, fixed_sw_dirs, rp_temp) &&
+        route_plan_long_enough(rp_temp, threshold)) {
+        pos_note_best_plan(rp_temp, origins[1], 1,
+                           best_plan, &best_origin,
+                           &best_need_initial_reverse, &have_best_plan);
+    }
+
+    if (!have_best_plan) return 0;
+
+    if (out_plan) *out_plan = *best_plan;
+    if (out_origin) *out_origin = best_origin;
+    if (out_need_initial_reverse) *out_need_initial_reverse = best_need_initial_reverse;
+    return 1;
+}
+
+static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *pos,
+                                                                 track_node *user_target,
+                                                                 int allow_blocked_fallback,
+                                                                 pos_route_eval_t *out) {
+    route_plan_t *rp = &g_pos_try_rp;
     route_plan_t *best_blocked_plan = &g_pos_try_best_blocked_plan;
     track_node *cur_sensor_orig;
     track_node *plan_start;
@@ -144,9 +190,7 @@ pos_route_eval_result_t pos_evaluate_target_plan(train_pos_t *pos,
     char *fixed_sw_dirs = g_pos_try_fixed_sw_dirs;
     track_node *chosen_origin = NULL;
     track_node *best_blocked_origin = NULL;
-    int have_blocked_plan = 0;
     int best_blocked_need_initial_reverse = 0;
-    int32_t best_total = 0;
     int need_initial_reverse = 0;
     int32_t d_stop;
     int32_t threshold;
@@ -178,70 +222,53 @@ pos_route_eval_result_t pos_evaluate_target_plan(train_pos_t *pos,
     traffic_build_constraints(pos->train_num, blocked);
     pos_build_fixed_switch_dirs(pos->train_num, fixed_sw_dirs);
 
-    for (int o = 0; o < 2; o++) {
-        if (!origins[o]) continue;
-        if (!bfs_find_route_optimal_constrained(origins[o], user_target, d_stop,
-                                                blocked, fixed_sw_dirs, rp_temp)) {
-            if (bfs_find_route_optimal_constrained(origins[o], user_target, d_stop,
-                                                   NULL, fixed_sw_dirs,
-                                                   rp_unconstrained) &&
-                route_plan_long_enough(rp_unconstrained, threshold)) {
-                pos_note_blocked_plan(rp_unconstrained, origins[o], o == 1,
-                                      best_blocked_plan, &best_blocked_origin,
-                                      &best_blocked_need_initial_reverse,
-                                      &have_blocked_plan);
-            }
-            continue;
+    if (pos_select_best_route_for_origins(origins, user_target, d_stop, threshold,
+                                          blocked, fixed_sw_dirs, rp,
+                                          &chosen_origin, &need_initial_reverse)) {
+        if (out) {
+            out->plan = *rp;
+            out->chosen_origin = chosen_origin;
+            out->need_initial_reverse = need_initial_reverse;
+            out->blocker_mask = 0;
         }
-
-        if (!route_plan_long_enough(rp_temp, threshold)) continue;
-        if (chosen_origin == NULL || rp_temp->total_dist_mm < best_total) {
-            *rp                  = *rp_temp;
-            chosen_origin        = origins[o];
-            best_total           = rp_temp->total_dist_mm;
-            need_initial_reverse = (o == 1);
-        }
+        return POS_ROUTE_EVAL_READY;
     }
 
-    if (!chosen_origin) {
-        track_node *boot_start = reverse_plan_start;
-        int allow_bootstrap = !have_blocked_plan ||
-                              pos->route_state == TRAIN_STATE_WAIT_RESOURCE;
-        if (boot_start && allow_bootstrap &&
-            bfs_find_bootstrap_midrev(boot_start, user_target, d_stop,
-                                      blocked, fixed_sw_dirs, rp)) {
-            chosen_origin = boot_start;
-            need_initial_reverse = 1;
-        } else if (boot_start && allow_bootstrap &&
-                   bfs_find_bootstrap_midrev(boot_start, user_target, d_stop,
-                                             NULL, fixed_sw_dirs,
-                                             rp_unconstrained)) {
-            pos_note_blocked_plan(rp_unconstrained, boot_start, 1,
-                                  best_blocked_plan, &best_blocked_origin,
-                                  &best_blocked_need_initial_reverse,
-                                  &have_blocked_plan);
-        }
+    if (!pos_select_best_route_for_origins(origins, user_target, d_stop, threshold,
+                                           NULL, fixed_sw_dirs, best_blocked_plan,
+                                           &best_blocked_origin,
+                                           &best_blocked_need_initial_reverse)) {
+        return POS_ROUTE_EVAL_UNREACHABLE;
     }
 
-    if (!chosen_origin) {
-        if (out && have_blocked_plan) {
+    if (allow_blocked_fallback) {
+        if (out) {
             out->plan = *best_blocked_plan;
             out->chosen_origin = best_blocked_origin;
             out->need_initial_reverse = best_blocked_need_initial_reverse;
-            out->blocker_mask = pos_route_blocker_mask_from_plan(pos->train_num,
-                                                                 best_blocked_plan);
+            out->blocker_mask = 0;
         }
-        return have_blocked_plan ? POS_ROUTE_EVAL_BLOCKED
-                                 : POS_ROUTE_EVAL_UNREACHABLE;
+        return POS_ROUTE_EVAL_READY;
     }
 
     if (out) {
-        out->plan = *rp;
-        out->chosen_origin = chosen_origin;
-        out->need_initial_reverse = need_initial_reverse;
-        out->blocker_mask = 0;
+        out->plan = *best_blocked_plan;
+        out->chosen_origin = best_blocked_origin;
+        out->need_initial_reverse = best_blocked_need_initial_reverse;
+        out->blocker_mask =
+            pos_route_blocker_mask_from_plan(pos->train_num, best_blocked_plan) |
+            pos_route_blocker_mask_from_switches(best_blocked_plan->sw_nums,
+                                                 best_blocked_plan->sw_dirs,
+                                                 best_blocked_plan->sw_count,
+                                                 pos->train_num);
     }
-    return POS_ROUTE_EVAL_READY;
+    return POS_ROUTE_EVAL_BLOCKED;
+}
+
+pos_route_eval_result_t pos_evaluate_target_plan(train_pos_t *pos,
+                                                 track_node *user_target,
+                                                 pos_route_eval_t *out) {
+    return pos_evaluate_target_plan_internal(pos, user_target, 1, out);
 }
 
 pos_route_eval_result_t pos_evaluate_target_ready_now(train_pos_t *pos,
@@ -249,7 +276,8 @@ pos_route_eval_result_t pos_evaluate_target_ready_now(train_pos_t *pos,
                                                       pos_route_eval_t *out) {
     pos_route_eval_t *eval = out ? out : &g_pos_try_eval_ready;
     route_plan_t reserve_plan;
-    pos_route_eval_result_t result = pos_evaluate_target_plan(pos, user_target, eval);
+    pos_route_eval_result_t result =
+        pos_evaluate_target_plan_internal(pos, user_target, 0, eval);
 
     if (result != POS_ROUTE_EVAL_READY) return result;
 

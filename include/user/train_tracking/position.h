@@ -31,6 +31,13 @@ typedef enum {
     POS_SWITCH_SETTLE_REVERSED = 2,
 } pos_switch_settle_mode_t;
 
+typedef enum {
+    POS_WAIT_NONE = 0,
+    POS_WAIT_PRELAUNCH_ROUTE = 1,
+    POS_WAIT_RESUME_ROUTE = 2,
+    POS_WAIT_MIDREV_SECOND_LEG = 3,
+} pos_wait_mode_t;
+
 /* ---------- Prediction sub-state ---------- */
 
 typedef struct {
@@ -66,6 +73,9 @@ typedef struct {
     uint32_t rand_state;     /* LCG state for jitter randomization */
     uint32_t seen_generation; /* last reservation-change generation observed */
     uint8_t  blocker_mask;   /* bitmask of trains currently blocking this replan */
+    uint8_t  wait_mode;      /* committed-route wait strategy */
+    uint8_t  need_initial_reverse; /* saved launch metadata for prelaunch waits */
+    track_node *launch_origin; /* chosen origin for the committed launch route */
 } pos_replan_t;
 
 typedef struct {

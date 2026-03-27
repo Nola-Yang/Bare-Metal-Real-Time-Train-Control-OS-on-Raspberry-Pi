@@ -195,11 +195,7 @@ void pos_revive_dead_track_for_current_hit(train_pos_t *pos) {
     pos->user_speed = 0;
     pos->is_accelerating = 0;
     pos->awaiting_post_launch_sensor = 0;
-    pos->route_path_count = 0;
-    pos->route_path_cursor = 0;
-    pos->route_reserved_end_cursor = 0;
-    pos->route_rem_tick_us = 0;
-    pos_route_authority_reset(pos);
+    pos_clear_committed_route(pos);
     pos->offroute_valid = 0;
     pos->offroute_expected_sensor = NULL;
     pos->force_offroute_on_next_sensor = 1;

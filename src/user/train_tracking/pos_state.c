@@ -62,6 +62,57 @@ static void pos_reset_midrev_fields(train_pos_t *pos) {
     }
 }
 
+static void pos_reset_wait_fields(train_pos_t *pos) {
+    if (!pos) return;
+    pos->replan.wait_mode = POS_WAIT_NONE;
+    pos->replan.need_initial_reverse = 0;
+    pos->replan.launch_origin = NULL;
+}
+
+void pos_clear_committed_route(train_pos_t *pos) {
+    if (!pos) return;
+
+    pos_reset_midrev_fields(pos);
+    pos->route_path_count = 0;
+    pos->route_path_cursor = 0;
+    pos->route_reserved_end_cursor = 0;
+    pos->route_rem_tick_us = 0;
+    pos_route_authority_reset(pos);
+    pos_reset_wait_fields(pos);
+}
+
+void pos_commit_route_plan(train_pos_t *pos, const route_plan_t *plan,
+                           track_node *launch_origin, int need_initial_reverse,
+                           int32_t final_offset_mm) {
+    if (!pos || !plan) return;
+
+    pos_clear_committed_route(pos);
+    pos->replan.launch_origin = launch_origin;
+    pos->replan.need_initial_reverse = need_initial_reverse ? 1 : 0;
+
+    pos->route_path_count = plan->path_count;
+    for (int i = 0; i < plan->path_count; i++) {
+        pos->route_path[i] = plan->path_nodes[i];
+    }
+
+    if (!plan->has_reversal) return;
+
+    pos->midrev.active = 1;
+    pos->midrev.sensor = plan->reversal_sensor;
+    pos->midrev.final_target = plan->chosen_target;
+    pos->midrev.final_offset = final_offset_mm;
+    pos->midrev.sw_count = plan->sw_count2;
+    for (int i = 0; i < plan->sw_count2; i++) {
+        pos->midrev.sw_nums[i] = plan->sw_nums2[i];
+        pos->midrev.sw_dirs[i] = plan->sw_dirs2[i];
+    }
+    pos->midrev.dist_after = plan->dist_after_reversal_mm;
+    pos->midrev.path2_count = plan->path_count2;
+    for (int i = 0; i < plan->path_count2; i++) {
+        pos->midrev.path2[i] = plan->path_nodes2[i];
+    }
+}
+
 static void pos_init_slot(train_pos_t *slot, int train_num, int train_ind, int speed_level) {
     slot->train_num = train_num;
     slot->train_ind = train_ind;
@@ -91,6 +142,9 @@ static void pos_init_slot(train_pos_t *slot, int train_num, int train_ind, int s
     slot->replan.rand_state = (uint32_t)(train_num * 1234567u + 1u);
     slot->replan.seen_generation = traffic_get_change_generation();
     slot->replan.blocker_mask = 0;
+    slot->replan.wait_mode = POS_WAIT_NONE;
+    slot->replan.need_initial_reverse = 0;
+    slot->replan.launch_origin = NULL;
     slot->dead_track_deadline_us = 0;
     slot->dead_track_bootstrap_due_us = 0;
     for (int s = 0; s < 15; s++) slot->cached_v[s] = 0;
@@ -164,7 +218,7 @@ void pos_reset_dead_train(int train_num) {
     pos->dead_track_recover.valid = 0;
     pos->dead_track_bootstrap_due_us = 0;
     pos->replan.blocker_mask = 0;
-    pos_route_authority_reset(pos);
+    pos_clear_committed_route(pos);
     pos_clear_deadlock_recover(pos);
 }
 
@@ -193,6 +247,7 @@ void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int speed_le
     pos->orig_user_target = target;
     pos->orig_target_offset = offset_mm;
     pos->replan.blocker_mask = 0;
+    pos_reset_wait_fields(pos);
     pos_clear_deadlock_recover(pos);
     pos_reset_dead_track_recover(pos);
     pos->dead_track_bootstrap_due_us = 0;
@@ -202,7 +257,7 @@ void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int speed_le
     pos->target_offset_mm = offset_mm;
     pos->dist_to_target_mm = 0;
     pos->replan.next_us = 0;
-    pos_route_authority_reset(pos);
+    pos_clear_committed_route(pos);
     pos->stop_after_find_pos = 0;
 }
 
@@ -214,6 +269,7 @@ void pos_prepare_find_pos_request(train_pos_t *pos) {
     pos->orig_user_target = NULL;
     pos->orig_target_offset = 0;
     pos->replan.blocker_mask = 0;
+    pos_reset_wait_fields(pos);
     pos_clear_deadlock_recover(pos);
     pos_reset_dead_track_recover(pos);
     pos->dead_track_bootstrap_due_us = 0;
@@ -223,7 +279,7 @@ void pos_prepare_find_pos_request(train_pos_t *pos) {
     pos->replan.next_us = 0;
     pos->offroute_valid = 0;
     pos->offroute_expected_sensor = NULL;
-    pos_route_authority_reset(pos);
+    pos_clear_committed_route(pos);
     pos->stop_after_find_pos = 1;
 }
 

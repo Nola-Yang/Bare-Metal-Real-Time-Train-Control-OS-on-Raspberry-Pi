@@ -1,7 +1,9 @@
 #include "train_tracking/position_priv.h"
+#include "train_tracking/pos_route_internal.h"
 #include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
 #include "traffic_manager_internal.h"
+#include "traffic_window_internal.h"
 #include "track.h"
 #include "train_tracking/speed_table.h"
 #include "syscall.h"
@@ -110,7 +112,30 @@ static int pos_targets_same_sensor(track_node *a, track_node *b) {
     return a == b || a->reverse == b || b->reverse == a;
 }
 
-static void handle_normal_stop(train_pos_t *pos) {
+static uint8_t stop_wait_blocker_mask(const train_pos_t *pos) {
+    route_plan_t remaining_plan;
+
+    if (!pos) return 0;
+    if (pos->route_path_count <= 0) return 0;
+    if (pos->route_path_cursor < 0 || pos->route_path_cursor >= pos->route_path_count) {
+        return 0;
+    }
+
+    if (!traffic_window_build_prefix_plan(pos->route_path, pos->route_path_count,
+                                          pos->route_path_cursor,
+                                          pos->route_path_count - 1,
+                                          &remaining_plan)) {
+        return 0;
+    }
+
+    return pos_route_blocker_mask_from_plan(pos->train_num, &remaining_plan) |
+           pos_route_blocker_mask_from_switches(remaining_plan.sw_nums,
+                                                remaining_plan.sw_dirs,
+                                                remaining_plan.sw_count,
+                                                pos->train_num);
+}
+
+static void handle_normal_stop(train_pos_t *pos, uint64_t now_us) {
     track_node *stopped_target;
 
     pos->route_state = TRAIN_STATE_STOPPED;
@@ -143,12 +168,12 @@ static void handle_normal_stop(train_pos_t *pos) {
     }
 
     if (!pos_route_authority_is_leg_goal_stop(pos)) {
-        pos_restore_pending_target(pos);
-        KASSERT(pos->pending_target != NULL);
-        KASSERT(pos_try_direct_goto(pos));
+        pos_enter_wait_resource(pos, now_us, stop_wait_blocker_mask(pos),
+                                POS_WAIT_RESUME_ROUTE);
         return;
     }
 
+    pos_clear_committed_route(pos);
     pos->orig_user_target = NULL;
     pos->orig_target_offset = 0;
 }
@@ -163,7 +188,7 @@ static int tick_handle_stopping(train_pos_t *pos, uint64_t now_us) {
     if (pos->midrev.active && pos_route_authority_is_leg_goal_stop(pos)) {
         pos_handle_midrev_resume(pos, now_us);
     } else {
-        handle_normal_stop(pos);
+        handle_normal_stop(pos, now_us);
     }
     ui_mark_position_dirty();
     return 1;
@@ -348,7 +373,7 @@ static void enter_terminal_dead_track(train_pos_t *pos, uint64_t now_us) {
     pos->replan.next_us = 0;
     pos->replan.retry_count = 0;
     pos->replan.blocker_mask = 0;
-    pos_route_authority_reset(pos);
+    pos_clear_committed_route(pos);
     pos->force_offroute_on_next_sensor = 0;
     pos->dead_track_rescue_pending = 0;
     pos_clear_deadlock_recover(pos);

@@ -338,17 +338,6 @@ static void deadlock_write_detected_notice(uint8_t cycle_mask, int victim_train)
                           resume_target, 0, 1);
 }
 
-static void deadlock_reset_midrev_for_reroute(train_pos_t *pos) {
-    if (!pos) return;
-    pos->midrev.active = 0;
-    pos->midrev.sensor = NULL;
-    pos->midrev.final_target = NULL;
-    pos->midrev.final_offset = 0;
-    pos->midrev.sw_count = 0;
-    pos->midrev.dist_after = 0;
-    pos->midrev.path2_count = 0;
-}
-
 static track_node *deadlock_actual_yield_target(const train_pos_t *pos,
                                                 track_node *fallback) {
     if (!pos) return fallback;
@@ -413,12 +402,7 @@ static int deadlock_apply_reroute(train_pos_t *victim, uint8_t cycle_mask,
     victim->target_sensor = yield_target;
     victim->target_offset_mm = 0;
     victim->dist_to_target_mm = 0;
-    victim->route_path_count = 0;
-    victim->route_path_cursor = 0;
-    victim->route_reserved_end_cursor = 0;
-    victim->route_rem_tick_us = 0;
-    pos_route_authority_reset(victim);
-    deadlock_reset_midrev_for_reroute(victim);
+    pos_clear_committed_route(victim);
 
     if (!pos_try_direct_goto_strict(victim) ||
         (victim->route_state != TRAIN_STATE_ON_ROUTE &&
@@ -518,7 +502,7 @@ int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos) {
     pos->dist_to_target_mm = 0;
     pos->replan.blocker_mask = 0;
     pos->replan.next_us = 0;
-    pos_route_authority_reset(pos);
+    pos_clear_committed_route(pos);
     KASSERT(pos_try_direct_goto(pos));
     return 1;
 }
@@ -556,9 +540,6 @@ void pos_deadlock_replan_waiter(train_pos_t *pos, uint64_t now_us) {
     pos->replan.next_us = now_us + backoff_us + jitter_us;
     pos->replan.retry_count++;
 
-    pos_restore_pending_target(pos);
-    if (pos->pending_target == NULL) return;
-
     cycle_mask = deadlock_find_mask_for_train(pos->train_num, &deadlock_kind);
     if (cycle_mask) {
         if (deadlock_kind == DEADLOCK_KIND_STOPPED_BLOCKER) {
@@ -574,39 +555,37 @@ void pos_deadlock_replan_waiter(train_pos_t *pos, uint64_t now_us) {
         return;
     }
 
+    switch ((pos_wait_mode_t)pos->replan.wait_mode) {
+    case POS_WAIT_PRELAUNCH_ROUTE:
+    case POS_WAIT_RESUME_ROUTE:
+        ok = pos_try_resume_committed_route(pos, now_us);
+        KASSERT(ok);
+        return;
+    case POS_WAIT_MIDREV_SECOND_LEG:
+        (void)pos_handle_midrev_resume(pos, now_us);
+        return;
+    case POS_WAIT_NONE:
+    default:
+        break;
+    }
+
+    pos_restore_pending_target(pos);
+    if (pos->pending_target == NULL) return;
     ok = pos_try_direct_goto(pos);
     KASSERT(ok);
 }
 
-/* A midpoint reversal may stop at the reversal sensor and then block before the
- * second leg can be reserved. Collapse that half-complete midrev into a plain
- * WAIT on the final target. */
-static void collapse_midrev_wait_target(train_pos_t *pos) {
-    if (!pos || !pos->midrev.active) return;
-
-    track_node *final_target = pos->midrev.final_target;
-    int32_t final_offset = pos->midrev.final_offset;
-
-    pos->target_sensor = final_target;
-    pos->target_offset_mm = final_offset;
-    pos->pending_target = final_target;
-    pos->pending_offset_mm = final_offset;
-    pos->orig_user_target = final_target;
-    pos->orig_target_offset = final_offset;
-    pos->dist_to_target_mm = 0;
-
-    pos->midrev.active = 0;
-    pos->midrev.sensor = NULL;
-    pos->midrev.final_target = NULL;
-    pos->midrev.final_offset = 0;
-    pos->midrev.sw_count = 0;
-    pos->midrev.dist_after = 0;
-    pos->midrev.path2_count = 0;
-}
-
 int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     route_plan_t *second_leg_plan = &g_midrev_second_leg_plan;
+    track_node *final_target;
+    int32_t final_offset;
+    int sw_count;
+    int sw_owner;
 
+    if (!pos || !pos->midrev.active || !pos->midrev.final_target) return 0;
+    final_target = pos->midrev.final_target;
+    final_offset = pos->midrev.final_offset;
+    sw_count = pos->midrev.sw_count;
     *second_leg_plan = (route_plan_t){0};
     second_leg_plan->path_count = pos->midrev.path2_count;
     for (int j = 0; j < pos->midrev.path2_count; j++) {
@@ -615,35 +594,27 @@ int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     if (!traffic_can_reserve_plan(pos->train_num, second_leg_plan)) {
         uint8_t blocker_mask = deadlock_blocker_mask_from_plan(pos->train_num,
                                                                second_leg_plan);
-        collapse_midrev_wait_target(pos);
-        pos_enter_wait_resource(pos, now_us, blocker_mask);
+        pos_enter_wait_resource(pos, now_us, blocker_mask,
+                                POS_WAIT_MIDREV_SECOND_LEG);
         return 0;
     }
-    int sw_owner = pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
-                                            pos->midrev.sw_count, pos->train_num);
+    sw_owner = pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
+                                        pos->midrev.sw_count, pos->train_num);
     if (sw_owner == pos->train_num) {
-        track_node *final_target = pos->midrev.final_target;
-        int32_t final_offset = pos->midrev.final_offset;
-
         traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
                                         TRAIN_BODY_MM,
                                         pos_release_keep_end(pos->cur_sensor,
                                                              pos->pred.next_sensor));
-        pos->midrev.active = 0;
-        pos->pending_target = final_target;
-        pos->pending_offset_mm = final_offset;
-        pos->orig_user_target = final_target;
-        pos->orig_target_offset = final_offset;
-        KASSERT(pos_try_direct_goto(pos));
-        return 1;
+        sw_owner = pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
+                                            pos->midrev.sw_count, pos->train_num);
     }
     if (sw_owner >= 0) {
         uint8_t blocker_mask = deadlock_blocker_mask_from_switches(pos->midrev.sw_nums,
                                                                    pos->midrev.sw_dirs,
                                                                    pos->midrev.sw_count,
                                                                    pos->train_num);
-        collapse_midrev_wait_target(pos);
-        pos_enter_wait_resource(pos, now_us, blocker_mask);
+        pos_enter_wait_resource(pos, now_us, blocker_mask,
+                                POS_WAIT_MIDREV_SECOND_LEG);
         return 0;
     }
     if (!pos_apply_route_switches_safe(pos->midrev.sw_nums, pos->midrev.sw_dirs,
@@ -652,18 +623,18 @@ int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
                                                                    pos->midrev.sw_dirs,
                                                                    pos->midrev.sw_count,
                                                                    pos->train_num);
-        collapse_midrev_wait_target(pos);
-        pos_enter_wait_resource(pos, now_us, blocker_mask);
+        pos_enter_wait_resource(pos, now_us, blocker_mask,
+                                POS_WAIT_MIDREV_SECOND_LEG);
         return 0;
     }
     if (!traffic_reserve_plan(pos->train_num, pos->cur_sensor, second_leg_plan)) {
         uint8_t blocker_mask = deadlock_blocker_mask_from_plan(pos->train_num,
                                                                second_leg_plan);
-        collapse_midrev_wait_target(pos);
-        pos_enter_wait_resource(pos, now_us, blocker_mask);
+        pos_enter_wait_resource(pos, now_us, blocker_mask,
+                                POS_WAIT_MIDREV_SECOND_LEG);
         return 0;
     }
-    if (pos->midrev.sw_count > 0) ui_mark_switches_dirty();
+    if (sw_count > 0) ui_mark_switches_dirty();
 
     pos->midrev.active = 0;
 
@@ -672,8 +643,8 @@ int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     if (pos->cur_sensor && pos->cur_sensor->reverse)
         pos->cur_sensor = pos->cur_sensor->reverse;
 
-    pos->target_sensor = pos->midrev.final_target;
-    pos->target_offset_mm = pos->midrev.final_offset;
+    pos->target_sensor = final_target;
+    pos->target_offset_mm = final_offset;
 
     /* Switch active path to the stored second leg. */
     pos->route_path_count = pos->midrev.path2_count;
@@ -683,8 +654,16 @@ int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     pos_route_authority_reset(pos);
     pos->route_reserved_end_cursor = pos->route_path_count - 1;
     pos_route_authority_sync_target(pos);
+    pos->replan.next_us = 0;
+    pos->replan.seen_generation = traffic_get_change_generation();
+    pos->replan.blocker_mask = 0;
+    pos->replan.wait_mode = POS_WAIT_NONE;
+    pos->replan.need_initial_reverse = 0;
+    pos->replan.launch_origin = NULL;
+    pos->authority_seen_generation = traffic_get_change_generation();
+    pos->authority_next_us = 0;
 
-    pos_arm_switch_settle(pos, pos->midrev.sw_count,
+    pos_arm_switch_settle(pos, sw_count,
                           POS_SWITCH_SETTLE_REVERSED, now_us);
     return 1;
 }

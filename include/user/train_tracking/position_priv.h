@@ -89,6 +89,9 @@ int pos_try_direct_goto(train_pos_t *pos);
  * fail without forcing the train into WAIT_RESOURCE. */
 int pos_try_direct_goto_strict(train_pos_t *pos);
 
+/* Retry launching the already committed route for WAIT_RESOURCE resumes. */
+int pos_try_resume_committed_route(train_pos_t *pos, uint64_t now_us);
+
 /* Return 1 when `hit` lies on the alternate leg of the next predicted branch. */
 int pos_hit_matches_alt_branch(const train_pos_t *pos, track_node *hit);
 
@@ -110,6 +113,7 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
 int32_t pos_route_authority_stop_dist_mm(const train_pos_t *pos);
 int32_t pos_route_authority_min_mm(const train_pos_t *pos);
 int32_t pos_route_authority_target_mm(const train_pos_t *pos);
+int32_t pos_route_authority_max_mm(const train_pos_t *pos);
 int32_t pos_route_authority_extend_trigger_mm(const train_pos_t *pos);
 int32_t pos_route_authority_remaining_mm(const train_pos_t *pos);
 int pos_route_authority_is_leg_goal_stop(const train_pos_t *pos);
@@ -121,7 +125,14 @@ int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *ful
 int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force);
 
 /* Stop and wait for resources; pending_target remains unchanged for retries. */
-void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us, uint8_t blocker_mask);
+void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us, uint8_t blocker_mask,
+                             pos_wait_mode_t wait_mode);
+
+/* Clear or commit the active route path used by rolling reservations. */
+void pos_clear_committed_route(train_pos_t *pos);
+void pos_commit_route_plan(train_pos_t *pos, const route_plan_t *plan,
+                           track_node *launch_origin, int need_initial_reverse,
+                           int32_t final_offset_mm);
 
 /* Seed a new goto request onto an existing train slot. */
 void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int speed_level, int32_t offset_mm);
