@@ -400,6 +400,14 @@ static int train_seen(const int *arr, int n, int v) {
     return 0;
 }
 
+static void demo_puts_gold_usage(void) {
+    ui_cmd_puts("Usage: demo <speed> <t1> [t2] [t3] [t4] [seed]\r\n");
+}
+
+static void demo_puts_overview_usage(void) {
+    ui_cmd_puts("Usage: demo <speed> <t1> [t2] [t3] [t4] [seed] | demo <locate|stop|tune|seed> ...\r\n");
+}
+
 static int demo_start_session(demo_mode_t mode,
                               int train_count,
                               int speed_level,
@@ -470,8 +478,8 @@ static int demo_start_gold(int argc, char *argv[]) {
     int seed_override = -1;
     int speed_level = 0;
 
-    if (!parse_int_token_local(argv[2], &speed_level)) {
-        ui_cmd_puts("Usage: demo start <speed> <t1> [t2] [t3] [t4] [seed]\r\n");
+    if (argc < 2 || !parse_int_token_local(argv[1], &speed_level)) {
+        demo_puts_gold_usage();
         return 2;
     }
 
@@ -485,15 +493,15 @@ static int demo_start_gold(int argc, char *argv[]) {
         return 2;
     }
 
-    for (int i = 3; i < argc; i++) {
+    for (int i = 2; i < argc; i++) {
         int v = 0;
         if (!parse_int_token_local(argv[i], &v)) {
-            ui_cmd_puts("demo start: numeric args required\r\n");
+            ui_cmd_puts("demo: numeric args required\r\n");
             return 2;
         }
         if (track_is_valid_train(v) && train_count < DEMO_MAX_TRAINS) {
             if (train_seen(trains, train_count, v)) {
-                ui_cmd_puts("demo start: duplicate train\r\n");
+                ui_cmd_puts("demo: duplicate train\r\n");
                 return 2;
             }
             trains[train_count++] = v;
@@ -503,12 +511,12 @@ static int demo_start_gold(int argc, char *argv[]) {
             seed_override = v;
             continue;
         }
-        ui_cmd_puts("demo start: invalid argument order\r\n");
+        ui_cmd_puts("demo: invalid argument order\r\n");
         return 2;
     }
 
     if (train_count < 1) {
-        ui_cmd_puts("Usage: demo start <speed> <t1> [t2] [t3] [t4] [seed]\r\n");
+        demo_puts_gold_usage();
         return 2;
     }
 
@@ -560,13 +568,15 @@ static int demo_start_locate(int argc, char *argv[]) {
 }
 
 int demo_handle_command(int argc, char *argv[]) {
+    int speed_level = 0;
+
     if (argc <= 0 || !argv || !argv[0]) return 2;
     if (!tok_eq(argv[0], "demo")) {
         return 2;
     }
 
     if (argc == 1) {
-        ui_cmd_puts("Usage: demo <start|locate|stop|tune|seed> ...\r\n");
+        demo_puts_overview_usage();
         return 2;
     }
 
@@ -626,20 +636,20 @@ int demo_handle_command(int argc, char *argv[]) {
         return 2;
     }
 
-    if (tok_eq(argv[1], "start")) {
-        if (argc < 4 || argc > 8) {
-            ui_cmd_puts("Usage: demo start <speed> <t1> [t2] [t3] [t4] [seed]\r\n");
-            return 2;
-        }
-        return demo_start_gold(argc, argv);
-    }
-
     if (tok_eq(argv[1], "locate")) {
-        if (argc < 4 || argc > 7) {
-            ui_cmd_puts("Usage: findpos <speed> <t1> [t2] [t3] [t4]\r\n");
+        if (argc < 3 || argc > 6) {
+            ui_cmd_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
             return 2;
         }
         return demo_start_locate(argc, argv);
+    }
+
+    if (parse_int_token_local(argv[1], &speed_level)) {
+        if (argc < 3 || argc > 7) {
+            demo_puts_gold_usage();
+            return 2;
+        }
+        return demo_start_gold(argc, argv);
     }
 
     ui_cmd_puts("demo: unknown subcommand\r\n");

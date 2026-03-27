@@ -86,4 +86,5 @@ Enter commands at the prompt:
 | `init` | init all switch to straight |
 | `li <train> <1|0>` | Turn on/off the train light |
 | `goto <train> <node id> [offset+-mm]` | Make the train pick up a constant speed (fixed at speed step 8) and stops at a specific track node |
-| `demo start <train1> <train2> [train3] [train4]` | Controls multiple trains on the track | 
+| `findpos <train1> [train2] [train3] [train4]` | Find positions for one or more trains |
+| `demo <speed> <train1> [train2] [train3] [train4] [seed]` | Controls multiple trains on the track |

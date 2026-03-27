@@ -131,7 +131,7 @@ static void runtime_print_parse_error(const train_command_t *cmd) {
             ui_cmd_puts("Usage: goto <train> <node> [offset_mm]\r\n");
             break;
         case TRAIN_CMD_ERR_USAGE_DEMO:
-            ui_cmd_puts("Usage: demo <start|locate|stop|tune|seed> ...\r\n");
+            ui_cmd_puts("Usage: demo <speed> <t1> [t2] [t3] [t4] [seed] | demo <locate|stop|tune|seed> ...\r\n");
             break;
         case TRAIN_CMD_ERR_USAGE_FINDPOS:
             ui_cmd_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
