@@ -8,6 +8,9 @@
 /* Maximum number of trains tracked simultaneously */
 #define MAX_POS_TRAINS 5
 
+/* Physical train body length (mm). */
+#define TRAIN_BODY_MM 200
+
 /* ---------- Train route state ---------- */
 
 typedef enum {

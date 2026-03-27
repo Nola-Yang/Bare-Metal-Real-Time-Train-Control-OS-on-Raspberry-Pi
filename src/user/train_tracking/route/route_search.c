@@ -222,6 +222,55 @@ static int32_t dijk_reconstruct(int32_t *dist, int16_t *prev,
     return dist[tgt_idx];
 }
 
+static int32_t route_path_edge_dist(uint16_t from_idx, uint16_t to_idx) {
+    track_node *from;
+    track_node *to;
+
+    if (from_idx >= TRACK_MAX || to_idx >= TRACK_MAX) return -1;
+
+    from = &g_track[from_idx];
+    to = &g_track[to_idx];
+    if (from->type == NODE_BRANCH) {
+        if (from->edge[DIR_STRAIGHT].dest == to) {
+            return (int32_t)from->edge[DIR_STRAIGHT].dist;
+        }
+        if (from->edge[DIR_CURVED].dest == to) {
+            return (int32_t)from->edge[DIR_CURVED].dist;
+        }
+        return -1;
+    }
+    if (from->edge[DIR_AHEAD].dest != to) return -1;
+    return (int32_t)from->edge[DIR_AHEAD].dist;
+}
+
+static int32_t route_path_first_branch_dist(const uint16_t *path, int path_count) {
+    int32_t total = 0;
+
+    if (!path || path_count <= 1) return DIJK_INF;
+
+    for (int i = 0; i < path_count - 1; i++) {
+        int32_t edge_dist = route_path_edge_dist(path[i], path[i + 1]);
+        if (edge_dist < 0) return -1;
+        total += edge_dist;
+        if (g_track[path[i + 1]].type == NODE_BRANCH) return total;
+    }
+
+    return DIJK_INF;
+}
+
+static int route_midrev_has_branch_clearance(const uint16_t *path, int path_count) {
+    int32_t first_branch_dist = route_path_first_branch_dist(path, path_count);
+    int32_t required_clearance = TRAIN_BODY_MM + MIDREV_STOP_TOLERANCE_MM;
+
+    if (first_branch_dist < 0) return 0;
+    if (first_branch_dist == DIJK_INF) return 1;
+
+    /* When stopping to reverse, the whole train must already be clear of the
+     * first turnout it will back into on the second leg. Include stop error so
+     * a modest undershoot still leaves the full train clear of the switch. */
+    return first_branch_dist >= required_clearance;
+}
+
 /* ===== Route planning (Dijkstra shortest distance) ===== */
 
 int bfs_find_route_optimal(track_node *start, track_node *target,
@@ -317,6 +366,10 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
                                         &cand->path_count2, TRACK_MAX)) {
                 continue;
             }
+            if (!route_midrev_has_branch_clearance(cand->path_nodes2,
+                                                   cand->path_count2)) {
+                continue;
+            }
 
             best_total = total;
             *best = *cand;
@@ -389,6 +442,9 @@ int bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
                              &g_opt_cand_plan.sw_count2, 20);
             if (!dijk_reconstruct_nodes(rev_prev, tgt, g_opt_cand_plan.path_nodes2,
                                         &g_opt_cand_plan.path_count2, TRACK_MAX))
+                continue;
+            if (!route_midrev_has_branch_clearance(g_opt_cand_plan.path_nodes2,
+                                                   g_opt_cand_plan.path_count2))
                 continue;
 
             best_total = total;
