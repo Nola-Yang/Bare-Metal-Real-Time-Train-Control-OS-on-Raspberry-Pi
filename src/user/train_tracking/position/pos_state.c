@@ -45,6 +45,7 @@ static void pos_reset_target_fields(train_pos_t *pos) {
     pos->orig_target_offset = 0;
     pos->offroute_valid = 0;
     pos->offroute_expected_sensor = NULL;
+    pos->parked_target_col = POS_TARGET_COL_NONE;
     pos_route_authority_reset(pos);
 }
 
@@ -136,6 +137,7 @@ static void pos_init_slot(train_pos_t *slot, int train_num, int train_ind, int s
     track_send_direction(train_num, 0x01);
     slot->stopping_since_us = 0;
     slot->stopped_on_target_hit = 0;
+    slot->parked_target_col = POS_TARGET_COL_NONE;
     slot->switch_settle_due_us = 0;
     slot->switch_settle_mode = POS_SWITCH_SETTLE_NONE;
     slot->replan.next_us = 0;
@@ -211,6 +213,7 @@ void pos_reset_dead_train(int train_num) {
 
     pos->route_state = TRAIN_STATE_STOPPED;
     pos->stopped_on_target_hit = 0;
+    pos->parked_target_col = POS_TARGET_COL_NONE;
     pos->switch_settle_due_us = 0;
     pos->switch_settle_mode = POS_SWITCH_SETTLE_NONE;
     pos->awaiting_post_launch_sensor = 0;
@@ -257,6 +260,7 @@ void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int speed_le
     pos->target_sensor = target;
     pos->target_offset_mm = offset_mm;
     pos->dist_to_target_mm = 0;
+    pos->parked_target_col = POS_TARGET_COL_NONE;
     pos->replan.next_us = 0;
     pos_clear_committed_route(pos);
     pos->stop_after_find_pos = 0;
@@ -277,6 +281,7 @@ void pos_prepare_find_pos_request(train_pos_t *pos) {
     pos->target_sensor = NULL;
     pos->target_offset_mm = 0;
     pos->dist_to_target_mm = 0;
+    pos->parked_target_col = POS_TARGET_COL_NONE;
     pos->replan.next_us = 0;
     pos->offroute_valid = 0;
     pos->offroute_expected_sensor = NULL;

@@ -42,6 +42,12 @@ typedef enum {
     POS_WAIT_MIDREV_SECOND_LEG = 3,
 } pos_wait_mode_t;
 
+typedef enum {
+    POS_TARGET_COL_NONE  = 0,
+    POS_TARGET_COL_FINAL = 1,
+    POS_TARGET_COL_STAGE = 2,
+} pos_target_col_t;
+
 /* ---------- Prediction sub-state ---------- */
 
 typedef struct {
@@ -164,6 +170,10 @@ typedef struct {
     /* 1 when the last STOPPED state was reached after physically hitting the
      * route target sensor; reverse replans should anchor at cur_sensor->reverse. */
     uint8_t     stopped_on_target_hit;
+
+    /* UI latch for the last logical stop target: keep the reached target
+     * column highlighted until a new destination overrides it. */
+    uint8_t     parked_target_col;
 
     /* Deferred launch after issuing switch commands. */
     uint64_t    switch_settle_due_us;

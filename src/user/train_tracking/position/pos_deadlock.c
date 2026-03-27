@@ -437,6 +437,7 @@ static int deadlock_apply_reroute(train_pos_t *victim,
     victim->target_sensor = yield_target;
     victim->target_offset_mm = 0;
     victim->dist_to_target_mm = 0;
+    victim->parked_target_col = POS_TARGET_COL_NONE;
     pos_clear_committed_route(victim);
 
     if (pick_kind == POS_DEADLOCK_PICK_FORCE_MOVE) {
@@ -528,6 +529,7 @@ int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos) {
     pos->target_sensor = resume_target;
     pos->target_offset_mm = resume_offset_mm;
     pos->dist_to_target_mm = 0;
+    pos->parked_target_col = POS_TARGET_COL_NONE;
     pos->replan.blocker_mask = 0;
     pos->replan.next_us = 0;
     pos_clear_committed_route(pos);

@@ -114,9 +114,31 @@ static char *ui_append_field(char *p, const char *text, int width) {
     return p;
 }
 
+static char *ui_append_colored_field(char *p, const char *text, int width,
+                                     const char *color) {
+    if (color) p = buf_append(p, color);
+    p = ui_append_field(p, text, width);
+    if (color) p = buf_append(p, "\033[0m");
+    return p;
+}
+
 static int ui_targets_same_sensor(track_node *a, track_node *b) {
     if (!a || !b) return 0;
     return a == b || a->reverse == b || b->reverse == a;
+}
+
+static int ui_pos_is_parked_for_target(const train_pos_t *pos) {
+    if (!pos) return 0;
+    return pos->route_state == TRAIN_STATE_STOPPED ||
+           pos->route_state == TRAIN_STATE_WAIT_RESOURCE ||
+           pos->route_state == TRAIN_STATE_WAIT_SWITCH_SETTLE;
+}
+
+static const char *ui_target_highlight_color(const train_pos_t *pos,
+                                             pos_target_col_t column) {
+    if (!ui_pos_is_parked_for_target(pos)) return NULL;
+    if (pos->parked_target_col != (uint8_t)column) return NULL;
+    return "\033[30;42m";
 }
 
 /* Keep the final mission target stable in UI even when authority top-up or a
@@ -210,6 +232,8 @@ static char *ui_append_position_row(char *p, int row, int train, const train_pos
     char final_buf[32];
     char stage_buf[32];
     char rem_buf[24];
+    const char *final_color;
+    const char *stage_color;
     const char *cur_name = (pos && pos->cur_sensor && pos->cur_sensor->name)
                            ? pos->cur_sensor->name : "-";
     const char *next_name = (pos && pos->pred.next_sensor && pos->pred.next_sensor->name)
@@ -221,6 +245,8 @@ static char *ui_append_position_row(char *p, int row, int train, const train_pos
     ui_build_final_target_text(pos, final_buf, sizeof(final_buf));
     ui_build_stage_target_text(pos, stage_buf, sizeof(stage_buf));
     ui_build_rem_text(pos, rem_buf, sizeof(rem_buf));
+    final_color = ui_target_highlight_color(pos, POS_TARGET_COL_FINAL);
+    stage_color = ui_target_highlight_color(pos, POS_TARGET_COL_STAGE);
 
     p = ui_move_to_row(p, row);
     if (train > 0) p = buf_append_int(p, train);
@@ -228,8 +254,8 @@ static char *ui_append_position_row(char *p, int row, int train, const train_pos
     p = ui_append_field(p, "", (train > 0) ? 1 : 2);
     p = ui_append_field(p, cur_name, 7);
     p = ui_append_field(p, next_name, 7);
-    p = ui_append_field(p, final_buf, 10);
-    p = ui_append_field(p, stage_buf, 12);
+    p = ui_append_colored_field(p, final_buf, 10, final_color);
+    p = ui_append_colored_field(p, stage_buf, 12, stage_color);
     p = ui_append_field(p, pos ? ui_state_long(pos->route_state) : "-", 13);
     p = ui_append_field(p, rem_buf, 9);
     p = ui_append_field(p, queued_name, 10);

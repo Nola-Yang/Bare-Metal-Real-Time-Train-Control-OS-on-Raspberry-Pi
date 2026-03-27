@@ -191,6 +191,7 @@ void pos_revive_dead_track_for_current_hit(train_pos_t *pos) {
     pos->orig_user_target = orig_target;
     pos->orig_target_offset = orig_offset_mm;
     pos->dist_to_target_mm = 0;
+    pos->parked_target_col = POS_TARGET_COL_NONE;
     pos->effective_v = 0;
     pos->user_speed = 0;
     pos->is_accelerating = 0;

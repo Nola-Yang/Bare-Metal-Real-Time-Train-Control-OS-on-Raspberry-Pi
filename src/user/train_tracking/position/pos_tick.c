@@ -139,17 +139,23 @@ static uint8_t stop_wait_blocker_mask(const train_pos_t *pos) {
 
 static void handle_normal_stop(train_pos_t *pos, uint64_t now_us) {
     track_node *stopped_target;
+    int stopped_at_leg_goal;
 
     pos->route_state = TRAIN_STATE_STOPPED;
     pos->stopped_on_target_hit =
         pos_route_authority_is_leg_goal_stop(pos) &&
         pos->cur_sensor != NULL &&
         pos_targets_same_sensor(pos->cur_sensor, pos->target_sensor);
+    stopped_at_leg_goal = pos_route_authority_is_leg_goal_stop(pos);
     /* STOPPING -> STOPPED means the train reached the planned stop target even
      * if that final sensor never physically fired; use the planned target, not
      * cur_sensor, to arm deadlock-yield resume. */
     stopped_target = pos->target_sensor;
-    if (pos_route_authority_is_leg_goal_stop(pos) && stopped_target != NULL) {
+    if (stopped_target != NULL) {
+        pos->parked_target_col =
+            stopped_at_leg_goal ? POS_TARGET_COL_FINAL : POS_TARGET_COL_STAGE;
+    }
+    if (stopped_at_leg_goal && stopped_target != NULL) {
         pos_publish_game_goal_stop(pos, stopped_target, now_us);
     }
     pos_refresh_stop_reservation(pos);
@@ -191,6 +197,7 @@ static int tick_handle_stopping(train_pos_t *pos, uint64_t now_us) {
     pos_save_ema_and_stop(pos);
 
     if (pos->midrev.active && pos_route_authority_is_leg_goal_stop(pos)) {
+        pos->parked_target_col = POS_TARGET_COL_STAGE;
         pos_handle_midrev_resume(pos, now_us);
     } else {
         handle_normal_stop(pos, now_us);
@@ -239,6 +246,7 @@ static int tick_handle_stopping_tr(train_pos_t *pos, uint64_t now_us) {
 
     pos->route_state = TRAIN_STATE_STOPPED;
     pos->stopped_on_target_hit = 0;
+    pos->parked_target_col = POS_TARGET_COL_NONE;
     pos->effective_v = 0;
     traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
                                     TRAIN_BODY_MM,
@@ -264,6 +272,7 @@ static int tick_handle_stopping_goto(train_pos_t *pos, uint64_t now_us) {
         pos->stop_after_find_pos = 0;
         pos->route_state = TRAIN_STATE_STOPPED;
         pos->stopped_on_target_hit = 0;
+        pos->parked_target_col = POS_TARGET_COL_NONE;
         traffic_refresh_sensor_prediction_reservation(pos->train_num,
                                                       pos->cur_sensor,
                                                       keep_pred,
@@ -367,6 +376,7 @@ static void enter_terminal_dead_track(train_pos_t *pos, uint64_t now_us) {
     pos->user_speed = 0;
     pos->is_accelerating = 0;
     pos->route_state = TRAIN_STATE_DEAD_TRACK;
+    pos->parked_target_col = POS_TARGET_COL_NONE;
     pos->target_sensor = NULL;
     pos->target_offset_mm = 0;
     pos->dist_to_target_mm = 0;
