@@ -58,7 +58,7 @@ static train_state_t *find_or_create_train(int train_num) {
         if (trains[i].train_num < 0) {
             trains[i].train_num = train_num;
             trains[i].speed = 0;
-            trains[i].direction = TRACK_DIR_FORWARD;
+            trains[i].direction = 0;
             trains[i].rv_state = 0;
             trains[i].rv_prev_speed = 0;
             return &trains[i];
@@ -129,37 +129,8 @@ static int track_local_send_frame(const can_frame_t *frame) {
     return CANSend(can_tid, frame);
 }
 
-static int track_direction_is_valid(uint8_t dir) {
-    return dir == TRACK_DIR_FORWARD ||
-           dir == TRACK_DIR_BACKWARD ||
-           dir == TRACK_DIR_REVERSE;
-}
-
-static void track_local_apply_direction(train_state_t *t, uint8_t dir) {
-    if (!t) return;
-
-    switch (dir) {
-        case TRACK_DIR_FORWARD:
-            t->direction = TRACK_DIR_FORWARD;
-            break;
-        case TRACK_DIR_BACKWARD:
-            t->direction = TRACK_DIR_BACKWARD;
-            break;
-        case TRACK_DIR_REVERSE:
-            t->direction = (t->direction == TRACK_DIR_BACKWARD)
-                               ? TRACK_DIR_FORWARD
-                               : TRACK_DIR_BACKWARD;
-            break;
-        default:
-            break;
-    }
-}
-
 int track_local_send_direction(int train_num, uint8_t dir) {
     can_frame_t frame;
-    train_state_t *t;
-
-    if (!track_is_valid_train(train_num) || !track_direction_is_valid(dir)) return -1;
 
     frame.id = ((uint32_t)0 << 25) |
                ((uint32_t)0x05 << 17) |
@@ -172,11 +143,7 @@ int track_local_send_direction(int train_num, uint8_t dir) {
     frame.data[2] = (train_num >> 8) & 0xFF;
     frame.data[3] = train_num & 0xFF;
     frame.data[4] = dir;
-    if (track_local_send_frame(&frame) != 0) return -1;
-
-    t = find_or_create_train(train_num);
-    track_local_apply_direction(t, dir);
-    return 0;
+    return track_local_send_frame(&frame);
 }
 
 int track_local_set_speed(int train, int speed) {
@@ -219,7 +186,14 @@ int track_local_set_speed(int train, int speed) {
 }
 
 int track_local_reverse(int train_num) {
-    return track_local_send_direction(train_num, TRACK_DIR_REVERSE);
+    train_state_t *t;
+
+    if (!track_is_valid_train(train_num)) return -1;
+    if (track_local_send_direction(train_num, 0x03) != 0) return -1;
+
+    t = find_or_create_train(train_num);
+    if (t) t->direction = 1 - t->direction;
+    return 0;
 }
 
 int track_local_set_switch(int sw_num, char dir) {
@@ -342,7 +316,7 @@ void track_local_reset_state(void) {
     for (int i = 0; i < MAX_ACTIVE_TRAINS; i++) {
         trains[i].train_num = -1;
         trains[i].speed = 0;
-        trains[i].direction = TRACK_DIR_FORWARD;
+        trains[i].direction = 0;
         trains[i].rv_state = 0;
         trains[i].rv_prev_speed = 0;
     }
