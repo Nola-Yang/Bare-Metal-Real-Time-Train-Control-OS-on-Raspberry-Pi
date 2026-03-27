@@ -25,6 +25,7 @@ typedef enum {
     GAME_STATE_ROUND_RUNNING = 3,
     GAME_STATE_MATCH_OVER = 4,
     GAME_STATE_STOPPING = 5,
+    GAME_STATE_SETUP = 6,
 } game_state_t;
 
 typedef enum {
@@ -52,6 +53,8 @@ static uint32_t g_game_seed = 1;
 static uint32_t g_game_rng_state = 1;
 static uint64_t g_game_start_us = 0;
 static int g_position_server_tid = -1;
+static int g_setup_step = 0;       /* 0=human, 1=ai, 2=neutral */
+static int g_setup_trains[3];      /* collected train numbers during setup */
 
 static game_role_slot_t g_slots[GAME_ROLES];
 static int g_round_index = -1;
@@ -81,6 +84,7 @@ static const char *game_state_name(game_state_t state) {
     case GAME_STATE_ROUND_RUNNING: return "ROUND_RUNNING";
     case GAME_STATE_MATCH_OVER: return "MATCH_OVER";
     case GAME_STATE_STOPPING: return "STOPPING";
+    case GAME_STATE_SETUP: return "SETUP";
     default: return "UNK";
     }
 }
@@ -734,7 +738,7 @@ static int game_handle_pick(const train_command_t *cmd) {
     g_slots[GAME_ROLE_HUMAN].target = target;
     g_slots[GAME_ROLE_HUMAN].target_sensor_num = (uint16_t)(target->num + 1);
     g_game_state = GAME_STATE_ROUND_RUNNING;
-    ui_set_cmd_prompt_label("cmd> ");
+    ui_set_cmd_prompt_label("game> ");
     game_set_hint("Targets revealed");
     game_set_result("-");
     game_log_targets();
@@ -786,6 +790,111 @@ static int game_print_status(void) {
     return 2;
 }
 
+static void game_setup_print_prompt(void) {
+    static const char *labels[GAME_ROLES] = {"Human", "AI", "Neutral"};
+    if (g_setup_step < GAME_ROLES) {
+        ui_cmd_puts("Game setup: enter ");
+        ui_cmd_puts(labels[g_setup_step]);
+        ui_cmd_puts(" train number (valid: 13 14 15 17 18 55):\r\n");
+    }
+}
+
+static int game_launch_match(int trains[GAME_ROLES], int seed_override) {
+    for (int i = 0; i < GAME_ROLES; i++) {
+        train_pos_t *pos = pos_get(trains[i]);
+        if (pos_is_train_goto_active(trains[i])) {
+            game_log_line("game: train busy with active goto");
+            return 2;
+        }
+        if (pos && pos->route_state != TRAIN_STATE_STOPPED &&
+            pos->route_state != TRAIN_STATE_UNKNOWN &&
+            pos->route_state != TRAIN_STATE_DEAD_TRACK) {
+            game_log_line("game: train must be stopped or unknown");
+            return 2;
+        }
+    }
+
+    game_reset_all();
+    game_build_sensor_pool();
+    game_seed_rng((seed_override >= 0) ? (uint32_t)seed_override : (uint32_t)read_timer());
+    g_slots[GAME_ROLE_HUMAN].train_num = trains[0];
+    g_slots[GAME_ROLE_AI].train_num = trains[1];
+    g_slots[GAME_ROLE_NEUTRAL].train_num = trains[2];
+    g_round1_priority = (game_rand_u32() & 1u) ? GAME_ROLE_AI : GAME_ROLE_HUMAN;
+    g_round_index = 0;
+    g_game_state = GAME_STATE_STARTING;
+    g_game_start_us = read_timer();
+    game_set_hint("Bootstrapping trains");
+    game_set_result("-");
+    ui_set_cmd_prompt_label("game> ");
+    ui_mark_position_dirty();
+    (void)game_start_next_unstarted();
+    game_log_line("game: bootstrapping trains one by one");
+    return 2;
+}
+
+static int game_start_interactive_setup(void) {
+    if (demo_is_active()) {
+        game_log_line("game: demo mode is active");
+        return 2;
+    }
+    if (g_game_state != GAME_STATE_OFF) {
+        game_log_line("game: already running");
+        return 2;
+    }
+    g_setup_step = 0;
+    g_setup_trains[0] = -1;
+    g_setup_trains[1] = -1;
+    g_setup_trains[2] = -1;
+    g_game_state = GAME_STATE_SETUP;
+    ui_set_cmd_prompt_label("game> ");
+    game_setup_print_prompt();
+    return 2;
+}
+
+static int game_handle_setup_input(const train_command_t *cmd) {
+    int train_num;
+
+    if (g_game_state != GAME_STATE_SETUP) return 2;
+
+    /* Accept a single token that is a valid train number.
+       The command arrives as TRAIN_CMD_GAME with argc==2 ("game <num>")
+       or as TRAIN_CMD_UNKNOWN with argc==1 (bare number). */
+    const char *tok = NULL;
+    if (cmd->type == TRAIN_CMD_GAME && cmd->argc == 2) {
+        tok = cmd->argv[1];
+    } else {
+        return 2;
+    }
+
+    if (!parse_int_token_local(tok, &train_num) || !track_is_valid_train(train_num)) {
+        game_log_line("game setup: invalid train number (valid: 13 14 15 17 18 55)");
+        game_setup_print_prompt();
+        return 2;
+    }
+
+    /* Check duplicate against already entered trains */
+    for (int i = 0; i < g_setup_step; i++) {
+        if (g_setup_trains[i] == train_num) {
+            game_log_line("game setup: duplicate train number");
+            game_setup_print_prompt();
+            return 2;
+        }
+    }
+
+    g_setup_trains[g_setup_step] = train_num;
+    g_setup_step++;
+
+    if (g_setup_step < GAME_ROLES) {
+        game_setup_print_prompt();
+        return 2;
+    }
+
+    /* All 3 trains collected — launch the match */
+    g_game_state = GAME_STATE_OFF;  /* allow game_launch_match to proceed */
+    return game_launch_match(g_setup_trains, -1);
+}
+
 static int game_start_match(const train_command_t *cmd) {
     int trains[GAME_ROLES];
     int seed_override = -1;
@@ -819,37 +928,7 @@ static int game_start_match(const train_command_t *cmd) {
         game_log_line("game start: invalid seed");
         return 2;
     }
-    for (int i = 0; i < GAME_ROLES; i++) {
-        train_pos_t *pos = pos_get(trains[i]);
-        if (pos_is_train_goto_active(trains[i])) {
-            game_log_line("game start: train busy with active goto");
-            return 2;
-        }
-        if (pos && pos->route_state != TRAIN_STATE_STOPPED &&
-            pos->route_state != TRAIN_STATE_UNKNOWN &&
-            pos->route_state != TRAIN_STATE_DEAD_TRACK) {
-            game_log_line("game start: train must be stopped or unknown");
-            return 2;
-        }
-    }
-
-    game_reset_all();
-    game_build_sensor_pool();
-    game_seed_rng((seed_override >= 0) ? (uint32_t)seed_override : (uint32_t)read_timer());
-    g_slots[GAME_ROLE_HUMAN].train_num = trains[0];
-    g_slots[GAME_ROLE_AI].train_num = trains[1];
-    g_slots[GAME_ROLE_NEUTRAL].train_num = trains[2];
-    g_round1_priority = (game_rand_u32() & 1u) ? GAME_ROLE_AI : GAME_ROLE_HUMAN;
-    g_round_index = 0;
-    g_game_state = GAME_STATE_STARTING;
-    g_game_start_us = read_timer();
-    game_set_hint("Bootstrapping trains");
-    game_set_result("-");
-    ui_set_cmd_prompt_label("cmd> ");
-    ui_mark_position_dirty();
-    (void)game_start_next_unstarted();
-    game_log_line("game: bootstrapping trains one by one");
-    return 2;
+    return game_launch_match(trains, seed_override);
 }
 
 void game_init(void) {
@@ -867,8 +946,18 @@ int game_handle_command(const train_command_t *cmd) {
         return 2;
     }
 
+    /* During interactive setup, "game <num>" provides the next train number */
+    if (g_game_state == GAME_STATE_SETUP) {
+        return game_handle_setup_input(cmd);
+    }
+
+    /* "game" with no subcommand → interactive setup */
+    if (cmd->argc == 1) {
+        return game_start_interactive_setup();
+    }
+
     if (cmd->argc < 2) {
-        game_log_line("Usage: game <start|stop|status> ...");
+        game_log_line("Usage: game [start <human> <ai> <neutral> [seed] | stop | status]");
         return 2;
     }
 
@@ -910,6 +999,7 @@ void game_on_tick(uint64_t now_us) {
     (void)now_us;
 
     if (g_game_state == GAME_STATE_OFF) return;
+    if (g_game_state == GAME_STATE_SETUP) return;
 
     game_consume_events();
 
@@ -960,6 +1050,10 @@ void game_on_tick(uint64_t now_us) {
 
 int game_is_active(void) {
     return g_game_state != GAME_STATE_OFF;
+}
+
+int game_is_setup_active(void) {
+    return g_game_state == GAME_STATE_SETUP;
 }
 
 void game_get_ui_summary(game_ui_summary_t *out, uint64_t now_us) {

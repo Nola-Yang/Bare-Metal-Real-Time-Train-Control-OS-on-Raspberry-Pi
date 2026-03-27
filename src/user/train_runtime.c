@@ -156,7 +156,7 @@ static void runtime_print_parse_error(const train_command_t *cmd) {
             ui_cmd_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
             break;
         case TRAIN_CMD_ERR_USAGE_GAME:
-            ui_cmd_puts("Usage: game <start|stop|status> ...\r\n");
+            ui_cmd_puts("Usage: game  (interactive) | game start <human> <ai> <neutral> [seed] | game stop | game status\r\n");
             break;
         case TRAIN_CMD_ERR_USAGE_PICK:
             ui_cmd_puts("Usage: pick <sensor>\r\n");
@@ -214,7 +214,16 @@ static int runtime_handle_command(const train_command_t *cmd,
                                   int *rv_pending_count) {
     if (!cmd) return 2;
 
-    if (game_is_active()) {
+    if (game_is_setup_active()) {
+        switch (cmd->type) {
+        case TRAIN_CMD_QUIT:
+        case TRAIN_CMD_GAME:
+            break;
+        default:
+            ui_cmd_puts("game setup: enter train number with `game <num>`\r\n");
+            return 2;
+        }
+    } else if (game_is_active()) {
         switch (cmd->type) {
         case TRAIN_CMD_QUIT:
         case TRAIN_CMD_GAME:

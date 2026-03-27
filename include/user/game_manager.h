@@ -27,6 +27,7 @@ void game_init(void);
 int game_handle_command(const train_command_t *cmd);
 void game_on_tick(uint64_t now_us);
 int game_is_active(void);
+int game_is_setup_active(void);
 void game_get_ui_summary(game_ui_summary_t *out, uint64_t now_us);
 
 #endif /* _game_manager_h_ */

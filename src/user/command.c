@@ -165,9 +165,6 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
 
     if (tok_eq(argv[0], "game")) {
         out->type = TRAIN_CMD_GAME;
-        if (argc < 2) {
-            command_set_parse_error(out, TRAIN_CMD_ERR_USAGE_GAME);
-        }
         return 1;
     }
 
