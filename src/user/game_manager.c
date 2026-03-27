@@ -68,6 +68,10 @@ static track_node *g_sensor_pool[TRACK_MAX];
 static int g_sensor_pool_count = 0;
 static char g_hint_text[80] = "-";
 static char g_result_text[96] = "-";
+static pos_target_query_t g_game_query_primary;
+static pos_target_query_t g_game_query_secondary;
+static track_node *g_game_eligible_targets[TRACK_MAX];
+static pos_game_event_t g_game_event_batch[GAME_EVENT_BATCH];
 
 static int game_position_server_tid(void) {
     if (g_position_server_tid < 0) {
@@ -288,14 +292,15 @@ static int game_is_sensor_currently_occupied(int sensor_num) {
 }
 
 static int game_train_has_min_trip_candidate(int train_num) {
+    pos_target_query_t *query = &g_game_query_secondary;
+
     for (int i = 0; i < g_sensor_pool_count; i++) {
         track_node *cand = g_sensor_pool[i];
-        pos_target_query_t query;
 
         if (!cand) continue;
         if (game_current_sensor_num(train_num) == cand->num) continue;
-        if (pos_query_target(train_num, cand, &query) == POS_TARGET_UNREACHABLE) continue;
-        if (query.plan.total_dist_mm >= GAME_MIN_TRIP_MM) return 1;
+        if (pos_query_target(train_num, cand, query) == POS_TARGET_UNREACHABLE) continue;
+        if (query->plan.total_dist_mm >= GAME_MIN_TRIP_MM) return 1;
     }
     return 0;
 }
@@ -372,30 +377,29 @@ static int game_collect_route_value(const pos_target_query_t *query, track_node 
 static track_node *game_pick_best_ai_target(void) {
     game_role_slot_t *slot = &g_slots[GAME_ROLE_AI];
     track_node *best = NULL;
-    pos_target_query_t best_query = {0};
+    pos_target_query_t *query = &g_game_query_primary;
     int best_score = -0x7fffffff;
     int best_dist = 0x7fffffff;
 
     for (int pass = 0; pass < 2; pass++) {
         for (int i = 0; i < g_sensor_pool_count; i++) {
             track_node *cand = g_sensor_pool[i];
-            pos_target_query_t query;
             int score;
             int dist;
 
             if (!cand) continue;
             if (game_current_sensor_num(slot->train_num) == cand->num) continue;
             if (pass == 0 && cand->name == NULL) continue;
-            if (pos_query_target(slot->train_num, cand, &query) == POS_TARGET_UNREACHABLE) {
+            if (pos_query_target(slot->train_num, cand, query) == POS_TARGET_UNREACHABLE) {
                 continue;
             }
-            dist = query.plan.total_dist_mm;
+            dist = query->plan.total_dist_mm;
             if (pass == 0 && dist < GAME_MIN_TRIP_MM) continue;
 
-            score = game_collect_route_value(&query, cand, GAME_ROLE_AI);
+            score = game_collect_route_value(query, cand, GAME_ROLE_AI);
             score -= dist / 400;
-            if (query.status == POS_TARGET_BLOCKED) {
-                score -= 2 + game_bit_count(query.blocker_mask);
+            if (query->status == POS_TARGET_BLOCKED) {
+                score -= 2 + game_bit_count(query->blocker_mask);
             }
 
             if (!best ||
@@ -403,15 +407,11 @@ static track_node *game_pick_best_ai_target(void) {
                 (score == best_score && dist < best_dist) ||
                 (score == best_score && dist == best_dist && (game_rand_u32() & 1u))) {
                 best = cand;
-                best_query = query;
                 best_score = score;
                 best_dist = dist;
             }
         }
-        if (best) {
-            (void)best_query;
-            return best;
-        }
+        if (best) return best;
     }
 
     return NULL;
@@ -419,21 +419,21 @@ static track_node *game_pick_best_ai_target(void) {
 
 static track_node *game_draw_neutral_target(void) {
     game_role_slot_t *slot = &g_slots[GAME_ROLE_NEUTRAL];
-    track_node *eligible[TRACK_MAX];
+    pos_target_query_t *query = &g_game_query_primary;
+    track_node **eligible = g_game_eligible_targets;
     int eligible_count = 0;
 
     for (int pass = 0; pass < 2; pass++) {
         eligible_count = 0;
         for (int i = 0; i < g_sensor_pool_count; i++) {
             track_node *cand = g_sensor_pool[i];
-            pos_target_query_t query;
 
             if (!cand) continue;
             if (cand->num < 0 || cand->num >= GAME_SENSOR_KEYS) continue;
             if (g_neutral_used[cand->num]) continue;
             if (game_is_sensor_currently_occupied(cand->num)) continue;
-            if (pos_query_target(slot->train_num, cand, &query) == POS_TARGET_UNREACHABLE) continue;
-            if (pass == 0 && query.plan.total_dist_mm < GAME_MIN_TRIP_MM) continue;
+            if (pos_query_target(slot->train_num, cand, query) == POS_TARGET_UNREACHABLE) continue;
+            if (pass == 0 && query->plan.total_dist_mm < GAME_MIN_TRIP_MM) continue;
             eligible[eligible_count++] = cand;
         }
 
@@ -449,20 +449,20 @@ static track_node *game_draw_neutral_target(void) {
 
 static track_node *game_pick_neutral_standby_target(void) {
     game_role_slot_t *slot = &g_slots[GAME_ROLE_NEUTRAL];
+    pos_target_query_t *query = &g_game_query_primary;
     track_node *best = NULL;
     int best_dist = 0x7fffffff;
 
     for (int i = 0; i < g_sensor_pool_count; i++) {
         track_node *cand = g_sensor_pool[i];
-        pos_target_query_t query;
 
         if (!cand) continue;
         if (game_current_sensor_num(slot->train_num) == cand->num) continue;
         if (slot->target && slot->target->num == cand->num) continue;
-        if (pos_query_target(slot->train_num, cand, &query) != POS_TARGET_READY) continue;
-        if (query.plan.total_dist_mm < best_dist) {
+        if (pos_query_target(slot->train_num, cand, query) != POS_TARGET_READY) continue;
+        if (query->plan.total_dist_mm < best_dist) {
             best = cand;
-            best_dist = query.plan.total_dist_mm;
+            best_dist = query->plan.total_dist_mm;
         }
     }
 
@@ -593,7 +593,7 @@ static int game_round_done(void) {
 }
 
 static void game_consume_events(void) {
-    pos_game_event_t events[GAME_EVENT_BATCH];
+    pos_game_event_t *events = g_game_event_batch;
     int count;
 
     count = pos_read_game_events(&g_event_seq, events, GAME_EVENT_BATCH);
@@ -659,6 +659,7 @@ static void game_try_redirect_neutral(track_node *standby, const char *reason) {
 
 static void game_try_resolve_neutral_cases(void) {
     game_role_slot_t *neutral = &g_slots[GAME_ROLE_NEUTRAL];
+    pos_target_query_t *query = &g_game_query_primary;
     train_pos_t *neutral_pos;
 
     if (g_game_state != GAME_STATE_ROUND_RUNNING) return;
@@ -669,16 +670,15 @@ static void game_try_resolve_neutral_cases(void) {
 
     if (neutral_pos->route_state == TRAIN_STATE_STOPPED) {
         for (int role = GAME_ROLE_HUMAN; role <= GAME_ROLE_AI; role++) {
-            pos_target_query_t query;
             int neutral_bit;
 
             if (g_slots[role].completed) continue;
             if (!g_slots[role].target) continue;
-            if (pos_query_target(g_slots[role].train_num, g_slots[role].target, &query) != POS_TARGET_BLOCKED) {
+            if (pos_query_target(g_slots[role].train_num, g_slots[role].target, query) != POS_TARGET_BLOCKED) {
                 continue;
             }
             neutral_bit = game_train_bit(neutral->train_num);
-            if (query.blocker_mask == neutral_bit) {
+            if (query->blocker_mask == neutral_bit) {
                 game_try_redirect_neutral(game_pick_neutral_standby_target(),
                                           "player blocked by neutral");
                 return;
@@ -688,13 +688,12 @@ static void game_try_resolve_neutral_cases(void) {
 
     if (g_slots[GAME_ROLE_HUMAN].completed && g_slots[GAME_ROLE_AI].completed &&
         neutral->target != NULL) {
-        pos_target_query_t query;
         int player_mask = game_train_bit(g_slots[GAME_ROLE_HUMAN].train_num) |
                           game_train_bit(g_slots[GAME_ROLE_AI].train_num);
 
-        if (pos_query_target(neutral->train_num, neutral->target, &query) == POS_TARGET_BLOCKED &&
-            query.blocker_mask != 0 &&
-            (query.blocker_mask & (uint8_t)~player_mask) == 0) {
+        if (pos_query_target(neutral->train_num, neutral->target, query) == POS_TARGET_BLOCKED &&
+            query->blocker_mask != 0 &&
+            (query->blocker_mask & (uint8_t)~player_mask) == 0) {
             game_try_redirect_neutral(game_pick_neutral_standby_target(),
                                       "neutral blocked by completed players");
         }
@@ -703,7 +702,7 @@ static void game_try_resolve_neutral_cases(void) {
 
 static int game_handle_pick(const train_command_t *cmd) {
     track_node *target;
-    pos_target_query_t query;
+    pos_target_query_t *query = &g_game_query_primary;
     int require_min_trip;
 
     if (!cmd) return 2;
@@ -725,12 +724,12 @@ static int game_handle_pick(const train_command_t *cmd) {
         game_log_line("pick: cannot choose current sensor");
         return 2;
     }
-    if (pos_query_target(g_slots[GAME_ROLE_HUMAN].train_num, target, &query) == POS_TARGET_UNREACHABLE) {
+    if (pos_query_target(g_slots[GAME_ROLE_HUMAN].train_num, target, query) == POS_TARGET_UNREACHABLE) {
         game_log_line("pick: target unreachable");
         return 2;
     }
     require_min_trip = game_train_has_min_trip_candidate(g_slots[GAME_ROLE_HUMAN].train_num);
-    if (require_min_trip && query.plan.total_dist_mm < GAME_MIN_TRIP_MM) {
+    if (require_min_trip && query->plan.total_dist_mm < GAME_MIN_TRIP_MM) {
         game_log_line("pick: choose a longer reachable target");
         return 2;
     }
