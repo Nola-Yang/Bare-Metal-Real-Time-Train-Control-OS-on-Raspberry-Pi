@@ -165,7 +165,6 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
     track_node *best_ready_reloc_target = NULL;
     uint8_t best_unblocked_mask = 0;
     uint8_t fallback_wait_mask;
-    int32_t best_unlock_dist = 0;
     int merged_count;
     int32_t min_dist_mm;
 
@@ -186,7 +185,6 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
         track_node *cand = &g_track[g_pos_try_merged_candidates[i]];
         uint8_t unblocked_mask;
         int32_t sort_dist;
-        int32_t cand_total_dist;
 
         sort_dist = pos_deadlock_candidate_sort_dist(origins, cand);
         if (sort_dist < 0 || sort_dist < min_dist_mm) continue;
@@ -198,21 +196,13 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
             continue;
         }
 
-        cand_total_dist = g_pos_try_eval_candidate.plan.total_dist_mm;
         best_ready_reloc_target = cand;
         unblocked_mask = pos_simulate_deadlock_unblocked_mask(pos, cycle_mask, cand);
         if (unblocked_mask == 0) continue;
 
-        if (best_unlock_target == NULL ||
-            pos_route_blocker_mask_bit_count(unblocked_mask) >
-                pos_route_blocker_mask_bit_count(best_unblocked_mask) ||
-            (pos_route_blocker_mask_bit_count(unblocked_mask) ==
-                 pos_route_blocker_mask_bit_count(best_unblocked_mask) &&
-             cand_total_dist < best_unlock_dist)) {
-            best_unlock_target = cand;
-            best_unblocked_mask = unblocked_mask;
-            best_unlock_dist = cand_total_dist;
-        }
+        best_unlock_target = cand;
+        best_unblocked_mask = unblocked_mask;
+        break;
     }
 
     if (best_unlock_target) {
