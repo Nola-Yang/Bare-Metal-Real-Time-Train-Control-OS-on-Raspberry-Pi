@@ -91,9 +91,9 @@ static int parse_int_token_local(const char *tok, int *out) {
 static const char *demo_mode_str(demo_mode_t m) {
     switch (m) {
     case DEMO_MODE_OFF:   return "OFF";
-    case DEMO_MODE_GOLD:  return "GOLD";
-    case DEMO_MODE_LOCATE:return "LOCATE";
-    default:              return "UNK";
+    case DEMO_MODE_GOLD:   return "GOLD";
+    case DEMO_MODE_LOCATE: return "LOCATE";
+    default:               return "UNK";
     }
 }
 
@@ -409,7 +409,7 @@ static void demo_puts_gold_usage(void) {
 }
 
 static void demo_puts_overview_usage(void) {
-    ui_cmd_puts("Usage: demo <speed> <t1> [t2] [t3] [t4] [seed] | demo <locate|stop|tune|seed> ...\r\n");
+    ui_cmd_puts("Usage: demo <speed> <t1> [t2] [t3] [t4] [seed] | demo <stop|tune|seed> ...\r\n");
 }
 
 static int demo_start_session(demo_mode_t mode,
@@ -527,48 +527,13 @@ static int demo_start_gold(int argc, char *argv[]) {
     return demo_start_session(DEMO_MODE_GOLD, train_count, speed_level, trains, seed_override);
 }
 
-static int demo_start_locate(int argc, char *argv[]) {
-    int trains[DEMO_MAX_TRAINS];
-    int train_count = 0;
-    int speed_level = 0;
 
-    if (!is_valid_speed_level(speed_level)) {
-        ui_cmd_puts("Invalid speed level\r\n");
+int demo_start_locate(int train_count, const int *trains) {
+    if (train_count < 1 || train_count > DEMO_MAX_TRAINS) {
+        ui_cmd_puts("findpos: invalid train count\r\n");
         return 2;
     }
-
-    if (!is_valid_goto_speed(speed_level)) {
-        ui_cmd_puts("Speed level not supported\r\n");
-        return 2;
-    }
-
-    for (int i = 2; i < argc; i++) {
-        int v = 0;
-        if (!parse_int_token_local(argv[i], &v)) {
-            ui_cmd_puts("findpos: train numbers required\r\n");
-            return 2;
-        }
-        if (!track_is_valid_train(v)) {
-            ui_cmd_puts("findpos: invalid train\r\n");
-            return 2;
-        }
-        if (train_count >= DEMO_MAX_TRAINS) {
-            ui_cmd_puts("findpos: too many trains\r\n");
-            return 2;
-        }
-        if (train_seen(trains, train_count, v)) {
-            ui_cmd_puts("findpos: duplicate train\r\n");
-            return 2;
-        }
-        trains[train_count++] = v;
-    }
-
-    if (train_count < 1) {
-        ui_cmd_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
-        return 2;
-    }
-
-    return demo_start_session(DEMO_MODE_LOCATE, train_count, speed_level, trains, -1);
+    return demo_start_session(DEMO_MODE_LOCATE, train_count, 0, trains, -1);
 }
 
 int demo_handle_command(int argc, char *argv[]) {
@@ -640,13 +605,6 @@ int demo_handle_command(int argc, char *argv[]) {
         return 2;
     }
 
-    if (tok_eq(argv[1], "locate")) {
-        if (argc < 3 || argc > 6) {
-            ui_cmd_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
-            return 2;
-        }
-        return demo_start_locate(argc, argv);
-    }
 
     if (parse_int_token_local(argv[1], &speed_level)) {
         if (argc < 3 || argc > 7) {

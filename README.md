@@ -87,9 +87,34 @@ Enter commands at the prompt:
 | `li <train> <1|0>` | Turn on/off the train light |
 | `goto <train> <node id> [offset+-mm]` | Make the train pick up a constant speed (fixed at speed step 8) and stops at a specific track node |
 | `findpos <train1> [train2] [train3] [train4]` | Find positions for one or more trains |
-| `demo <speed> <train1> [train2] [train3] [train4] [seed]` | Controls multiple trains on the track |
-| `game start <human> <ai> <neutral> [seed]` | Start the four-round game mode |
+| `demo <speed> <train1> [train2] [train3] [train4] [seed]` | Start demo: trains roam randomly at the given speed level |
+| `demo stop` | Stop demo gracefully (no new missions assigned) |
+| `demo stop force` | Stop demo immediately and reset all trains |
+| `demo seed <u32>` | Set the RNG seed used for random route selection |
+| `demo tune trip <mm>` | Set minimum trip distance (mm) for random route selection |
+| `game` | Enter interactive game setup; each setup input is a bare train number and triggers one `findpos` before the next prompt |
 | `pick <sensor>` | Choose the human player's target during game mode |
+| `game stop` | Stop the current game |
+| `game status` | Show current game state and scores |
+
+## Starting a Game
+
+1. Make sure all three trains are stopped (or in unknown state) and positioned on the track.
+2. Type `game` at the prompt. The system enters setup mode and the prompt changes to `game> `.
+3. Enter the **human player's train number** as a bare number only, for example `55`.
+4. The system immediately runs one `findpos` bootstrap for that train.
+   While it is locating, the prompt changes to `wait> `.
+5. After that train has confirmed position and stopped, the system prompts for the **AI train number**.
+6. Enter the AI train number as a bare number only, for example `13`.
+7. The system again runs `findpos` for that train, waits for it to finish, then prompts for the **neutral train number**.
+8. Enter the neutral train number as a bare number only, for example `14`.
+9. After the neutral train has also finished its setup `findpos`, the game enters Round 1 and waits for `pick <sensor>`.
+10. During each round, the human player types `pick <sensor>` to choose a destination.
+11. To stop a running game gracefully, type `game stop`. To abort immediately, type `game stop force`.
+
+> Note: while in game setup mode, train inputs are bare numbers only and other commands are blocked. Type `q` to quit without launching.
+
+---
 
 ## Four-Round Competitive Game Rules
 

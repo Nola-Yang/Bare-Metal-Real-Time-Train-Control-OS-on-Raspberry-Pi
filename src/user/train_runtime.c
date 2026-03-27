@@ -156,7 +156,7 @@ static void runtime_print_parse_error(const train_command_t *cmd) {
             ui_cmd_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
             break;
         case TRAIN_CMD_ERR_USAGE_GAME:
-            ui_cmd_puts("Usage: game  (interactive) | game start <human> <ai> <neutral> [seed] | game stop | game status\r\n");
+            ui_cmd_puts("Usage: game  (interactive) | game stop | game status\r\n");
             break;
         case TRAIN_CMD_ERR_USAGE_PICK:
             ui_cmd_puts("Usage: pick <sensor>\r\n");
@@ -217,10 +217,10 @@ static int runtime_handle_command(const train_command_t *cmd,
     if (game_is_setup_active()) {
         switch (cmd->type) {
         case TRAIN_CMD_QUIT:
-        case TRAIN_CMD_GAME:
+        case TRAIN_CMD_UNKNOWN:
             break;
         default:
-            ui_cmd_puts("game setup: enter train number with `game <num>`\r\n");
+            ui_cmd_puts("game setup: enter train number (valid: 13 14 15 17 18 55)\r\n");
             return 2;
         }
     } else if (game_is_active()) {
@@ -235,7 +235,14 @@ static int runtime_handle_command(const train_command_t *cmd,
         }
     }
 
-    if (cmd->type == TRAIN_CMD_PARSE_ERROR || cmd->type == TRAIN_CMD_UNKNOWN) {
+    if (cmd->type == TRAIN_CMD_PARSE_ERROR) {
+        runtime_print_parse_error(cmd);
+        return 2;
+    }
+    if (cmd->type == TRAIN_CMD_UNKNOWN) {
+        if (game_is_setup_active()) {
+            return GameServerHandleCommand(game_tid, cmd);
+        }
         runtime_print_parse_error(cmd);
         return 2;
     }

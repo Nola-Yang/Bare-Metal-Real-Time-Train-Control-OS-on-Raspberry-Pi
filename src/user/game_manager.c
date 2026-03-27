@@ -54,6 +54,7 @@ static uint32_t g_game_rng_state = 1;
 static uint64_t g_game_start_us = 0;
 static int g_position_server_tid = -1;
 static int g_setup_step = 0;       /* 0=human, 1=ai, 2=neutral */
+static int g_setup_pending_role = -1;
 static int g_setup_trains[3];      /* collected train numbers during setup */
 
 static game_role_slot_t g_slots[GAME_ROLES];
@@ -178,6 +179,11 @@ static void game_reset_all(void) {
     for (int i = 0; i < GAME_ROLES; i++) {
         g_slots[i].train_num = -1;
         game_reset_slot(&g_slots[i]);
+    }
+    g_setup_step = 0;
+    g_setup_pending_role = -1;
+    for (int i = 0; i < GAME_ROLES; i++) {
+        g_setup_trains[i] = -1;
     }
     for (int i = 0; i < GAME_SENSOR_KEYS; i++) {
         g_claim_mask[i] = 0;
@@ -798,10 +804,48 @@ static void game_setup_print_prompt(void) {
     }
 }
 
-static int game_launch_match(int trains[GAME_ROLES], int seed_override) {
+static void game_setup_log_role_line(game_role_t role, int train_num, const char *suffix) {
+    char *buf = buf_get_temp();
+    char *p = buf;
+
+    p = buf_append(p, "game setup: ");
+    p = buf_append(p, game_role_name(role));
+    p = buf_append(p, " train ");
+    p = buf_append_int(p, train_num);
+    if (suffix && suffix[0]) {
+        p = buf_append(p, " ");
+        p = buf_append(p, suffix);
+    }
+    *p = '\0';
+    game_log_line(buf);
+}
+
+static int game_train_is_setup_ready(int train_num) {
+    train_pos_t *pos = pos_get(train_num);
+
+    if (pos_is_train_goto_active(train_num)) {
+        game_log_line("game setup: train busy with active goto");
+        return 0;
+    }
+    if (pos && pos->route_state != TRAIN_STATE_STOPPED &&
+        pos->route_state != TRAIN_STATE_UNKNOWN &&
+        pos->route_state != TRAIN_STATE_DEAD_TRACK) {
+        game_log_line("game setup: train must be stopped or unknown");
+        return 0;
+    }
+    return 1;
+}
+
+static int game_launch_match(const int trains[GAME_ROLES], int seed_override) {
+    int launch_trains[GAME_ROLES];
+
     for (int i = 0; i < GAME_ROLES; i++) {
-        train_pos_t *pos = pos_get(trains[i]);
-        if (pos_is_train_goto_active(trains[i])) {
+        launch_trains[i] = trains[i];
+    }
+
+    for (int i = 0; i < GAME_ROLES; i++) {
+        train_pos_t *pos = pos_get(launch_trains[i]);
+        if (pos_is_train_goto_active(launch_trains[i])) {
             game_log_line("game: train busy with active goto");
             return 2;
         }
@@ -816,19 +860,20 @@ static int game_launch_match(int trains[GAME_ROLES], int seed_override) {
     game_reset_all();
     game_build_sensor_pool();
     game_seed_rng((seed_override >= 0) ? (uint32_t)seed_override : (uint32_t)read_timer());
-    g_slots[GAME_ROLE_HUMAN].train_num = trains[0];
-    g_slots[GAME_ROLE_AI].train_num = trains[1];
-    g_slots[GAME_ROLE_NEUTRAL].train_num = trains[2];
+    g_slots[GAME_ROLE_HUMAN].train_num = launch_trains[0];
+    g_slots[GAME_ROLE_AI].train_num = launch_trains[1];
+    g_slots[GAME_ROLE_NEUTRAL].train_num = launch_trains[2];
     g_round1_priority = (game_rand_u32() & 1u) ? GAME_ROLE_AI : GAME_ROLE_HUMAN;
     g_round_index = 0;
-    g_game_state = GAME_STATE_STARTING;
+    g_game_state = GAME_STATE_WAIT_PICK;
     g_game_start_us = read_timer();
-    game_set_hint("Bootstrapping trains");
+    game_set_hint("Preparing round 1");
     game_set_result("-");
     ui_set_cmd_prompt_label("game> ");
     ui_mark_position_dirty();
-    (void)game_start_next_unstarted();
-    game_log_line("game: bootstrapping trains one by one");
+    game_reset_round_state();
+    game_log_line("game: setup complete");
+    game_begin_wait_pick();
     return 2;
 }
 
@@ -841,7 +886,9 @@ static int game_start_interactive_setup(void) {
         game_log_line("game: already running");
         return 2;
     }
+    game_reset_all();
     g_setup_step = 0;
+    g_setup_pending_role = -1;
     g_setup_trains[0] = -1;
     g_setup_trains[1] = -1;
     g_setup_trains[2] = -1;
@@ -853,15 +900,23 @@ static int game_start_interactive_setup(void) {
 
 static int game_handle_setup_input(const train_command_t *cmd) {
     int train_num;
+    game_role_t role;
+    game_role_slot_t *slot;
+    int pos_tid;
 
     if (g_game_state != GAME_STATE_SETUP) return 2;
 
-    /* Accept a single token that is a valid train number.
-       The command arrives as TRAIN_CMD_GAME with argc==2 ("game <num>")
-       or as TRAIN_CMD_UNKNOWN with argc==1 (bare number). */
+    if (g_setup_pending_role >= 0 && g_setup_pending_role < GAME_ROLES) {
+        game_setup_log_role_line((game_role_t)g_setup_pending_role,
+                                 g_setup_trains[g_setup_pending_role],
+                                 "is still finding position");
+        return 2;
+    }
+
+    /* Accept a bare train number entered directly (TRAIN_CMD_UNKNOWN, argc==1). */
     const char *tok = NULL;
-    if (cmd->type == TRAIN_CMD_GAME && cmd->argc == 2) {
-        tok = cmd->argv[1];
+    if (cmd->type == TRAIN_CMD_UNKNOWN && cmd->argc == 1) {
+        tok = cmd->argv[0];
     } else {
         return 2;
     }
@@ -881,53 +936,43 @@ static int game_handle_setup_input(const train_command_t *cmd) {
         }
     }
 
-    g_setup_trains[g_setup_step] = train_num;
-    g_setup_step++;
-
-    if (g_setup_step < GAME_ROLES) {
+    if (!game_train_is_setup_ready(train_num)) {
         game_setup_print_prompt();
         return 2;
     }
 
-    /* All 3 trains collected — launch the match */
-    g_game_state = GAME_STATE_OFF;  /* allow game_launch_match to proceed */
-    return game_launch_match(g_setup_trains, -1);
-}
+    role = (game_role_t)g_setup_step;
+    slot = &g_slots[role];
+    g_setup_trains[g_setup_step] = train_num;
+    slot->train_num = train_num;
+    slot->started = 1;
+    ui_mark_position_dirty();
 
-static int game_start_match(const train_command_t *cmd) {
-    int trains[GAME_ROLES];
-    int seed_override = -1;
-
-    if (!cmd) return 2;
-    if (demo_is_active()) {
-        game_log_line("game: demo mode is active");
-        return 2;
-    }
-    if (g_game_state != GAME_STATE_OFF) {
-        game_log_line("game: already running");
-        return 2;
-    }
-    if (cmd->argc != 5 && cmd->argc != 6) {
-        game_log_line("Usage: game start <human> <ai> <neutral> [seed]");
-        return 2;
-    }
-
-    for (int i = 0; i < GAME_ROLES; i++) {
-        if (!parse_int_token_local(cmd->argv[2 + i], &trains[i]) ||
-            !track_is_valid_train(trains[i])) {
-            game_log_line("game start: invalid train number");
+    if (game_train_is_known_stopped(train_num)) {
+        game_setup_log_role_line(role, train_num, "ready");
+        g_setup_step++;
+        if (g_setup_step < GAME_ROLES) {
+            ui_set_cmd_prompt_label("game> ");
+            game_setup_print_prompt();
             return 2;
         }
+        return game_launch_match(g_setup_trains, -1);
     }
-    if (trains[0] == trains[1] || trains[0] == trains[2] || trains[1] == trains[2]) {
-        game_log_line("game start: duplicate train");
+
+    pos_tid = game_position_server_tid();
+    if (pos_tid < 0 || !PositionServerStartFindPos(pos_tid, train_num)) {
+        slot->train_num = -1;
+        slot->started = 0;
+        g_setup_trains[g_setup_step] = -1;
+        game_log_line("game setup: failed to start findpos");
+        game_setup_print_prompt();
         return 2;
     }
-    if (cmd->argc == 6 && !parse_int_token_local(cmd->argv[5], &seed_override)) {
-        game_log_line("game start: invalid seed");
-        return 2;
-    }
-    return game_launch_match(trains, seed_override);
+
+    g_setup_pending_role = g_setup_step;
+    ui_set_cmd_prompt_label("wait> ");
+    game_setup_log_role_line(role, train_num, "finding position");
+    return 2;
 }
 
 void game_init(void) {
@@ -941,13 +986,13 @@ int game_handle_command(const train_command_t *cmd) {
         return game_handle_pick(cmd);
     }
 
-    if (cmd->type != TRAIN_CMD_GAME) {
-        return 2;
-    }
-
-    /* During interactive setup, "game <num>" provides the next train number */
+    /* During interactive setup, bare train numbers are accepted */
     if (g_game_state == GAME_STATE_SETUP) {
         return game_handle_setup_input(cmd);
+    }
+
+    if (cmd->type != TRAIN_CMD_GAME) {
+        return 2;
     }
 
     /* "game" with no subcommand → interactive setup */
@@ -956,13 +1001,8 @@ int game_handle_command(const train_command_t *cmd) {
     }
 
     if (cmd->argc < 2) {
-        game_log_line("Usage: game [start <human> <ai> <neutral> [seed] | stop | status]");
+        game_log_line("Usage: game [stop | status]");
         return 2;
-    }
-
-    if (cmd->argv[1][0] == 's' && cmd->argv[1][1] == 't' && cmd->argv[1][2] == 'a' &&
-        cmd->argv[1][3] == 'r' && cmd->argv[1][4] == 't' && cmd->argv[1][5] == '\0') {
-        return game_start_match(cmd);
     }
 
     if (cmd->argv[1][0] == 's' && cmd->argv[1][1] == 't' && cmd->argv[1][2] == 'o' &&
@@ -998,7 +1038,32 @@ void game_on_tick(uint64_t now_us) {
     (void)now_us;
 
     if (g_game_state == GAME_STATE_OFF) return;
-    if (g_game_state == GAME_STATE_SETUP) return;
+
+    if (g_game_state == GAME_STATE_SETUP) {
+        if (g_setup_pending_role >= 0 && g_setup_pending_role < GAME_ROLES) {
+            int train_num = g_setup_trains[g_setup_pending_role];
+
+            if (!game_train_is_position_confirmed(train_num)) return;
+            if (!game_train_is_known_stopped(train_num)) return;
+
+            game_setup_log_role_line((game_role_t)g_setup_pending_role,
+                                     train_num,
+                                     "ready");
+            g_setup_step = g_setup_pending_role + 1;
+            g_setup_pending_role = -1;
+
+            if (g_setup_step < GAME_ROLES) {
+                ui_set_cmd_prompt_label("game> ");
+                game_setup_print_prompt();
+                ui_cmd_newprompt();
+                ui_mark_position_dirty();
+                return;
+            }
+
+            (void)game_launch_match(g_setup_trains, -1);
+        }
+        return;
+    }
 
     game_consume_events();
 

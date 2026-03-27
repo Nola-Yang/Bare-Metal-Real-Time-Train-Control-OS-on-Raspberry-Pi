@@ -47,33 +47,17 @@ static int demo_handle_runtime_command(const train_command_t *cmd) {
     }
 
     if (cmd->type == TRAIN_CMD_FINDPOS) {
-        argc = cmd->argc + 1;
-        local_argv[0][0] = 'd';
-        local_argv[0][1] = 'e';
-        local_argv[0][2] = 'm';
-        local_argv[0][3] = 'o';
-        local_argv[0][4] = '\0';
-        local_argv[1][0] = 'l';
-        local_argv[1][1] = 'o';
-        local_argv[1][2] = 'c';
-        local_argv[1][3] = 'a';
-        local_argv[1][4] = 't';
-        local_argv[1][5] = 'e';
-        local_argv[1][6] = '\0';
-        argv[0] = local_argv[0];
-        argv[1] = local_argv[1];
-
-        for (int i = 1; i < cmd->argc; i++) {
-            int dst = i + 1;
-            int j = 0;
-            while (cmd->argv[i][j] && j + 1 < TRAIN_CMD_TOKEN_MAX) {
-                local_argv[dst][j] = cmd->argv[i][j];
-                j++;
-            }
-            local_argv[dst][j] = '\0';
-            argv[dst] = local_argv[dst];
+        int trains[TRAIN_CMD_MAX_ARGS];
+        int train_count = 0;
+        for (int i = 1; i < cmd->argc && train_count < TRAIN_CMD_MAX_ARGS; i++) {
+            int v = 0;
+            const char *p = cmd->argv[i];
+            while (*p >= '0' && *p <= '9') { v = v * 10 + (*p - '0'); p++; }
+            trains[train_count++] = v;
         }
-        return demo_handle_command(argc, argv);
+        (void)argc;
+        (void)local_argv;
+        return demo_start_locate(train_count, trains);
     }
 
     return 2;

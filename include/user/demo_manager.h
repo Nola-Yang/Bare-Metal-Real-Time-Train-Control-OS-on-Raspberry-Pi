@@ -20,6 +20,9 @@ void demo_init(void);
  * Returns 1 on success/no extra output, 2 on usage or command output. */
 int demo_handle_command(int argc, char *argv[]);
 
+/* Start a locate (findpos) session for the given trains. */
+int demo_start_locate(int train_count, const int *trains);
+
 /* Periodic scheduler hook (10 ms). */
 void demo_on_tick(uint64_t now_us);
 
