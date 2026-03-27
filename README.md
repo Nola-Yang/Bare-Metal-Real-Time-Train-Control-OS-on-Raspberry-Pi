@@ -93,7 +93,7 @@ Enter commands at the prompt:
 | `demo seed <u32>` | Set the RNG seed used for random route selection |
 | `demo tune trip <mm>` | Set minimum trip distance (mm) for random route selection |
 | `game` | Enter interactive game setup; each setup input is a bare train number and triggers one `findpos` before the next prompt |
-| `pick <sensor>` | Choose the human player's target during game mode |
+| `<sensor>` | During game round, enter a bare sensor name (e.g. `A3`) to choose the human player's target |
 | `game stop` | Stop the current game |
 | `game status` | Show current game state and scores |
 
@@ -108,8 +108,8 @@ Enter commands at the prompt:
 6. Enter the AI train number as a bare number only, for example `13`.
 7. The system again runs `findpos` for that train, waits for it to finish, then prompts for the **neutral train number**.
 8. Enter the neutral train number as a bare number only, for example `14`.
-9. After the neutral train has also finished its setup `findpos`, the game enters Round 1 and waits for `pick <sensor>`.
-10. During each round, the human player types `pick <sensor>` to choose a destination.
+9. After the neutral train has also finished its setup `findpos`, the game enters Round 1 and waits for a sensor input.
+10. During each round, the human player types a bare sensor name (e.g. `A3`) to choose a destination.
 11. To stop a running game gracefully, type `game stop`. To abort immediately, type `game stop force`.
 
 > Note: while in game setup mode, train inputs are bare numbers only and other commands are blocked. Type `q` to quit without launching.

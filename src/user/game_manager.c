@@ -514,7 +514,7 @@ static void game_begin_wait_pick(void) {
     }
 
     g_game_state = GAME_STATE_WAIT_PICK;
-    game_set_hint("Use pick <sensor>");
+    game_set_hint("Enter sensor name");
     game_set_result("-");
     ui_set_cmd_prompt_label("pick> ");
     ui_cmd_newprompt();
@@ -984,6 +984,19 @@ int game_handle_command(const train_command_t *cmd) {
 
     if (cmd->type == TRAIN_CMD_PICK) {
         return game_handle_pick(cmd);
+    }
+
+    /* During wait-pick, bare sensor name accepted */
+    if (g_game_state == GAME_STATE_WAIT_PICK && cmd->type == TRAIN_CMD_UNKNOWN && cmd->argc == 1) {
+        track_node *target = track_find_node(cmd->argv[0]);
+        if (!target) {
+            game_log_line("pick: unknown sensor");
+            return 2;
+        }
+        train_command_t pick_cmd = *cmd;
+        pick_cmd.type = TRAIN_CMD_PICK;
+        pick_cmd.target_idx = (int)(target - g_track);
+        return game_handle_pick(&pick_cmd);
     }
 
     /* During interactive setup, bare train numbers are accepted */

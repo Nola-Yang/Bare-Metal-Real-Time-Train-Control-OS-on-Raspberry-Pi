@@ -228,9 +228,10 @@ static int runtime_handle_command(const train_command_t *cmd,
         case TRAIN_CMD_QUIT:
         case TRAIN_CMD_GAME:
         case TRAIN_CMD_PICK:
+        case TRAIN_CMD_UNKNOWN:
             break;
         default:
-            ui_cmd_puts("game mode active: use `pick` or `game ...` only\r\n");
+            ui_cmd_puts("game mode active: enter a sensor name\r\n");
             return 2;
         }
     }
@@ -240,7 +241,7 @@ static int runtime_handle_command(const train_command_t *cmd,
         return 2;
     }
     if (cmd->type == TRAIN_CMD_UNKNOWN) {
-        if (game_is_setup_active()) {
+        if (game_is_setup_active() || game_is_active()) {
             return GameServerHandleCommand(game_tid, cmd);
         }
         runtime_print_parse_error(cmd);
