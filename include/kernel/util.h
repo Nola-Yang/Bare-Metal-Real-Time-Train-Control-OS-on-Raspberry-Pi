@@ -20,6 +20,10 @@ char* buf_append_char(char *p, char c);
 char* buf_append_int(char *p, int value);
 char* buf_append_uint(char *p, unsigned int value);
 char* buf_get_temp(void);
+char* buf_append_cap(char *p, char *end, const char *str);
+char* buf_append_char_cap(char *p, char *end, char c);
+char* buf_append_int_cap(char *p, char *end, int value);
+char* buf_append_uint_cap(char *p, char *end, unsigned int value);
 
 // Clock rendering
 void clock_render(uint64_t elapsed_us, char *buf);

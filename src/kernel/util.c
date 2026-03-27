@@ -148,6 +148,34 @@ char* buf_get_temp(void) {
     return temp_buf;
 }
 
+char* buf_append_cap(char *p, char *end, const char *str) {
+    if (!p || !end || !str) return p;
+    while (*str && p < end) {
+        *p++ = *str++;
+    }
+    return p;
+}
+
+char* buf_append_char_cap(char *p, char *end, char c) {
+    if (!p || !end) return p;
+    if (p < end) {
+        *p++ = c;
+    }
+    return p;
+}
+
+char* buf_append_int_cap(char *p, char *end, int value) {
+    char num_buf[12];
+    i2a(value, num_buf);
+    return buf_append_cap(p, end, num_buf);
+}
+
+char* buf_append_uint_cap(char *p, char *end, unsigned int value) {
+    char num_buf[12];
+    ui2a(value, 10, num_buf);
+    return buf_append_cap(p, end, num_buf);
+}
+
 // Render elapsed microseconds as mm:ss.t string
 void clock_render(uint64_t elapsed_us, char *buf) {
     uint64_t elapsed_tenths = elapsed_us / 100000;

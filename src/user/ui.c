@@ -140,15 +140,16 @@ void ui_update_clock(uint64_t start_us, uint64_t now) {
     }
 
     if (has_changes) {
-        char *temp_buf = buf_get_temp();
+        char temp_buf[64];
         char *p = temp_buf;
+        char *end = temp_buf + sizeof(temp_buf) - 1;
 
         for (int i = 0; i < 7; i++) {
             if (clock_buf[i] != last_clock_buf[i]) {
-                p = buf_append(p, "\033[5;");
-                p = buf_append_int(p, 7 + i);
-                p = buf_append_char(p, 'H');
-                p = buf_append_char(p, clock_buf[i]);
+                p = buf_append_cap(p, end, "\033[5;");
+                p = buf_append_int_cap(p, end, 7 + i);
+                p = buf_append_char_cap(p, end, 'H');
+                p = buf_append_char_cap(p, end, clock_buf[i]);
                 last_clock_buf[i] = clock_buf[i];
             }
         }
@@ -168,12 +169,13 @@ void ui_update_idle(int percent) {
         return;
     }
 
-    char *temp_buf = buf_get_temp();
+    char temp_buf[32];
     char *p = temp_buf;
+    char *end = temp_buf + sizeof(temp_buf) - 1;
 
-    p = buf_append(p, "\033[6;1HIdle: ");
-    p = buf_append_int(p, percent);
-    p = buf_append(p, "%\033[K");
+    p = buf_append_cap(p, end, "\033[6;1HIdle: ");
+    p = buf_append_int_cap(p, end, percent);
+    p = buf_append_cap(p, end, "%\033[K");
     *p = '\0';
 
     ui_puts(temp_buf);

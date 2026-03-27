@@ -130,33 +130,35 @@ static void game_log_line(const char *text) {
 }
 
 static void game_log_targets(void) {
-    char *buf = buf_get_temp();
+    char buf[96];
     char *p = buf;
+    char *end = buf + sizeof(buf) - 1;
     game_role_slot_t *human = &g_slots[GAME_ROLE_HUMAN];
     game_role_slot_t *ai = &g_slots[GAME_ROLE_AI];
     game_role_slot_t *neutral = &g_slots[GAME_ROLE_NEUTRAL];
 
-    p = buf_append(p, "game: reveal H=");
-    p = buf_append(p, human->target && human->target->name ? human->target->name : "-");
-    p = buf_append(p, " AI=");
-    p = buf_append(p, ai->target && ai->target->name ? ai->target->name : "-");
-    p = buf_append(p, " N=");
-    p = buf_append(p, neutral->target && neutral->target->name ? neutral->target->name : "-");
+    p = buf_append_cap(p, end, "game: reveal H=");
+    p = buf_append_cap(p, end, human->target && human->target->name ? human->target->name : "-");
+    p = buf_append_cap(p, end, " AI=");
+    p = buf_append_cap(p, end, ai->target && ai->target->name ? ai->target->name : "-");
+    p = buf_append_cap(p, end, " N=");
+    p = buf_append_cap(p, end, neutral->target && neutral->target->name ? neutral->target->name : "-");
     *p = '\0';
     game_log_line(buf);
 }
 
 static void game_log_round_result(void) {
-    char *buf = buf_get_temp();
+    char buf[64];
     char *p = buf;
+    char *end = buf + sizeof(buf) - 1;
 
-    p = buf_append(p, "game: round ");
-    p = buf_append_int(p, g_round_index + 1);
-    p = buf_append(p, " end H=");
-    p = buf_append_int(p, g_score_half[GAME_ROLE_HUMAN]);
-    p = buf_append(p, "/2 AI=");
-    p = buf_append_int(p, g_score_half[GAME_ROLE_AI]);
-    p = buf_append(p, "/2");
+    p = buf_append_cap(p, end, "game: round ");
+    p = buf_append_int_cap(p, end, g_round_index + 1);
+    p = buf_append_cap(p, end, " end H=");
+    p = buf_append_int_cap(p, end, g_score_half[GAME_ROLE_HUMAN]);
+    p = buf_append_cap(p, end, "/2 AI=");
+    p = buf_append_int_cap(p, end, g_score_half[GAME_ROLE_AI]);
+    p = buf_append_cap(p, end, "/2");
     *p = '\0';
     game_log_line(buf);
 }
@@ -643,20 +645,19 @@ static void game_consume_events(void) {
 }
 
 static void game_try_redirect_neutral(track_node *standby, const char *reason) {
-    char *buf;
-    char *p;
+    char buf[96];
+    char *p = buf;
+    char *end = buf + sizeof(buf) - 1;
 
     if (!standby) return;
     if (!game_dispatch_target(GAME_ROLE_NEUTRAL, standby, 1)) return;
 
-    buf = buf_get_temp();
-    p = buf;
-    p = buf_append(p, "game: neutral standby ");
-    p = buf_append(p, standby->name ? standby->name : "-");
+    p = buf_append_cap(p, end, "game: neutral standby ");
+    p = buf_append_cap(p, end, standby->name ? standby->name : "-");
     if (reason && reason[0]) {
-        p = buf_append(p, " (");
-        p = buf_append(p, reason);
-        p = buf_append(p, ")");
+        p = buf_append_cap(p, end, " (");
+        p = buf_append_cap(p, end, reason);
+        p = buf_append_cap(p, end, ")");
     }
     *p = '\0';
     game_log_line(buf);
@@ -776,20 +777,21 @@ static int game_handle_pick(const train_command_t *cmd) {
 }
 
 static int game_print_status(void) {
-    char *buf = buf_get_temp();
+    char buf[80];
     char *p = buf;
+    char *end = buf + sizeof(buf) - 1;
 
-    p = buf_append(p, "game: state=");
-    p = buf_append(p, game_state_name(g_game_state));
+    p = buf_append_cap(p, end, "game: state=");
+    p = buf_append_cap(p, end, game_state_name(g_game_state));
     if (g_round_index >= 0) {
-        p = buf_append(p, " round=");
-        p = buf_append_int(p, g_round_index + 1);
+        p = buf_append_cap(p, end, " round=");
+        p = buf_append_int_cap(p, end, g_round_index + 1);
     }
-    p = buf_append(p, " H=");
-    p = buf_append_int(p, g_score_half[GAME_ROLE_HUMAN]);
-    p = buf_append(p, "/2 AI=");
-    p = buf_append_int(p, g_score_half[GAME_ROLE_AI]);
-    p = buf_append(p, "/2");
+    p = buf_append_cap(p, end, " H=");
+    p = buf_append_int_cap(p, end, g_score_half[GAME_ROLE_HUMAN]);
+    p = buf_append_cap(p, end, "/2 AI=");
+    p = buf_append_int_cap(p, end, g_score_half[GAME_ROLE_AI]);
+    p = buf_append_cap(p, end, "/2");
     *p = '\0';
     game_log_line(buf);
     return 2;
@@ -805,16 +807,17 @@ static void game_setup_print_prompt(void) {
 }
 
 static void game_setup_log_role_line(game_role_t role, int train_num, const char *suffix) {
-    char *buf = buf_get_temp();
+    char buf[80];
     char *p = buf;
+    char *end = buf + sizeof(buf) - 1;
 
-    p = buf_append(p, "game setup: ");
-    p = buf_append(p, game_role_name(role));
-    p = buf_append(p, " train ");
-    p = buf_append_int(p, train_num);
+    p = buf_append_cap(p, end, "game setup: ");
+    p = buf_append_cap(p, end, game_role_name(role));
+    p = buf_append_cap(p, end, " train ");
+    p = buf_append_int_cap(p, end, train_num);
     if (suffix && suffix[0]) {
-        p = buf_append(p, " ");
-        p = buf_append(p, suffix);
+        p = buf_append_cap(p, end, " ");
+        p = buf_append_cap(p, end, suffix);
     }
     *p = '\0';
     game_log_line(buf);

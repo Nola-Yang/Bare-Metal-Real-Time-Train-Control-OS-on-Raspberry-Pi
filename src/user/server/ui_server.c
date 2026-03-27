@@ -204,15 +204,16 @@ void ui_server_task(void) {
                 if (owner_tid != tid || owner_mode != UI_SERVER_BATCH_COMMAND) {
                     reply.status = -1;
                 } else {
-                    char *buf = buf_get_temp();
+                    char buf[64];
                     char *p = buf;
-                    p = buf_append(p, "\r\033[2K");
+                    char *end = buf + sizeof(buf) - 1;
+                    p = buf_append_cap(p, end, "\r\033[2K");
                     if (req.len > 0) {
-                        for (int i = 0; i < req.len; i++) {
+                        for (int i = 0; i < req.len && p < end; i++) {
                             *p++ = req.str[i];
                         }
                     } else {
-                        p = buf_append(p, "cmd> ");
+                        p = buf_append_cap(p, end, "cmd> ");
                     }
                     *p = '\0';
                     term_puts_chunked(term_tid, buf, (int)(p - buf));
@@ -225,21 +226,22 @@ void ui_server_task(void) {
                 if (owner_tid != tid || owner_mode != UI_SERVER_BATCH_COMMAND) {
                     reply.status = -1;
                 } else {
-                    char *buf = buf_get_temp();
+                    char buf[64];
                     char *p = buf;
-                    p = buf_append(p, "\033[");
-                    p = buf_append_int(p, UI_CMD_SCROLL_TOP);
-                    p = buf_append(p, ";");
-                    p = buf_append_int(p, UI_CMD_SCROLL_BOTTOM);
-                    p = buf_append(p, "r\033[");
-                    p = buf_append_int(p, UI_CMD_SCROLL_TOP);
-                    p = buf_append(p, ";1H");
+                    char *end = buf + sizeof(buf) - 1;
+                    p = buf_append_cap(p, end, "\033[");
+                    p = buf_append_int_cap(p, end, UI_CMD_SCROLL_TOP);
+                    p = buf_append_cap(p, end, ";");
+                    p = buf_append_int_cap(p, end, UI_CMD_SCROLL_BOTTOM);
+                    p = buf_append_cap(p, end, "r\033[");
+                    p = buf_append_int_cap(p, end, UI_CMD_SCROLL_TOP);
+                    p = buf_append_cap(p, end, ";1H");
                     if (req.len > 0) {
-                        for (int i = 0; i < req.len; i++) {
+                        for (int i = 0; i < req.len && p < end; i++) {
                             *p++ = req.str[i];
                         }
                     } else {
-                        p = buf_append(p, "cmd> ");
+                        p = buf_append_cap(p, end, "cmd> ");
                     }
                     *p = '\0';
 
