@@ -1,7 +1,7 @@
 #include "train_tracking/position_priv.h"
 #include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
-#include "traffic_manager_internal.h"
+#include "../traffic/traffic_manager_internal.h"
 #include "track.h"
 #include "train_tracking/track_data.h"
 #include "kassert.h"

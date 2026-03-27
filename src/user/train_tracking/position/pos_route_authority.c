@@ -3,7 +3,7 @@
 #include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
 #include "train_tracking/speed_table.h"
-#include "traffic_window_internal.h"
+#include "../traffic/traffic_window_internal.h"
 #include "track.h"
 #include "ui.h"
 #include <stddef.h>
