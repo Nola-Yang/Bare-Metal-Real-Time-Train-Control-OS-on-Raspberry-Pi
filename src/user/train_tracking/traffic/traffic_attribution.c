@@ -73,16 +73,21 @@ static int is_bootstrap_state(train_route_state_t st) {
             st == TRAIN_STATE_FIND_POS);
 }
 
-static int attr_is_bootstrap_fallback_candidate(const train_pos_t *pos) {
+static int attr_is_immediate_bootstrap_candidate(const train_pos_t *pos) {
     if (!should_consider_for_attr(pos)) return 0;
     if (!is_bootstrap_state(pos->route_state)) return 0;
 
-    /* Dead-track recovery re-enters FIND_POS while preserving cur_sensor as a
-     * stale reservation anchor. Those trains still need the unmatched-hit
-     * bootstrap fallback to claim their first real sensor after relaunch. */
-    if (pos->route_state == TRAIN_STATE_FIND_POS) return 1;
-
     return pos->cur_sensor == NULL;
+}
+
+static int attr_is_pair_bootstrap_candidate(const train_pos_t *pos) {
+    if (!should_consider_for_attr(pos)) return 0;
+
+    /* Dead-track recovery re-enters FIND_POS while preserving cur_sensor as a
+     * stale reservation anchor. Require two adjacent unmatched sensors before
+     * handing that bootstrap hit stream to the train. */
+    return pos->route_state == TRAIN_STATE_FIND_POS &&
+           pos->cur_sensor != NULL;
 }
 
 static traffic_attr_result_t traffic_attr_null_result(void) {
@@ -407,24 +412,30 @@ static train_pos_t *attr_choose_ambiguous_owner(const attr_ranked_candidate_t *b
 static traffic_attr_result_t attr_handle_unmatched_hit(track_node *hit,
                                                        uint64_t time_us) {
     traffic_attr_result_t result = traffic_attr_null_result();
-    train_pos_t *bootstrap = NULL;
-    int bootstrap_count = 0;
+    train_pos_t *immediate_bootstrap = NULL;
+    int immediate_bootstrap_count = 0;
+    train_pos_t *pair_bootstrap = NULL;
+    int pair_bootstrap_count = 0;
 
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         train_pos_t *pos = &g_pos[i];
-        if (!attr_is_bootstrap_fallback_candidate(pos)) continue;
-        bootstrap = pos;
-        bootstrap_count++;
-        if (bootstrap_count > 1) break;
+        if (attr_is_immediate_bootstrap_candidate(pos)) {
+            immediate_bootstrap = pos;
+            immediate_bootstrap_count++;
+        } else if (attr_is_pair_bootstrap_candidate(pos)) {
+            pair_bootstrap = pos;
+            pair_bootstrap_count++;
+        }
     }
 
-    if (bootstrap_count == 1 && bootstrap != NULL) {
+    if (immediate_bootstrap_count == 1 && pair_bootstrap_count == 0 &&
+        immediate_bootstrap != NULL) {
         attr_confirm_pending_spurious();
-        result.owner = bootstrap;
+        result.owner = immediate_bootstrap;
         return result;
     }
 
-    if (bootstrap_count > 1) {
+    if (immediate_bootstrap_count > 1) {
         attr_confirm_pending_spurious();
         attr_mark_ambiguous(hit, time_us);
         return result;
@@ -443,6 +454,18 @@ static traffic_attr_result_t attr_handle_unmatched_hit(track_node *hit,
                 result.owner = rescued;
                 result.rescued_from_pair = 1;
                 result.revive_dead_track = revive_dead_track;
+                return result;
+            }
+
+            if (pair_bootstrap_count == 1 && pair_bootstrap != NULL) {
+                attr_clear_pending_spurious();
+                result.owner = pair_bootstrap;
+                return result;
+            }
+
+            if (pair_bootstrap_count > 1) {
+                attr_confirm_pending_spurious();
+                attr_mark_ambiguous(hit, time_us);
                 return result;
             }
         }
