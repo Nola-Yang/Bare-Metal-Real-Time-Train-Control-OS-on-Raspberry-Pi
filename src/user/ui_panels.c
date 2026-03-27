@@ -342,7 +342,7 @@ static char *ui_append_deadlock_warn(char *p, const pos_deadlock_notice_t *notic
     if (!notice || !notice->active) return p;
 
     p = buf_append(p, "deadlock ");
-    for (int i = 0; i < notice->cycle_count; i++) {
+    for (int i = 0; i < notice->cycle_count && i < DEADLOCK_MAX_TRAINS; i++) {
         if (i > 0) p = buf_append(p, ",");
         p = buf_append_int(p, notice->cycle_trains[i]);
     }

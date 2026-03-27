@@ -8,6 +8,14 @@
 /* Build the branch-node index cache. */
 void route_init(void);
 
+/* Return canonical sensors sorted by precomputed direct distance from start. */
+int route_fill_sorted_direct_sensor_candidates(track_node *start,
+                                               uint16_t *out_sensor_indices,
+                                               int max_out);
+
+/* Precomputed direct shortest-path distance from start to sensor. */
+int32_t route_direct_sensor_dist(track_node *start, track_node *sensor);
+
 /* ===== Distance / prediction ===== */
 
 /* Follow the track from cur forward until reaching to.

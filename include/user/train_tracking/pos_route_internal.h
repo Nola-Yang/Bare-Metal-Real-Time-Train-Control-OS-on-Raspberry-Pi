@@ -17,7 +17,20 @@ typedef struct {
     uint8_t      blocker_mask;
 } pos_route_eval_t;
 
+typedef enum {
+    POS_DEADLOCK_PICK_NONE = 0,
+    POS_DEADLOCK_PICK_READY_UNLOCK = 1,
+    POS_DEADLOCK_PICK_READY_RELOCATE = 2,
+    POS_DEADLOCK_PICK_FORCE_MOVE = 3,
+} pos_deadlock_pick_kind_t;
+
 track_node *pos_route_current_goal(train_pos_t *pos);
+
+void pos_route_fill_origins(const train_pos_t *pos, track_node *origins[2]);
+
+void pos_route_build_constraints_for_train(int requester_train,
+                                           uint8_t blocked[TRACK_MAX],
+                                           char fixed_sw_dirs[TRACK_MAX]);
 
 uint8_t pos_route_blocker_mask_from_plan(int requester_train,
                                          const route_plan_t *plan);

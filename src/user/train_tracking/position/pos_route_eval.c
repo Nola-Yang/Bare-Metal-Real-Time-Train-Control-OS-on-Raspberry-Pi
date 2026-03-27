@@ -105,6 +105,31 @@ static int pos_route_use_cur_reverse_start(const train_pos_t *pos) {
            pos->stopped_on_target_hit;
 }
 
+void pos_route_fill_origins(const train_pos_t *pos, track_node *origins[2]) {
+    track_node *cur_sensor_orig;
+    track_node *plan_start;
+    track_node *reverse_plan_start;
+    uint64_t dt_ignored = 0;
+
+    if (!origins) return;
+    origins[0] = NULL;
+    origins[1] = NULL;
+    if (!pos || !pos->cur_sensor) return;
+
+    cur_sensor_orig = pos->cur_sensor;
+    plan_start = pos->pred.next_sensor;
+    if (!plan_start) {
+        plan_start = predict_next_sensor((train_pos_t *)pos, pos->cur_sensor,
+                                         &dt_ignored);
+    }
+    reverse_plan_start = pos_route_use_cur_reverse_start(pos)
+                         ? cur_sensor_orig->reverse
+                         : (plan_start ? plan_start->reverse
+                                       : cur_sensor_orig->reverse);
+    origins[0] = plan_start;
+    origins[1] = reverse_plan_start;
+}
+
 static void pos_build_fixed_switch_dirs(int requester_train,
                                         char fixed_sw_dirs[TRACK_MAX]) {
     for (int i = 0; i < TRACK_MAX; i++) fixed_sw_dirs[i] = '?';
@@ -126,6 +151,13 @@ static void pos_build_fixed_switch_dirs(int requester_train,
             fixed_sw_dirs[i] = current_dir;
         }
     }
+}
+
+void pos_route_build_constraints_for_train(int requester_train,
+                                           uint8_t blocked[TRACK_MAX],
+                                           char fixed_sw_dirs[TRACK_MAX]) {
+    if (blocked) traffic_build_constraints(requester_train, blocked);
+    if (fixed_sw_dirs) pos_build_fixed_switch_dirs(requester_train, fixed_sw_dirs);
 }
 
 static int pos_select_best_route_for_origins(track_node *origins[2],
@@ -182,9 +214,6 @@ static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *po
                                                                  pos_route_eval_t *out) {
     route_plan_t *rp = &g_pos_try_rp;
     route_plan_t *best_blocked_plan = &g_pos_try_best_blocked_plan;
-    track_node *cur_sensor_orig;
-    track_node *plan_start;
-    track_node *reverse_plan_start;
     track_node *origins[2];
     uint8_t *blocked = g_pos_try_blocked;
     char *fixed_sw_dirs = g_pos_try_fixed_sw_dirs;
@@ -203,24 +232,13 @@ static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *po
     }
     if (!pos || !pos->cur_sensor || !user_target) return POS_ROUTE_EVAL_UNREACHABLE;
 
-    cur_sensor_orig = pos->cur_sensor;
-    plan_start = pos->pred.next_sensor;
-    if (!plan_start) {
-        uint64_t dt_ignored = 0;
-        plan_start = predict_next_sensor(pos, pos->cur_sensor, &dt_ignored);
-    }
-    reverse_plan_start = pos_route_use_cur_reverse_start(pos)
-                         ? cur_sensor_orig->reverse
-                         : (plan_start ? plan_start->reverse : cur_sensor_orig->reverse);
-    origins[0] = plan_start;
-    origins[1] = reverse_plan_start;
+    pos_route_fill_origins(pos, origins);
 
     d_stop    = pos_route_authority_stop_dist_mm(pos);
     threshold = pos_route_authority_min_mm(pos);
     if (d_stop <= 0 || threshold <= 0) return POS_ROUTE_EVAL_UNREACHABLE;
 
-    traffic_build_constraints(pos->train_num, blocked);
-    pos_build_fixed_switch_dirs(pos->train_num, fixed_sw_dirs);
+    pos_route_build_constraints_for_train(pos->train_num, blocked, fixed_sw_dirs);
 
     if (pos_select_best_route_for_origins(origins, user_target, d_stop, threshold,
                                           blocked, fixed_sw_dirs, rp,

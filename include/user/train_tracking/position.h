@@ -7,6 +7,7 @@
 
 /* Maximum number of trains tracked simultaneously */
 #define MAX_POS_TRAINS 5
+#define DEADLOCK_MAX_TRAINS 3
 
 /* Physical train body length (mm). */
 #define TRAIN_BODY_MM 200
@@ -100,7 +101,7 @@ typedef struct {
     uint8_t    active;
     uint8_t    unresolved;
     int        victim_train;
-    int        cycle_trains[6];
+    int        cycle_trains[DEADLOCK_MAX_TRAINS];
     int        cycle_count;
     track_node *blocked_target;
     track_node *yield_target;

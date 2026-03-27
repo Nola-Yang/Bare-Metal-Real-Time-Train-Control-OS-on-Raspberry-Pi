@@ -112,7 +112,7 @@ void pos_replan_on_tick(uint64_t now_us) {
     int waiter_count = 0;
     uint32_t generation = traffic_get_change_generation();
 
-    pos_deadlock_refresh_notice_state();
+    pos_deadlock_refresh_notice_state(now_us);
 
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         train_pos_t *pos = &g_pos[i];

@@ -9,6 +9,19 @@
 /* Indices of all NODE_BRANCH nodes in g_track[]. */
 static int g_branch_idx[TRACK_MAX];
 static int g_branch_count = 0;
+static uint16_t g_canonical_sensor_idx[TRACK_MAX];
+static int g_canonical_sensor_count = 0;
+static uint16_t g_sorted_direct_sensor_idx[TRACK_MAX][TRACK_MAX];
+static int g_sorted_direct_sensor_count[TRACK_MAX];
+static int32_t g_direct_dist_matrix[TRACK_MAX][TRACK_MAX];
+
+static int route_is_canonical_sensor(const track_node *node) {
+    if (!node || node->type != NODE_SENSOR) return 0;
+    if (!node->reverse || node->reverse->type != NODE_SENSOR) return 1;
+    return node < node->reverse;
+}
+
+static void route_precompute_direct_sensor_cache(void);
 
 void route_init(void) {
     g_branch_count = 0;
@@ -16,6 +29,7 @@ void route_init(void) {
         if (g_track[i].type == NODE_BRANCH)
             g_branch_idx[g_branch_count++] = i;
     }
+    route_precompute_direct_sensor_cache();
 }
 
 /* ===== Dijkstra shortest-path tables ===== */
@@ -157,6 +171,89 @@ static void dijk_run(int32_t *dist, int8_t *done, int16_t *prev,
             }
         }
     }
+}
+
+static void route_precompute_direct_sensor_cache(void) {
+    g_canonical_sensor_count = 0;
+    for (int i = 0; i < TRACK_MAX; i++) {
+        if (route_is_canonical_sensor(&g_track[i])) {
+            g_canonical_sensor_idx[g_canonical_sensor_count++] = (uint16_t)i;
+        }
+    }
+
+    for (int start_idx = 0; start_idx < TRACK_MAX; start_idx++) {
+        int count = 0;
+
+        dijk_run_from(fwd_dist, fwd_done, fwd_prev, fwd_sw_num, fwd_sw_dir,
+                      NULL, NULL, &g_track[start_idx]);
+        for (int i = 0; i < TRACK_MAX; i++) {
+            g_direct_dist_matrix[start_idx][i] = fwd_dist[i];
+        }
+
+        for (int ci = 0; ci < g_canonical_sensor_count; ci++) {
+            uint16_t sensor_idx = g_canonical_sensor_idx[ci];
+            int32_t dist = g_direct_dist_matrix[start_idx][sensor_idx];
+            int insert_at = count;
+
+            if (dist == DIJK_INF) continue;
+
+            while (insert_at > 0) {
+                uint16_t prev_idx =
+                    g_sorted_direct_sensor_idx[start_idx][insert_at - 1];
+                int32_t prev_dist = g_direct_dist_matrix[start_idx][prev_idx];
+
+                if (prev_dist < dist ||
+                    (prev_dist == dist && prev_idx < sensor_idx)) {
+                    break;
+                }
+                g_sorted_direct_sensor_idx[start_idx][insert_at] =
+                    g_sorted_direct_sensor_idx[start_idx][insert_at - 1];
+                insert_at--;
+            }
+
+            g_sorted_direct_sensor_idx[start_idx][insert_at] = sensor_idx;
+            count++;
+        }
+
+        g_sorted_direct_sensor_count[start_idx] = count;
+    }
+}
+
+int route_fill_sorted_direct_sensor_candidates(track_node *start,
+                                               uint16_t *out_sensor_indices,
+                                               int max_out) {
+    int start_idx;
+    int count;
+
+    if (!start) return 0;
+
+    start_idx = (int)(start - g_track);
+    if (start_idx < 0 || start_idx >= TRACK_MAX) return 0;
+
+    count = g_sorted_direct_sensor_count[start_idx];
+    if (max_out < 0) max_out = 0;
+    for (int i = 0; out_sensor_indices && i < count && i < max_out; i++) {
+        out_sensor_indices[i] = g_sorted_direct_sensor_idx[start_idx][i];
+    }
+    return count;
+}
+
+int32_t route_direct_sensor_dist(track_node *start, track_node *sensor) {
+    int start_idx;
+    int sensor_idx;
+    int32_t dist;
+
+    if (!start || !sensor) return -1;
+
+    start_idx = (int)(start - g_track);
+    sensor_idx = (int)(sensor - g_track);
+    if (start_idx < 0 || start_idx >= TRACK_MAX ||
+        sensor_idx < 0 || sensor_idx >= TRACK_MAX) {
+        return -1;
+    }
+
+    dist = g_direct_dist_matrix[start_idx][sensor_idx];
+    return (dist == DIJK_INF) ? -1 : dist;
 }
 
 /* Trace shortest path node indices from Dijkstra prev table to target.

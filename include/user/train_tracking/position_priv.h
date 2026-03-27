@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "position.h"
+#include "pos_route_internal.h"
 #include "speed_table.h"
 
 /* ===== Shared internal state ===== */
@@ -111,7 +112,9 @@ void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us);
 /* Pick the nearest safe deadlock-yield sensor target for the current stopped train.
  * Returns 1 and stores the chosen sensor in *out_target, 0 if none is available. */
 int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
-                                   track_node **out_target, uint8_t *out_unblocked_mask);
+                                   track_node **out_target,
+                                   uint8_t *out_unblocked_mask,
+                                   pos_deadlock_pick_kind_t *out_kind);
 
 /* Compute authority-window parameters from the train's braking model. */
 int32_t pos_route_authority_stop_dist_mm(const train_pos_t *pos);
@@ -198,7 +201,7 @@ void pos_clear_deadlock_recover(train_pos_t *pos);
 
 /* Try to resume a yielded deadlock victim once the blocked peers have moved. */
 int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos);
-void pos_deadlock_refresh_notice_state(void);
+void pos_deadlock_refresh_notice_state(uint64_t now_us);
 int pos_deadlock_maybe_reroute_waiter(train_pos_t *pos, uint64_t now_us);
 
 /* Resume the stored second leg of a mid-route reversal after the stop completes. */

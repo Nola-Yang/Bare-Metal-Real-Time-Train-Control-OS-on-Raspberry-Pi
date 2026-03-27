@@ -23,7 +23,9 @@ void pos_clear_deadlock_notice(void) {
     g_deadlock_notice.unresolved = 0;
     g_deadlock_notice.victim_train = -1;
     g_deadlock_notice.cycle_count = 0;
-    for (int i = 0; i < 6; i++) g_deadlock_notice.cycle_trains[i] = -1;
+    for (int i = 0; i < DEADLOCK_MAX_TRAINS; i++) {
+        g_deadlock_notice.cycle_trains[i] = -1;
+    }
     g_deadlock_notice.blocked_target = NULL;
     g_deadlock_notice.yield_target = NULL;
     g_deadlock_notice.resume_target = NULL;
