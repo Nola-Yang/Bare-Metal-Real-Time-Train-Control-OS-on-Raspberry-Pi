@@ -16,6 +16,8 @@
 /* Offsets at end of train with undershoot of 2 cm. */
 static uint32_t Train_Forward_Stop_Offset = 64;
 static uint32_t Train_Reverse_Stop_Offset = 176;
+static uint32_t Train_Forward_to_Rev_Stop_Offset = 180;
+static uint32_t Train_Rev_to_Forward_Stop_Offset = 180;
 
 void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us) {
     if (!pos || !pos->is_accelerating) return;
@@ -295,10 +297,14 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
         int32_t d_early = d_brake + (int32_t)((int64_t)pos->effective_v *
                                               (int64_t)speed_table_get_early_stop(pos->train_ind, pos->goto_speed) / 1000000LL);
 
-        if (pos->going_forward) {
+        if (pos->going_forward && pos->prev_going_forward != 0) {
             d_early += Train_Forward_Stop_Offset;
+        } else if (pos->going_forward) {
+            d_early += Train_Rev_to_Forward_Stop_Offset;
+        } else if (pos->prev_going_forward == 0) {
+            d_early +=  Train_Reverse_Stop_Offset;
         } else {
-            d_early += Train_Reverse_Stop_Offset;
+            d_early += Train_Forward_to_Rev_Stop_Offset;
         }
 
         if (rem <= d_early) {

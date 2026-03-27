@@ -140,6 +140,7 @@ typedef struct {
 
     /* 1 = forward direction; 0 = reverse direction. */
     int going_forward;
+    int prev_going_forward;
     uint8_t position_known;
 
     /* Original user-specified goto target, preserved across route execution

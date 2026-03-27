@@ -639,7 +639,10 @@ int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     pos->midrev.active = 0;
 
     track_reverse(pos->train_num);
+    
+    pos->prev_going_forward = pos->going_forward;
     pos->going_forward = !pos->going_forward;
+
     if (pos->cur_sensor && pos->cur_sensor->reverse)
         pos->cur_sensor = pos->cur_sensor->reverse;
 

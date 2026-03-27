@@ -131,6 +131,7 @@ static void pos_init_slot(train_pos_t *slot, int train_num, int train_ind, int s
     slot->route_state = TRAIN_STATE_UNKNOWN;
     pos_reset_target_fields(slot);
     slot->going_forward = 1;
+    slot->prev_going_forward = -1;
     slot->position_known = 1;
     track_send_direction(train_num, 0x01);
     slot->stopping_since_us = 0;

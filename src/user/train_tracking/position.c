@@ -153,7 +153,9 @@ void pos_on_reverse(int train_num) {
     train_pos_t *pos = pos_find_slot(train_num);
     if (!pos) return;
 
+    pos->prev_going_forward = pos->going_forward;
     pos->going_forward = !pos->going_forward;
+
     if (pos->cur_sensor && pos->cur_sensor->reverse)
         pos->cur_sensor = pos->cur_sensor->reverse;
 
