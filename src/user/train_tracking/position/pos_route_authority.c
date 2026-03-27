@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 static route_plan_t g_authority_candidate_prefix;
+static route_plan_t g_authority_short_goal_prefix;
 
 static int32_t authority_path_dist(const uint16_t *path, int start_cursor,
                                    int end_cursor) {
@@ -66,9 +67,13 @@ static void authority_sync_target_internal(train_pos_t *pos) {
 static int authority_build_best_prefix(int requester_train, const uint16_t *path,
                                        int path_count, int start_cursor,
                                        int32_t min_window_mm,
+                                       int32_t stop_dist_mm,
                                        int min_end_cursor,
                                        route_plan_t *out_prefix,
                                        int *out_end_cursor) {
+    int have_short_goal = 0;
+    int short_goal_end_cursor = -1;
+
     if (!path || !out_prefix || !out_end_cursor) return 0;
     if (path_count <= 0 || start_cursor < 0 || start_cursor >= path_count) return 0;
 
@@ -96,11 +101,25 @@ static int authority_build_best_prefix(int requester_train, const uint16_t *path
         if (!traffic_can_reserve_plan(requester_train,
                                       &g_authority_candidate_prefix)) break;
 
+        if (end_cursor == path_count - 1 &&
+            dist_mm >= stop_dist_mm &&
+            end_cursor > min_end_cursor) {
+            g_authority_short_goal_prefix = g_authority_candidate_prefix;
+            short_goal_end_cursor = end_cursor;
+            have_short_goal = 1;
+        }
+
         if (dist_mm < min_window_mm) continue;
         if (end_cursor <= min_end_cursor) continue;
 
         *out_prefix = g_authority_candidate_prefix;
         *out_end_cursor = end_cursor;
+        return 1;
+    }
+
+    if (have_short_goal) {
+        *out_prefix = g_authority_short_goal_prefix;
+        *out_end_cursor = short_goal_end_cursor;
         return 1;
     }
 
@@ -162,13 +181,16 @@ int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *ful
                                        route_plan_t *out_prefix,
                                        int *out_reserved_end_cursor) {
     int32_t min_window_mm;
+    int32_t stop_dist_mm;
 
     if (!pos || !full_plan || !out_prefix || !out_reserved_end_cursor) return 0;
     min_window_mm = pos_route_authority_target_mm(pos);
+    stop_dist_mm = pos_route_authority_stop_dist_mm(pos);
 
     return authority_build_best_prefix(pos->train_num, full_plan->path_nodes,
                                        full_plan->path_count, 0,
                                        min_window_mm,
+                                       stop_dist_mm,
                                        -1,
                                        out_prefix, out_reserved_end_cursor);
 }
@@ -192,6 +214,7 @@ int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force)
     if (authority_build_best_prefix(pos->train_num, pos->route_path,
                                     pos->route_path_count, pos->route_path_cursor,
                                     pos_route_authority_target_mm(pos),
+                                    pos_route_authority_stop_dist_mm(pos),
                                     pos->route_reserved_end_cursor,
                                     &g_authority_candidate_prefix, &new_end_cursor) &&
         new_end_cursor > pos->route_reserved_end_cursor) {
