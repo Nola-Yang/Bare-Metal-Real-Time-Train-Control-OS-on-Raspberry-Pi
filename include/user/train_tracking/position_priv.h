@@ -92,6 +92,10 @@ int pos_try_direct_goto_strict(train_pos_t *pos);
 /* Retry launching the already committed route for WAIT_RESOURCE resumes. */
 int pos_try_resume_committed_route(train_pos_t *pos, uint64_t now_us);
 
+/* Resume a WAIT_RESOURCE train according to its saved wait mode after
+ * deadlock handling decides no reroute is needed. */
+int pos_try_resume_wait_resource(train_pos_t *pos, uint64_t now_us);
+
 /* Return 1 when `hit` lies on the alternate leg of the next predicted branch. */
 int pos_hit_matches_alt_branch(const train_pos_t *pos, track_node *hit);
 
@@ -195,7 +199,7 @@ void pos_clear_deadlock_recover(train_pos_t *pos);
 /* Try to resume a yielded deadlock victim once the blocked peers have moved. */
 int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos);
 void pos_deadlock_refresh_notice_state(void);
-void pos_deadlock_replan_waiter(train_pos_t *pos, uint64_t now_us);
+int pos_deadlock_maybe_reroute_waiter(train_pos_t *pos, uint64_t now_us);
 
 /* Resume the stored second leg of a mid-route reversal after the stop completes. */
 int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us);

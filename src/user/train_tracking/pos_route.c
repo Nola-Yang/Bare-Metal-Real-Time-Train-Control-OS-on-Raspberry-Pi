@@ -14,6 +14,7 @@
 static pos_route_eval_t g_pos_try_eval_main;
 static route_plan_t g_pos_try_reserve_plan;
 static route_plan_t g_pos_try_authority_plan;
+static route_plan_t g_pos_midrev_second_leg_plan;
 
 static uint8_t pos_blocker_mask_from_plan_and_switches(int requester_train,
                                                        const route_plan_t *plan) {
@@ -246,4 +247,136 @@ int pos_try_direct_goto_strict(train_pos_t *pos) {
 
 int pos_try_resume_committed_route(train_pos_t *pos, uint64_t now_us) {
     return pos_try_launch_committed_route(pos, now_us);
+}
+
+int pos_try_resume_wait_resource(train_pos_t *pos, uint64_t now_us) {
+    int ok;
+
+    if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) return 0;
+
+    switch ((pos_wait_mode_t)pos->replan.wait_mode) {
+    case POS_WAIT_PRELAUNCH_ROUTE:
+    case POS_WAIT_RESUME_ROUTE:
+        ok = pos_try_resume_committed_route(pos, now_us);
+        KASSERT(ok);
+        return 1;
+    case POS_WAIT_MIDREV_SECOND_LEG:
+        (void)pos_handle_midrev_resume(pos, now_us);
+        return 1;
+    case POS_WAIT_NONE:
+    default:
+        pos_restore_pending_target(pos);
+        if (pos->pending_target == NULL) return 1;
+        ok = pos_try_direct_goto(pos);
+        KASSERT(ok);
+        return 1;
+    }
+}
+
+static void pos_enter_midrev_second_leg_wait(train_pos_t *pos, uint64_t now_us,
+                                             uint8_t blocker_mask) {
+    pos_enter_wait_resource(pos, now_us, blocker_mask, POS_WAIT_MIDREV_SECOND_LEG);
+}
+
+static int pos_build_midrev_second_leg_plan(const train_pos_t *pos,
+                                            route_plan_t *out_plan) {
+    if (!pos || !out_plan || pos->midrev.path2_count <= 0) return 0;
+
+    *out_plan = (route_plan_t){0};
+    out_plan->path_count = pos->midrev.path2_count;
+    for (int i = 0; i < pos->midrev.path2_count; i++) {
+        out_plan->path_nodes[i] = pos->midrev.path2[i];
+    }
+    return 1;
+}
+
+int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
+    route_plan_t *second_leg_plan = &g_pos_midrev_second_leg_plan;
+    track_node *final_target;
+    int32_t final_offset;
+    int sw_count;
+    int sw_owner;
+
+    if (!pos || !pos->midrev.active || !pos->midrev.final_target) return 0;
+
+    final_target = pos->midrev.final_target;
+    final_offset = pos->midrev.final_offset;
+    sw_count = pos->midrev.sw_count;
+    if (!pos_build_midrev_second_leg_plan(pos, second_leg_plan)) return 0;
+
+    if (!traffic_can_reserve_plan(pos->train_num, second_leg_plan)) {
+        uint8_t blocker_mask =
+            pos_route_blocker_mask_from_plan(pos->train_num, second_leg_plan);
+        pos_enter_midrev_second_leg_wait(pos, now_us, blocker_mask);
+        return 0;
+    }
+
+    sw_owner = pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
+                                        pos->midrev.sw_count, pos->train_num);
+    if (sw_owner == pos->train_num) {
+        pos_refresh_stop_reservation(pos);
+        sw_owner = pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
+                                            pos->midrev.sw_count, pos->train_num);
+    }
+    if (sw_owner >= 0) {
+        uint8_t blocker_mask =
+            pos_route_blocker_mask_from_switches(pos->midrev.sw_nums,
+                                                 pos->midrev.sw_dirs,
+                                                 pos->midrev.sw_count,
+                                                 pos->train_num);
+        pos_enter_midrev_second_leg_wait(pos, now_us, blocker_mask);
+        return 0;
+    }
+
+    if (!pos_apply_route_switches_safe(pos->midrev.sw_nums, pos->midrev.sw_dirs,
+                                       pos->midrev.sw_count, pos->train_num)) {
+        uint8_t blocker_mask =
+            pos_route_blocker_mask_from_switches(pos->midrev.sw_nums,
+                                                 pos->midrev.sw_dirs,
+                                                 pos->midrev.sw_count,
+                                                 pos->train_num);
+        pos_enter_midrev_second_leg_wait(pos, now_us, blocker_mask);
+        return 0;
+    }
+
+    if (!traffic_reserve_plan(pos->train_num, pos->cur_sensor, second_leg_plan)) {
+        uint8_t blocker_mask =
+            pos_route_blocker_mask_from_plan(pos->train_num, second_leg_plan);
+        pos_enter_midrev_second_leg_wait(pos, now_us, blocker_mask);
+        return 0;
+    }
+    if (sw_count > 0) ui_mark_switches_dirty();
+
+    pos->midrev.active = 0;
+
+    track_reverse(pos->train_num);
+    pos->prev_going_forward = pos->going_forward;
+    pos->going_forward = !pos->going_forward;
+
+    if (pos->cur_sensor && pos->cur_sensor->reverse) {
+        pos->cur_sensor = pos->cur_sensor->reverse;
+    }
+
+    pos->target_sensor = final_target;
+    pos->target_offset_mm = final_offset;
+
+    pos->route_path_count = pos->midrev.path2_count;
+    for (int i = 0; i < pos->midrev.path2_count; i++) {
+        pos->route_path[i] = pos->midrev.path2[i];
+    }
+    pos->route_path_cursor = 0;
+    pos_route_authority_reset(pos);
+    pos->route_reserved_end_cursor = pos->route_path_count - 1;
+    pos_route_authority_sync_target(pos);
+    pos->replan.next_us = 0;
+    pos->replan.seen_generation = traffic_get_change_generation();
+    pos->replan.blocker_mask = 0;
+    pos->replan.wait_mode = POS_WAIT_NONE;
+    pos->replan.need_initial_reverse = 0;
+    pos->replan.launch_origin = NULL;
+    pos->authority_seen_generation = traffic_get_change_generation();
+    pos->authority_next_us = 0;
+
+    pos_arm_switch_settle(pos, sw_count, POS_SWITCH_SETTLE_REVERSED, now_us);
+    return 1;
 }

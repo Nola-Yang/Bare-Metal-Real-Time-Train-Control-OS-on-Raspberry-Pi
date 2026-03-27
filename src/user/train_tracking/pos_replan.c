@@ -61,6 +61,50 @@ static void sort_waiters(train_pos_t **arr, int count) {
     }
 }
 
+static int pos_wait_resource_retry_due(train_pos_t *pos, uint64_t now_us) {
+    uint32_t generation;
+    int woke_on_change = 0;
+
+    if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) return 0;
+
+    generation = traffic_get_change_generation();
+    if (generation != pos->replan.seen_generation) {
+        pos->replan.seen_generation = generation;
+        pos->replan.retry_count = 0;
+        woke_on_change = 1;
+    }
+    if (!woke_on_change &&
+        pos->replan.next_us > 0 && now_us < pos->replan.next_us) {
+        return 0;
+    }
+    return 1;
+}
+
+static void pos_wait_resource_schedule_retry(train_pos_t *pos, uint64_t now_us) {
+    int backoff_exp;
+    uint64_t backoff_us;
+    uint64_t jitter_us;
+
+    if (!pos) return;
+
+    backoff_exp = pos->replan.retry_count;
+    if (backoff_exp > REPLAN_MAX_BACKOFF) backoff_exp = REPLAN_MAX_BACKOFF;
+    backoff_us = REPLAN_INTERVAL_US << backoff_exp;
+
+    pos->replan.rand_state = pos->replan.rand_state * 1664525u + 1013904223u;
+    jitter_us = (pos->replan.rand_state >> 16) % (uint32_t)REPLAN_INTERVAL_US;
+    pos->replan.next_us = now_us + backoff_us + jitter_us;
+    pos->replan.retry_count++;
+}
+
+static void pos_replan_service_waiter(train_pos_t *pos, uint64_t now_us) {
+    if (!pos_wait_resource_retry_due(pos, now_us)) return;
+
+    pos_wait_resource_schedule_retry(pos, now_us);
+    if (pos_deadlock_maybe_reroute_waiter(pos, now_us)) return;
+    (void)pos_try_resume_wait_resource(pos, now_us);
+}
+
 void pos_replan_on_tick(uint64_t now_us) {
     train_pos_t *movers[MAX_POS_TRAINS];
     train_pos_t *waiters[MAX_POS_TRAINS];
@@ -98,6 +142,6 @@ void pos_replan_on_tick(uint64_t now_us) {
 
     sort_waiters(waiters, waiter_count);
     for (int i = 0; i < waiter_count; i++) {
-        pos_deadlock_replan_waiter(waiters[i], now_us);
+        pos_replan_service_waiter(waiters[i], now_us);
     }
 }

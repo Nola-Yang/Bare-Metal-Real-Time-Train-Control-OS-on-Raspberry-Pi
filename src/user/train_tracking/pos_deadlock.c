@@ -1,58 +1,15 @@
 #include "train_tracking/position_priv.h"
-#include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
 #include "demo_manager.h"
-#include "track.h"
 #include "kassert.h"
-#include "ui.h"
 #include <stddef.h>
 #include <stdint.h>
-
-static route_plan_t g_midrev_second_leg_plan;
 
 typedef enum {
     DEADLOCK_KIND_NONE = 0,
     DEADLOCK_KIND_WAIT_CYCLE = 1,
     DEADLOCK_KIND_STOPPED_BLOCKER = 2,
 } deadlock_kind_t;
-
-static uint8_t deadlock_blocker_mask_from_trains(int requester_train,
-                                                 const int *trains, int count) {
-    uint8_t mask = 0;
-    for (int i = 0; i < count; i++) {
-        if (trains[i] == requester_train) continue;
-        mask |= pos_deadlock_train_bit(trains[i]);
-    }
-    return mask;
-}
-
-static uint8_t deadlock_blocker_mask_from_plan(int requester_train,
-                                               const route_plan_t *plan) {
-    int blockers[6];
-    int count = traffic_collect_plan_blockers(requester_train, plan, blockers, 6);
-    return deadlock_blocker_mask_from_trains(requester_train, blockers, count);
-}
-
-static int event_route_switch_needs_change(int sw_num, char desired_dir) {
-    int sw_idx = track_switch_to_index(sw_num);
-    if (sw_idx < 0) return 1;
-    return track_get_switch_state()[sw_idx].state != desired_dir;
-}
-
-static uint8_t deadlock_blocker_mask_from_switches(const int *sw_nums,
-                                                   const char *sw_dirs,
-                                                   int sw_count,
-                                                   int requester_train) {
-    uint8_t mask = 0;
-    for (int i = 0; i < sw_count; i++) {
-        int blockers[6];
-        int count;
-        if (!event_route_switch_needs_change(sw_nums[i], sw_dirs[i])) continue;
-        count = traffic_collect_switch_envelope_blockers(sw_nums[i], blockers, 6);
-        mask |= deadlock_blocker_mask_from_trains(requester_train, blockers, count);
-    }
-    return mask;
-}
 
 static int deadlock_bit_count(uint8_t mask) {
     int count = 0;
@@ -507,163 +464,26 @@ int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos) {
     return 1;
 }
 
-void pos_deadlock_replan_waiter(train_pos_t *pos, uint64_t now_us) {
+int pos_deadlock_maybe_reroute_waiter(train_pos_t *pos, uint64_t now_us) {
     uint8_t cycle_mask = 0;
     int victim_train = -1;
     deadlock_kind_t deadlock_kind = DEADLOCK_KIND_NONE;
-    uint32_t generation;
-    int woke_on_change = 0;
-    int backoff_exp;
-    uint64_t backoff_us;
-    uint64_t jitter_us;
-    int ok;
 
-    if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) return;
-
-    generation = traffic_get_change_generation();
-    if (generation != pos->replan.seen_generation) {
-        pos->replan.seen_generation = generation;
-        pos->replan.retry_count = 0;
-        woke_on_change = 1;
-    }
-    if (!woke_on_change &&
-        pos->replan.next_us > 0 && now_us < pos->replan.next_us) {
-        return;
-    }
-
-    backoff_exp = pos->replan.retry_count;
-    if (backoff_exp > REPLAN_MAX_BACKOFF) backoff_exp = REPLAN_MAX_BACKOFF;
-    backoff_us = REPLAN_INTERVAL_US << backoff_exp;
-
-    pos->replan.rand_state = pos->replan.rand_state * 1664525u + 1013904223u;
-    jitter_us = (pos->replan.rand_state >> 16) % (uint32_t)REPLAN_INTERVAL_US;
-    pos->replan.next_us = now_us + backoff_us + jitter_us;
-    pos->replan.retry_count++;
+    if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) return 0;
 
     cycle_mask = deadlock_find_mask_for_train(pos->train_num, &deadlock_kind);
     if (cycle_mask) {
         if (deadlock_kind == DEADLOCK_KIND_STOPPED_BLOCKER) {
             (void)deadlock_apply_stopped_blocker_reroute(cycle_mask, now_us,
                                                          &victim_train);
-            return;
+            return 1;
         }
 
         victim_train = deadlock_choose_victim(cycle_mask, deadlock_kind);
         deadlock_write_detected_notice(cycle_mask, victim_train);
-        if (victim_train != pos->train_num) return;
+        if (victim_train != pos->train_num) return 1;
         (void)deadlock_apply_reroute(pos, cycle_mask, now_us, 1);
-        return;
+        return 1;
     }
-
-    switch ((pos_wait_mode_t)pos->replan.wait_mode) {
-    case POS_WAIT_PRELAUNCH_ROUTE:
-    case POS_WAIT_RESUME_ROUTE:
-        ok = pos_try_resume_committed_route(pos, now_us);
-        KASSERT(ok);
-        return;
-    case POS_WAIT_MIDREV_SECOND_LEG:
-        (void)pos_handle_midrev_resume(pos, now_us);
-        return;
-    case POS_WAIT_NONE:
-    default:
-        break;
-    }
-
-    pos_restore_pending_target(pos);
-    if (pos->pending_target == NULL) return;
-    ok = pos_try_direct_goto(pos);
-    KASSERT(ok);
-}
-
-int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
-    route_plan_t *second_leg_plan = &g_midrev_second_leg_plan;
-    track_node *final_target;
-    int32_t final_offset;
-    int sw_count;
-    int sw_owner;
-
-    if (!pos || !pos->midrev.active || !pos->midrev.final_target) return 0;
-    final_target = pos->midrev.final_target;
-    final_offset = pos->midrev.final_offset;
-    sw_count = pos->midrev.sw_count;
-    *second_leg_plan = (route_plan_t){0};
-    second_leg_plan->path_count = pos->midrev.path2_count;
-    for (int j = 0; j < pos->midrev.path2_count; j++) {
-        second_leg_plan->path_nodes[j] = pos->midrev.path2[j];
-    }
-    if (!traffic_can_reserve_plan(pos->train_num, second_leg_plan)) {
-        uint8_t blocker_mask = deadlock_blocker_mask_from_plan(pos->train_num,
-                                                               second_leg_plan);
-        pos_enter_wait_resource(pos, now_us, blocker_mask,
-                                POS_WAIT_MIDREV_SECOND_LEG);
-        return 0;
-    }
-    sw_owner = pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
-                                        pos->midrev.sw_count, pos->train_num);
-    if (sw_owner == pos->train_num) {
-        pos_refresh_stop_reservation(pos);
-        sw_owner = pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
-                                            pos->midrev.sw_count, pos->train_num);
-    }
-    if (sw_owner >= 0) {
-        uint8_t blocker_mask = deadlock_blocker_mask_from_switches(pos->midrev.sw_nums,
-                                                                   pos->midrev.sw_dirs,
-                                                                   pos->midrev.sw_count,
-                                                                   pos->train_num);
-        pos_enter_wait_resource(pos, now_us, blocker_mask,
-                                POS_WAIT_MIDREV_SECOND_LEG);
-        return 0;
-    }
-    if (!pos_apply_route_switches_safe(pos->midrev.sw_nums, pos->midrev.sw_dirs,
-                                       pos->midrev.sw_count, pos->train_num)) {
-        uint8_t blocker_mask = deadlock_blocker_mask_from_switches(pos->midrev.sw_nums,
-                                                                   pos->midrev.sw_dirs,
-                                                                   pos->midrev.sw_count,
-                                                                   pos->train_num);
-        pos_enter_wait_resource(pos, now_us, blocker_mask,
-                                POS_WAIT_MIDREV_SECOND_LEG);
-        return 0;
-    }
-    if (!traffic_reserve_plan(pos->train_num, pos->cur_sensor, second_leg_plan)) {
-        uint8_t blocker_mask = deadlock_blocker_mask_from_plan(pos->train_num,
-                                                               second_leg_plan);
-        pos_enter_wait_resource(pos, now_us, blocker_mask,
-                                POS_WAIT_MIDREV_SECOND_LEG);
-        return 0;
-    }
-    if (sw_count > 0) ui_mark_switches_dirty();
-
-    pos->midrev.active = 0;
-
-    track_reverse(pos->train_num);
-    
-    pos->prev_going_forward = pos->going_forward;
-    pos->going_forward = !pos->going_forward;
-
-    if (pos->cur_sensor && pos->cur_sensor->reverse)
-        pos->cur_sensor = pos->cur_sensor->reverse;
-
-    pos->target_sensor = final_target;
-    pos->target_offset_mm = final_offset;
-
-    /* Switch active path to the stored second leg. */
-    pos->route_path_count = pos->midrev.path2_count;
-    for (int j = 0; j < pos->midrev.path2_count; j++)
-        pos->route_path[j] = pos->midrev.path2[j];
-    pos->route_path_cursor = 0;
-    pos_route_authority_reset(pos);
-    pos->route_reserved_end_cursor = pos->route_path_count - 1;
-    pos_route_authority_sync_target(pos);
-    pos->replan.next_us = 0;
-    pos->replan.seen_generation = traffic_get_change_generation();
-    pos->replan.blocker_mask = 0;
-    pos->replan.wait_mode = POS_WAIT_NONE;
-    pos->replan.need_initial_reverse = 0;
-    pos->replan.launch_origin = NULL;
-    pos->authority_seen_generation = traffic_get_change_generation();
-    pos->authority_next_us = 0;
-
-    pos_arm_switch_settle(pos, sw_count,
-                          POS_SWITCH_SETTLE_REVERSED, now_us);
-    return 1;
+    return 0;
 }
