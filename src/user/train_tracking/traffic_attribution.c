@@ -249,6 +249,7 @@ static int attr_try_forward_progress_candidate(const train_pos_t *pos,
     return attr_try_predicted_forward_fallback_candidate(pos, hit, eval);
 }
 
+#if 0
 static int attr_try_current_sensor_candidate(const train_pos_t *pos,
                                              track_node *hit,
                                              attr_candidate_eval_t *eval) {
@@ -260,6 +261,7 @@ static int attr_try_current_sensor_candidate(const train_pos_t *pos,
     attr_eval_set(eval, 2800 - cur_dist / 25, 1, 0, 0, 0, 0x7fffffff, 0);
     return 1;
 }
+#endif
 
 static int attr_try_near_prediction_candidate(const train_pos_t *pos,
                                               track_node *hit,
@@ -336,7 +338,6 @@ static int attr_evaluate_pos_candidate(train_pos_t *pos, track_node *hit,
         !(attr_has_remaining_route_path(pos) &&
           attr_try_route_path_alt_candidate(pos, hit, time_us, &eval)) &&
         !attr_try_forward_progress_candidate(pos, hit, time_us, &eval) &&
-        !attr_try_current_sensor_candidate(pos, hit, &eval) &&
         !attr_try_near_prediction_candidate(pos, hit, &eval)) {
         return 0;
     }
