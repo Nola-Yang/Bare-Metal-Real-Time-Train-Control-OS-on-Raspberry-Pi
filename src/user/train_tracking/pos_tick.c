@@ -72,7 +72,7 @@ static void start_queued_goto_if_any(train_pos_t *pos) {
 
 /* On stop completion, either keep one step past the current stop sensor or
  * keep the remaining planned tail up to the current stop target. */
-static void release_stop_reservation(train_pos_t *pos) {
+void pos_refresh_stop_reservation(train_pos_t *pos) {
     track_node *keep_end;
     track_node *keep_after_target;
     int keep_remaining_route;
@@ -149,7 +149,7 @@ static void handle_normal_stop(train_pos_t *pos, uint64_t now_us) {
      * if that final sensor never physically fired; use the planned target, not
      * cur_sensor, to arm deadlock-yield resume. */
     stopped_target = pos->target_sensor;
-    release_stop_reservation(pos);
+    pos_refresh_stop_reservation(pos);
     pos_clear_prediction(pos);
 
     if (pos->queued_valid && pos->queued_target) {

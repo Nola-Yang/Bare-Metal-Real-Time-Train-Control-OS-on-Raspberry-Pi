@@ -601,10 +601,7 @@ int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us) {
     sw_owner = pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
                                         pos->midrev.sw_count, pos->train_num);
     if (sw_owner == pos->train_num) {
-        traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
-                                        TRAIN_BODY_MM,
-                                        pos_release_keep_end(pos->cur_sensor,
-                                                             pos->pred.next_sensor));
+        pos_refresh_stop_reservation(pos);
         sw_owner = pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
                                             pos->midrev.sw_count, pos->train_num);
     }

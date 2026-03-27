@@ -180,10 +180,15 @@ void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us, uint8_t blocker_
         return;
     }
     track_set_speed(pos->train_num, 0);
-    traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
-                                    TRAIN_BODY_MM,
-                                    pos_release_keep_end(pos->cur_sensor,
-                                                         pos->pred.next_sensor));
+    if (wait_mode == POS_WAIT_RESUME_ROUTE ||
+        wait_mode == POS_WAIT_MIDREV_SECOND_LEG) {
+        pos_refresh_stop_reservation(pos);
+    } else {
+        traffic_release_train_keep_body(pos->train_num, pos->cur_sensor,
+                                        TRAIN_BODY_MM,
+                                        pos_release_keep_end(pos->cur_sensor,
+                                                             pos->pred.next_sensor));
+    }
     pos->route_state = TRAIN_STATE_WAIT_RESOURCE;
     pos->replan.retry_count = 0;
     pos->replan.next_us = now_us + REPLAN_INTERVAL_US;

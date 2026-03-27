@@ -161,6 +161,11 @@ void pos_restore_pending_target(train_pos_t *pos);
  * prefer `hint`, otherwise predict the next sensor after `last_hit`. */
 track_node *pos_release_keep_end(track_node *last_hit, track_node *hint);
 
+/* Refresh reservations after a planned stop:
+ * if the stop target was physically hit, keep one step beyond it;
+ * otherwise keep the remaining reserved route tail to that target. */
+void pos_refresh_stop_reservation(train_pos_t *pos);
+
 /* Apply a route's switch commands only if every touched switch envelope is free. */
 int pos_route_switch_blocker(const int *sw_nums, const char *sw_dirs,
                              int sw_count, int requester_train);
