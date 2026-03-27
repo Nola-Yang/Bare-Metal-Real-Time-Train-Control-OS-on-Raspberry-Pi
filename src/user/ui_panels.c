@@ -278,6 +278,10 @@ static int ui_limited_append_score_half(char *dst, int pos, int cap, int half_po
     return pos;
 }
 
+#define CLR_HUMAN  "\033[36m"   /* cyan    */
+#define CLR_AI     "\033[33m"   /* yellow  */
+#define CLR_RESET  "\033[0m"
+
 static void ui_build_game_header_line(uint64_t now_us, char *out, int cap) {
     game_ui_summary_t summary;
     int n = 0;
@@ -290,26 +294,43 @@ static void ui_build_game_header_line(uint64_t now_us, char *out, int cap) {
     n = ui_limited_append_str(out, n, cap, "/4");
     n = ui_limited_append_str(out, n, cap, "  Priority=");
     n = ui_limited_append_str(out, n, cap, summary.priority_name);
-    n = ui_limited_append_str(out, n, cap, "  H=");
+    n = ui_limited_append_str(out, n, cap, "  ");
+    n = ui_limited_append_str(out, n, cap, CLR_HUMAN);
+    n = ui_limited_append_str(out, n, cap, "H=");
     n = ui_limited_append_int(out, n, cap, summary.human_train);
-    n = ui_limited_append_str(out, n, cap, " AI=");
+    n = ui_limited_append_str(out, n, cap, CLR_RESET " ");
+    n = ui_limited_append_str(out, n, cap, CLR_AI);
+    n = ui_limited_append_str(out, n, cap, "AI=");
     n = ui_limited_append_int(out, n, cap, summary.ai_train);
-    n = ui_limited_append_str(out, n, cap, " N=");
+    n = ui_limited_append_str(out, n, cap, CLR_RESET " N=");
     n = ui_limited_append_int(out, n, cap, summary.neutral_train);
     ui_limited_finish(out, n, cap);
 }
 
 static void ui_build_game_score_line(uint64_t now_us, char *out, int cap) {
     game_ui_summary_t summary;
+    const char *result_color;
     int n = 0;
 
     game_get_ui_summary(&summary, now_us);
-    n = ui_limited_append_str(out, n, cap, "Score: Human=");
+    n = ui_limited_append_str(out, n, cap, "Score: ");
+    n = ui_limited_append_str(out, n, cap, CLR_HUMAN);
+    n = ui_limited_append_str(out, n, cap, "Human=");
     n = ui_limited_append_score_half(out, n, cap, summary.human_score_half);
-    n = ui_limited_append_str(out, n, cap, "  AI=");
+    n = ui_limited_append_str(out, n, cap, CLR_RESET "  ");
+    n = ui_limited_append_str(out, n, cap, CLR_AI);
+    n = ui_limited_append_str(out, n, cap, "AI=");
     n = ui_limited_append_score_half(out, n, cap, summary.ai_score_half);
-    n = ui_limited_append_str(out, n, cap, "  Result=");
+    n = ui_limited_append_str(out, n, cap, CLR_RESET "  Result=");
+
+    if (summary.result_text[0] == 'H')      result_color = CLR_HUMAN;
+    else if (summary.result_text[0] == 'A') result_color = CLR_AI;
+    else if (summary.result_text[0] == 'D') result_color = "\033[35m"; /* magenta */
+    else                                    result_color = NULL;
+
+    if (result_color) n = ui_limited_append_str(out, n, cap, result_color);
     n = ui_limited_append_str(out, n, cap, summary.result_text);
+    if (result_color) n = ui_limited_append_str(out, n, cap, CLR_RESET);
     ui_limited_finish(out, n, cap);
 }
 
@@ -322,11 +343,15 @@ static void ui_build_game_detail_line(uint64_t now_us, char *out, int cap) {
         n = ui_limited_append_str(out, n, cap, "Prompt: ");
         n = ui_limited_append_str(out, n, cap, summary.hint_text);
     } else {
-        n = ui_limited_append_str(out, n, cap, "Targets: H=");
+        n = ui_limited_append_str(out, n, cap, "Targets: ");
+        n = ui_limited_append_str(out, n, cap, CLR_HUMAN);
+        n = ui_limited_append_str(out, n, cap, "H=");
         n = ui_limited_append_str(out, n, cap, summary.human_target_name);
-        n = ui_limited_append_str(out, n, cap, " AI=");
+        n = ui_limited_append_str(out, n, cap, CLR_RESET " ");
+        n = ui_limited_append_str(out, n, cap, CLR_AI);
+        n = ui_limited_append_str(out, n, cap, "AI=");
         n = ui_limited_append_str(out, n, cap, summary.ai_target_name);
-        n = ui_limited_append_str(out, n, cap, " N=");
+        n = ui_limited_append_str(out, n, cap, CLR_RESET " N=");
         n = ui_limited_append_str(out, n, cap, summary.neutral_target_name);
     }
     ui_limited_finish(out, n, cap);
