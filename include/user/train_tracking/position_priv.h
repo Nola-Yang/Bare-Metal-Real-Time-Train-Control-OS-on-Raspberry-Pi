@@ -47,7 +47,8 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
 
 /* Rolling reservation window tuning.
  * threshold    = GOTO_MIN_DIST_FACTOR * brake_dist + early_stop_dist
- * auth_target  = threshold
+ * auth target  = first reachable sensor on the committed route whose
+ *                distance is >= threshold
  * extend point = actual stop distance (brake + early stop) */
 
 /* Train order used for deadlock blocker masks. */
@@ -117,7 +118,6 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
 int32_t pos_route_authority_stop_dist_mm(const train_pos_t *pos);
 int32_t pos_route_authority_min_mm(const train_pos_t *pos);
 int32_t pos_route_authority_target_mm(const train_pos_t *pos);
-int32_t pos_route_authority_max_mm(const train_pos_t *pos);
 int32_t pos_route_authority_extend_trigger_mm(const train_pos_t *pos);
 int32_t pos_route_authority_remaining_mm(const train_pos_t *pos);
 int pos_route_authority_is_leg_goal_stop(const train_pos_t *pos);

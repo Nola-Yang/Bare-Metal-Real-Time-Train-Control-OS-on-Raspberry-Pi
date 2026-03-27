@@ -10,19 +10,6 @@
 #include <stdint.h>
 
 static route_plan_t g_authority_candidate_prefix;
-static route_plan_t g_authority_best_prefix;
-
-static int authority_is_canonical_sensor(int idx) {
-    track_node *n;
-    track_node *r;
-
-    if (idx < 0 || idx >= TRACK_MAX) return 0;
-    n = &g_track[idx];
-    if (n->type != NODE_SENSOR) return 0;
-    r = n->reverse;
-    if (!r || r->type != NODE_SENSOR) return 1;
-    return n < r;
-}
 
 static int32_t authority_path_dist(const uint16_t *path, int start_cursor,
                                    int end_cursor) {
@@ -79,11 +66,8 @@ static void authority_sync_target_internal(train_pos_t *pos) {
 static int authority_build_best_prefix(int requester_train, const uint16_t *path,
                                        int path_count, int start_cursor,
                                        int32_t min_window_mm,
-                                       int32_t max_window_mm,
                                        route_plan_t *out_prefix,
                                        int *out_end_cursor) {
-    int found = 0;
-
     if (!path || !out_prefix || !out_end_cursor) return 0;
     if (path_count <= 0 || start_cursor < 0 || start_cursor >= path_count) return 0;
 
@@ -96,10 +80,9 @@ static int authority_build_best_prefix(int requester_train, const uint16_t *path
 
         dist_mm = g_authority_candidate_prefix.total_dist_mm;
         if (dist_mm <= 0) continue;
-        if (dist_mm > max_window_mm) break;
 
         if (end_cursor != path_count - 1 &&
-            !authority_is_canonical_sensor((int)path[end_cursor])) {
+            g_track[path[end_cursor]].type != NODE_SENSOR) {
             continue;
         }
 
@@ -114,14 +97,12 @@ static int authority_build_best_prefix(int requester_train, const uint16_t *path
 
         if (dist_mm < min_window_mm) continue;
 
-        g_authority_best_prefix = g_authority_candidate_prefix;
+        *out_prefix = g_authority_candidate_prefix;
         *out_end_cursor = end_cursor;
-        found = 1;
+        return 1;
     }
 
-    if (!found) return 0;
-    *out_prefix = g_authority_best_prefix;
-    return 1;
+    return 0;
 }
 
 int32_t pos_route_authority_stop_dist_mm(const train_pos_t *pos) {
@@ -146,10 +127,6 @@ int32_t pos_route_authority_min_mm(const train_pos_t *pos) {
 
 int32_t pos_route_authority_target_mm(const train_pos_t *pos) {
     return pos_route_authority_min_mm(pos);
-}
-
-int32_t pos_route_authority_max_mm(const train_pos_t *pos) {
-    return pos_route_authority_min_mm(pos) + pos_route_authority_stop_dist_mm(pos);
 }
 
 int32_t pos_route_authority_extend_trigger_mm(const train_pos_t *pos) {
@@ -183,15 +160,13 @@ int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *ful
                                        route_plan_t *out_prefix,
                                        int *out_reserved_end_cursor) {
     int32_t min_window_mm;
-    int32_t max_window_mm;
 
     if (!pos || !full_plan || !out_prefix || !out_reserved_end_cursor) return 0;
     min_window_mm = pos_route_authority_target_mm(pos);
-    max_window_mm = pos_route_authority_max_mm(pos);
 
     return authority_build_best_prefix(pos->train_num, full_plan->path_nodes,
                                        full_plan->path_count, 0,
-                                       min_window_mm, max_window_mm,
+                                       min_window_mm,
                                        out_prefix, out_reserved_end_cursor);
 }
 
@@ -214,7 +189,6 @@ int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force)
     if (authority_build_best_prefix(pos->train_num, pos->route_path,
                                     pos->route_path_count, pos->route_path_cursor,
                                     pos_route_authority_target_mm(pos),
-                                    pos_route_authority_max_mm(pos),
                                     &g_authority_candidate_prefix, &new_end_cursor) &&
         new_end_cursor > pos->route_reserved_end_cursor) {
         if (pos_apply_route_switches_safe(g_authority_candidate_prefix.sw_nums,
