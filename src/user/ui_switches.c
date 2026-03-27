@@ -25,7 +25,7 @@ static char *ui_append_switch_cell(char *p, char *end, int sw_num, char state) {
 }
 
 void ui_switches(void) {
-    char temp_buf[256];
+    char temp_buf[512];
     char *p = temp_buf;
     char *end = temp_buf + sizeof(temp_buf) - 1;
     const switch_entry_t *switches = track_get_switch_state();
