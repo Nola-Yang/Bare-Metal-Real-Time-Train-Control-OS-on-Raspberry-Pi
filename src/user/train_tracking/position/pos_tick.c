@@ -198,6 +198,25 @@ static void handle_normal_stop(train_pos_t *pos, uint64_t now_us) {
     pos->orig_target_offset = 0;
 }
 
+static void handle_midrev_stop(train_pos_t *pos, uint64_t now_us) {
+    int hit_stage_target;
+
+    if (!pos) return;
+
+    pos->route_state = TRAIN_STATE_STOPPED;
+    hit_stage_target =
+        pos->cur_sensor != NULL &&
+        pos_targets_same_sensor(pos->cur_sensor, pos->target_sensor);
+    pos->stopped_on_target_hit =
+        pos_route_authority_is_leg_goal_stop(pos) && hit_stage_target;
+    pos->parked_target_col = POS_TARGET_COL_STAGE;
+
+    pos_refresh_stop_reservation(pos);
+    pos_clear_prediction(pos);
+
+    (void)pos_handle_midrev_resume(pos, now_us);
+}
+
 /* Handle STOPPING -> STOPPED transition (with mid-route reversal if active). */
 static int tick_handle_stopping(train_pos_t *pos, uint64_t now_us) {
     if (pos->route_state == TRAIN_STATE_STOPPED) return 1;
@@ -206,8 +225,7 @@ static int tick_handle_stopping(train_pos_t *pos, uint64_t now_us) {
     pos_save_ema_and_stop(pos);
 
     if (pos->midrev.active && pos_route_authority_is_leg_goal_stop(pos)) {
-        pos->parked_target_col = POS_TARGET_COL_STAGE;
-        pos_handle_midrev_resume(pos, now_us);
+        handle_midrev_stop(pos, now_us);
     } else {
         handle_normal_stop(pos, now_us);
     }
