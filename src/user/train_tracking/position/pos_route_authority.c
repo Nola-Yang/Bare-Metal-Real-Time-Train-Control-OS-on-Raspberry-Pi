@@ -18,34 +18,6 @@ static int32_t authority_path_dist(const uint16_t *path, int start_cursor,
     return route_path_dist_from(path, start_cursor, end_cursor + 1);
 }
 
-static int32_t authority_reverse_launch_trim_mm(const train_pos_t *pos,
-                                                const uint16_t *path,
-                                                int path_count,
-                                                int start_cursor) {
-    int reversed_launch = 0;
-
-    if (!pos || !path || path_count <= 1) return 0;
-
-    if (pos->replan.wait_mode == POS_WAIT_PRELAUNCH_ROUTE) {
-        reversed_launch = pos->replan.need_initial_reverse;
-    } else if (pos->replan.wait_mode == POS_WAIT_RESUME_ROUTE) {
-        reversed_launch =
-            pos->prev_going_forward >= 0 &&
-            pos->prev_going_forward != pos->going_forward;
-    }
-    if (!reversed_launch) return 0;
-
-    for (int i = start_cursor + 1; i < path_count; i++) {
-        int32_t trim_mm;
-
-        if (g_track[path[i]].type != NODE_SENSOR) continue;
-        trim_mm = authority_path_dist(path, start_cursor, i);
-        return (trim_mm > 0) ? trim_mm : 0;
-    }
-
-    return 0;
-}
-
 static int32_t authority_early_stop_mm(const train_pos_t *pos) {
     int32_t tv;
 
@@ -89,12 +61,24 @@ static void authority_sync_target_internal(train_pos_t *pos) {
     dist = authority_path_dist(pos->route_path, pos->route_path_cursor, end_cursor);
     pos->dist_to_target_mm = (dist >= 0) ? dist + pos->target_offset_mm : 0;
     if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
+
+    /* Deadlock-yield recovery parks on the current staged stop target. Keep
+     * that target synchronized as rolling authority extends, otherwise the
+     * final stop can no longer match the stale initial yield target. */
+    if (pos->deadlock_recover.valid &&
+        pos->deadlock_recover.resume_target != NULL &&
+        !pos->deadlock_recover.parked_at_yield) {
+        if (pos->midrev.active && pos->midrev.final_target != NULL) {
+            pos->deadlock_recover.yield_target = pos->midrev.final_target;
+        } else if (pos->target_sensor != NULL) {
+            pos->deadlock_recover.yield_target = pos->target_sensor;
+        }
+    }
 }
 
 static int authority_build_best_prefix(int requester_train, const uint16_t *path,
                                        int path_count, int start_cursor,
                                        int32_t min_window_mm,
-                                       int32_t launch_trim_mm,
                                        int min_end_cursor,
                                        route_plan_t *out_prefix,
                                        int *out_end_cursor,
@@ -113,10 +97,6 @@ static int authority_build_best_prefix(int requester_train, const uint16_t *path
 
         dist_mm = authority_path_dist(path, start_cursor, end_cursor);
         if (dist_mm < 0) break;
-        if (launch_trim_mm > 0) {
-            if (dist_mm <= launch_trim_mm) continue;
-            dist_mm -= launch_trim_mm;
-        }
         if (dist_mm <= 0) continue;
 
         if (end_cursor != path_count - 1 &&
@@ -202,17 +182,13 @@ int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *ful
                                        int *out_reserved_end_cursor,
                                        int *out_switch_blocker_owner) {
     int32_t min_window_mm;
-    int32_t launch_trim_mm;
 
     if (!pos || !full_plan || !out_prefix || !out_reserved_end_cursor) return 0;
     min_window_mm = pos_route_authority_target_mm(pos);
-    launch_trim_mm = authority_reverse_launch_trim_mm(pos, full_plan->path_nodes,
-                                                      full_plan->path_count, 0);
 
     return authority_build_best_prefix(pos->train_num, full_plan->path_nodes,
                                        full_plan->path_count, 0,
                                        min_window_mm,
-                                       launch_trim_mm,
                                        -1,
                                        out_prefix, out_reserved_end_cursor,
                                        out_switch_blocker_owner);
@@ -237,7 +213,6 @@ int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force)
     if (authority_build_best_prefix(pos->train_num, pos->route_path,
                                     pos->route_path_count, pos->route_path_cursor,
                                     pos_route_authority_target_mm(pos),
-                                    0,
                                     pos->route_reserved_end_cursor,
                                     &g_authority_candidate_prefix, &new_end_cursor,
                                     NULL) &&
