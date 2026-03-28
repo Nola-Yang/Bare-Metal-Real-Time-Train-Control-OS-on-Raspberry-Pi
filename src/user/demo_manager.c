@@ -339,10 +339,17 @@ static void demo_force_stop(void) {
 }
 
 void demo_get_ui_summary(demo_ui_summary_t *out, uint64_t now_us) {
+    uint32_t completed = 0;
+
     if (!out) return;
     out->mode_name = demo_mode_str(g_demo_mode);
     out->state_name = demo_state_str(g_demo_state);
     out->seed = g_demo_seed;
+    for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
+        if (!g_slots[i].enabled) continue;
+        completed += g_slots[i].missions_completed;
+    }
+    out->missions_completed = completed;
     out->gold_min_trip_mm = g_gold_min_trip_mm;
     if (g_demo_mode != DEMO_MODE_OFF &&
         g_demo_start_us > 0 &&

@@ -9,6 +9,7 @@ typedef struct {
     const char *state_name;
     uint32_t seed;
     uint32_t uptime_sec;
+    uint32_t missions_completed;
     int gold_min_trip_mm;
     traffic_sensor_stats_t sensor_stats;
 } demo_ui_summary_t;

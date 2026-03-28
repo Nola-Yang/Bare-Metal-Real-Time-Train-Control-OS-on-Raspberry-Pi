@@ -291,6 +291,8 @@ static void ui_build_demo_tuning_line(uint64_t now_us, char *out, int cap) {
     demo_get_ui_summary(&summary, now_us);
     n = ui_limited_append_str(out, n, cap, "Tuning: gold_min_trip_mm=");
     n = ui_limited_append_int(out, n, cap, summary.gold_min_trip_mm);
+    n = ui_limited_append_str(out, n, cap, "  missions_completed=");
+    n = ui_limited_append_int(out, n, cap, summary.missions_completed);
     ui_limited_finish(out, n, cap);
 }
 
