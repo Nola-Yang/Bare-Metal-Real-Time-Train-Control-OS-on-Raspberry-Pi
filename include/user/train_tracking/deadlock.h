@@ -40,8 +40,6 @@ typedef struct {
     int                 yield_target_idx;
     uint8_t             parked_at_yield;
     uint8_t             wait_start_mask;
-    uint8_t             yield_history_count;
-    int                 yield_history_idx[DEADLOCK_YIELD_HISTORY_MAX];
 } deadlock_participant_snapshot_t;
 
 typedef struct {
