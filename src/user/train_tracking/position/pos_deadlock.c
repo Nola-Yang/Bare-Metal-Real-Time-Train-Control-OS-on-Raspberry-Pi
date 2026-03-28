@@ -4,10 +4,142 @@
 #include "track.h"
 #include "timer.h"
 #include "demo_manager.h"
+#include "../traffic/traffic_window_internal.h"
 #include <stddef.h>
 #include <stdint.h>
 
 static const int g_deadlock_train_order[6] = {13, 14, 15, 17, 18, 55};
+
+/* Deadlock detection needs the waiter's current dependency edge, not the last
+ * blocker_mask cached by a previous failed launch attempt. */
+static uint8_t deadlock_blocker_mask_from_plan_and_switches(int requester_train,
+                                                            const route_plan_t *plan) {
+    if (!plan) return 0;
+    return pos_route_blocker_mask_from_plan(requester_train, plan) |
+           pos_route_blocker_mask_from_switches(plan->sw_nums, plan->sw_dirs,
+                                                plan->sw_count, requester_train);
+}
+
+static int deadlock_build_wait_plan(const train_pos_t *pos,
+                                    route_plan_t *out_plan) {
+    int start_cursor;
+
+    if (!pos || !out_plan) return 0;
+    if (pos->route_path_count <= 0) return 0;
+
+    start_cursor = (pos->replan.wait_mode == POS_WAIT_RESUME_ROUTE)
+                       ? pos->route_path_cursor
+                       : 0;
+    if (start_cursor < 0) start_cursor = 0;
+    if (start_cursor >= pos->route_path_count) return 0;
+
+    return traffic_window_build_prefix_plan(pos->route_path, pos->route_path_count,
+                                            start_cursor,
+                                            pos->route_path_count - 1, out_plan);
+}
+
+static int deadlock_build_midrev_second_leg_plan(const train_pos_t *pos,
+                                                 route_plan_t *out_plan) {
+    if (!pos || !out_plan || pos->midrev.path2_count <= 0) return 0;
+
+    *out_plan = (route_plan_t){0};
+    out_plan->path_count = pos->midrev.path2_count;
+    for (int i = 0; i < pos->midrev.path2_count; i++) {
+        out_plan->path_nodes[i] = pos->midrev.path2[i];
+    }
+    return 1;
+}
+
+static uint8_t deadlock_live_launch_wait_blocker_mask(const train_pos_t *pos) {
+    route_plan_t reserve_plan;
+    route_plan_t authority_plan;
+    int reserved_end_cursor = -1;
+    int switch_blocker_owner = -1;
+    pos_wait_mode_t wait_mode;
+
+    if (!pos) return 0;
+    wait_mode = (pos_wait_mode_t)pos->replan.wait_mode;
+    if (!deadlock_build_wait_plan(pos, &reserve_plan)) {
+        return pos->replan.blocker_mask;
+    }
+
+    if (wait_mode == POS_WAIT_RESUME_ROUTE &&
+        reserve_plan.total_dist_mm < pos_route_authority_min_mm(pos)) {
+        return 0;
+    }
+
+    if (!pos_route_authority_prepare_launch((train_pos_t *)pos, &reserve_plan,
+                                            &authority_plan,
+                                            &reserved_end_cursor,
+                                            &switch_blocker_owner)) {
+        if (wait_mode == POS_WAIT_RESUME_ROUTE &&
+            switch_blocker_owner == pos->train_num) {
+            return 0;
+        }
+        return deadlock_blocker_mask_from_plan_and_switches(pos->train_num,
+                                                            &reserve_plan);
+    }
+
+    if (pos_route_switch_blocker(authority_plan.sw_nums, authority_plan.sw_dirs,
+                                 authority_plan.sw_count,
+                                 pos->train_num) >= 0) {
+        return pos_route_blocker_mask_from_switches(
+            authority_plan.sw_nums, authority_plan.sw_dirs,
+            authority_plan.sw_count, pos->train_num);
+    }
+
+    if (!traffic_can_reserve_plan(pos->train_num, &authority_plan)) {
+        return pos_route_blocker_mask_from_plan(pos->train_num,
+                                                &authority_plan);
+    }
+
+    return 0;
+}
+
+static uint8_t deadlock_live_midrev_wait_blocker_mask(const train_pos_t *pos) {
+    route_plan_t second_leg_plan;
+    int sw_owner;
+
+    if (!pos) return 0;
+    if (!deadlock_build_midrev_second_leg_plan(pos, &second_leg_plan)) {
+        return pos->replan.blocker_mask;
+    }
+
+    if (!traffic_can_reserve_plan(pos->train_num, &second_leg_plan)) {
+        return pos_route_blocker_mask_from_plan(pos->train_num,
+                                                &second_leg_plan);
+    }
+
+    sw_owner = pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
+                                        pos->midrev.sw_count, pos->train_num);
+    if (sw_owner == pos->train_num) return 0;
+    if (sw_owner >= 0) {
+        return pos_route_blocker_mask_from_switches(pos->midrev.sw_nums,
+                                                    pos->midrev.sw_dirs,
+                                                    pos->midrev.sw_count,
+                                                    pos->train_num);
+    }
+
+    return 0;
+}
+
+static uint8_t deadlock_live_blocker_mask(const train_pos_t *pos) {
+    if (!pos) return 0;
+    if (pos->route_state != TRAIN_STATE_WAIT_RESOURCE) {
+        return pos->replan.blocker_mask;
+    }
+
+    switch ((pos_wait_mode_t)pos->replan.wait_mode) {
+    case POS_WAIT_PRELAUNCH_ROUTE:
+    case POS_WAIT_RESUME_ROUTE:
+        return deadlock_live_launch_wait_blocker_mask(pos);
+    case POS_WAIT_MIDREV_SECOND_LEG:
+        return deadlock_live_midrev_wait_blocker_mask(pos);
+    case POS_WAIT_NONE:
+    default:
+        return pos->replan.blocker_mask;
+    }
+}
 
 static void deadlock_record_yield_history(train_pos_t *pos, track_node *yield_target) {
     pos_deadlock_recover_t *recover;
@@ -279,7 +411,7 @@ static void deadlock_fill_participant_snapshot(
     out->origin1_idx = planner_node_index(origins[1]);
     out->goal_idx = planner_node_index(goal);
     out->goal_offset_mm = goal_offset;
-    out->blocker_mask = pos->replan.blocker_mask;
+    out->blocker_mask = deadlock_live_blocker_mask(pos);
     out->resume_target_idx = planner_node_index(pos->deadlock_recover.resume_target);
     out->resume_offset_mm = pos->deadlock_recover.resume_offset_mm;
     out->yield_target_idx = planner_node_index(pos->deadlock_recover.yield_target);
