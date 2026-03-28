@@ -16,6 +16,16 @@ static int g_zone_counts[MAX_MUTEX_ZONES];
 static int g_zone_count = 0;
 static uint32_t g_node_zone_mask[TRACK_MAX];
 
+static int traffic_owner_is_stationary(int train_num) {
+    train_pos_t *pos = pos_get(train_num);
+    if (!pos) return 0;
+
+    return pos->route_state == TRAIN_STATE_STOPPED ||
+           pos->route_state == TRAIN_STATE_WAIT_RESOURCE ||
+           pos->route_state == TRAIN_STATE_WAIT_SWITCH_SETTLE ||
+           pos->route_state == TRAIN_STATE_DEAD_TRACK;
+}
+
 static void traffic_note_change(int routes_dirty) {
     g_change_generation++;
     if (routes_dirty) pos_mark_routes_dirty();
@@ -393,8 +403,14 @@ static void traffic_refresh_sensor_prediction_reservation_internal(
     }
 
     for (int i = 0; i < TRACK_MAX; i++) {
+        int owner;
         if (!keep[i]) continue;
-        if (!force_override && node_owner[i] >= 0) continue;
+        owner = node_owner[i];
+        if (!force_override && owner >= 0) continue;
+        if (force_override && owner >= 0 && owner != train_num &&
+            traffic_owner_is_stationary(owner)) {
+            continue;
+        }
         if (node_owner[i] != train_num) {
             node_owner[i] = train_num;
             changed = 1;
