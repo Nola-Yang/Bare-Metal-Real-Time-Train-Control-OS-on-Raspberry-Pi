@@ -44,9 +44,7 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
 /* Rolling reservation window tuning.
  * threshold    = GOTO_MIN_DIST_FACTOR * brake_dist + early_stop_dist
  * auth target  = first reachable sensor on the committed route whose
- *                distance is >= threshold; if the current leg goal is nearer
- *                than threshold but still at least stop_dist away, the full
- *                clear leg may be taken directly
+ *                distance is >= threshold
  * extend point = actual stop distance (brake + early stop) */
 
 /* Train order used for deadlock blocker masks. */
@@ -127,11 +125,6 @@ int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *ful
                                        route_plan_t *out_prefix,
                                        int *out_reserved_end_cursor,
                                        int *out_switch_blocker_owner);
-int pos_route_authority_prepare_launch_strict(train_pos_t *pos,
-                                              const route_plan_t *full_plan,
-                                              route_plan_t *out_prefix,
-                                              int *out_reserved_end_cursor,
-                                              int *out_switch_blocker_owner);
 int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force);
 
 /* Stop and wait for resources; pending_target remains unchanged for retries. */

@@ -316,9 +316,14 @@ static int tick_handle_stopping_goto(train_pos_t *pos, uint64_t now_us) {
 /* Continuously estimate remaining distance to target and issue the stop
  * command when the train enters the braking window. */
 static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
+    int waiting_for_first_hit;
+    int stop_cmd_sent;
+
     if (pos->route_state != TRAIN_STATE_ON_ROUTE) return 0;
     if (!pos->target_sensor || !pos->cur_sensor || pos->effective_v <= 0) return 0;
-    if (pos_waiting_for_first_launch_hit(pos)) return 0;
+
+    waiting_for_first_hit = pos_waiting_for_first_launch_hit(pos);
+    stop_cmd_sent = pos->stopping_since_us > 0;
 
     if (pos->route_rem_tick_us > 0 && now_us > pos->route_rem_tick_us) {
         uint64_t dt = now_us - pos->route_rem_tick_us;
@@ -329,6 +334,16 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
     pos->route_rem_tick_us = now_us;
 
     int32_t rem = pos->dist_to_target_mm;
+
+    /* If braking was already commanded before the first post-launch hit,
+     * keep the train logically ON_ROUTE until a real sensor confirms progress.
+     * Once a hit arrives, convert that pending brake into STOPPING. */
+    if (stop_cmd_sent && !waiting_for_first_hit) {
+        pos->route_state = TRAIN_STATE_STOPPING;
+        pos->dead_track_deadline_us = 0;
+        ui_mark_position_dirty();
+        return 1;
+    }
 
     int32_t a = speed_table_get_decel(pos->train_ind, pos->user_speed);
     if (a > 0) {
@@ -347,15 +362,27 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
         }
 
         if (rem <= d_early) {
-            if (pos_route_authority_try_top_up(pos, now_us, 1)) {
+            if (!stop_cmd_sent && pos_route_authority_try_top_up(pos, now_us, 1)) {
                 pos->route_rem_tick_us = now_us;
                 ui_mark_position_dirty();
                 return 0;
             }
+
+            if (waiting_for_first_hit) {
+                if (!stop_cmd_sent) {
+                    pos->stopping_since_us = now_us;
+                    track_set_speed(pos->train_num, 0);
+                }
+                ui_mark_position_dirty();
+                return 1;
+            }
+
             pos->route_state = TRAIN_STATE_STOPPING;
-            pos->stopping_since_us = now_us;
             pos->dead_track_deadline_us = 0;
-            track_set_speed(pos->train_num, 0);
+            if (!stop_cmd_sent) {
+                pos->stopping_since_us = now_us;
+                track_set_speed(pos->train_num, 0);
+            }
             ui_mark_position_dirty();
             return 1;
         }

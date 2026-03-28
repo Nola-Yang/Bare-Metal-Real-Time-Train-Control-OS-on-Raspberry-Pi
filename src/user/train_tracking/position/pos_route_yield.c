@@ -142,18 +142,17 @@ static int pos_deadlock_candidate_can_force_move(train_pos_t *pos,
                                                  track_node *target) {
     pos_route_eval_result_t result;
     int reserved_end_cursor = -1;
-    int switch_blocker_owner = -1;
 
     if (!pos || !target) return 0;
 
     result = pos_evaluate_target_plan(pos, target, &g_pos_try_eval_force_move);
     if (result != POS_ROUTE_EVAL_READY) return 0;
 
-    return pos_route_authority_prepare_launch_strict(
+    return pos_route_authority_prepare_launch(
         pos, &g_pos_try_eval_force_move.plan,
         &g_pos_try_launch_prefix,
         &reserved_end_cursor,
-        &switch_blocker_owner);
+        NULL);
 }
 
 int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
