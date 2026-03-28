@@ -274,22 +274,6 @@ static int pos_try_direct_goto_impl(train_pos_t *pos,
     return 1;
 }
 
-int pos_launch_preplanned_route(train_pos_t *pos, const route_plan_t *plan,
-                                track_node *launch_origin,
-                                int need_initial_reverse,
-                                int32_t final_offset_mm,
-                                uint64_t now_us) {
-    int ok;
-
-    if (!pos || !plan) return 0;
-
-    pos_commit_route_plan(pos, plan, launch_origin, need_initial_reverse,
-                          final_offset_mm);
-    pos->replan.wait_mode = POS_WAIT_PRELAUNCH_ROUTE;
-    ok = pos_try_launch_committed_route(pos, now_us);
-    return ok ? 1 : 0;
-}
-
 int pos_try_direct_goto(train_pos_t *pos) {
     return pos_try_direct_goto_impl(pos, 1);
 }
