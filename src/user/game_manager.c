@@ -46,6 +46,7 @@ typedef struct {
     uint16_t standby_sensor_num;
     int standby_dispatched;
     int standby_completed;
+    track_node *reported_detour_target;
 } game_role_slot_t;
 
 static game_state_t g_game_state = GAME_STATE_OFF;
@@ -175,6 +176,7 @@ static void game_reset_slot(game_role_slot_t *slot) {
     slot->standby_sensor_num = 0;
     slot->standby_dispatched = 0;
     slot->standby_completed = 0;
+    slot->reported_detour_target = NULL;
 }
 
 static void game_reset_all(void) {
@@ -299,6 +301,120 @@ static int game_is_sensor_currently_occupied(int sensor_num) {
     return 0;
 }
 
+static int game_sensor_matches_target(uint16_t sensor_num, track_node *target) {
+    if (sensor_num == 0 || !target) return 0;
+    if (target->type == NODE_SENSOR &&
+        sensor_num == (uint16_t)(target->num + 1)) {
+        return 1;
+    }
+    if (target->reverse &&
+        target->reverse->type == NODE_SENSOR &&
+        sensor_num == (uint16_t)(target->reverse->num + 1)) {
+        return 1;
+    }
+    return 0;
+}
+
+static int game_targets_same_sensor(track_node *a, track_node *b) {
+    if (!a || !b) return 0;
+    return a == b || a->reverse == b || b->reverse == a;
+}
+
+static track_node *game_pos_final_target_node(const train_pos_t *pos) {
+    if (!pos) return NULL;
+    if (pos->orig_user_target) return pos->orig_user_target;
+    if (pos->midrev.active && pos->midrev.final_target) return pos->midrev.final_target;
+    return pos->target_sensor;
+}
+
+static int game_pos_is_stopped_at_target(const train_pos_t *pos, track_node *target) {
+    track_node *final_target;
+
+    if (!pos || !target) return 0;
+    if (pos->route_state != TRAIN_STATE_STOPPED) return 0;
+
+    final_target = game_pos_final_target_node(pos);
+    if (pos->parked_target_col == POS_TARGET_COL_FINAL &&
+        game_targets_same_sensor(final_target, target)) {
+        return 1;
+    }
+
+    return 0;
+}
+
+static void game_sync_slot_completion_from_position(game_role_t role) {
+    game_role_slot_t *slot;
+    train_pos_t *pos;
+    int changed = 0;
+
+    if (role < 0 || role >= GAME_ROLES) return;
+
+    slot = &g_slots[role];
+    if (slot->train_num < 0) return;
+
+    pos = pos_get(slot->train_num);
+    if (!pos) return;
+
+    if (!slot->completed && game_pos_is_stopped_at_target(pos, slot->target)) {
+        slot->completed = 1;
+        changed = 1;
+    }
+
+    if (role == GAME_ROLE_NEUTRAL &&
+        !slot->standby_completed &&
+        slot->standby_target != NULL &&
+        game_pos_is_stopped_at_target(pos, slot->standby_target)) {
+        slot->standby_completed = 1;
+        changed = 1;
+    }
+
+    if (changed) ui_mark_position_dirty();
+}
+
+static void game_log_neutral_detour_if_needed(void) {
+    game_role_slot_t *neutral = &g_slots[GAME_ROLE_NEUTRAL];
+    train_pos_t *pos;
+    track_node *detour = NULL;
+    char buf[128];
+    char *p = buf;
+    char *end = buf + sizeof(buf) - 1;
+
+    if (neutral->train_num < 0 || neutral->target == NULL) {
+        neutral->reported_detour_target = NULL;
+        return;
+    }
+
+    pos = pos_get(neutral->train_num);
+    if (!pos) {
+        neutral->reported_detour_target = NULL;
+        return;
+    }
+
+    if (pos->deadlock_recover.valid &&
+        pos->deadlock_recover.yield_target != NULL &&
+        !game_targets_same_sensor(pos->deadlock_recover.yield_target,
+                                  neutral->target)) {
+        detour = pos->deadlock_recover.yield_target;
+    }
+
+    if (!detour) {
+        neutral->reported_detour_target = NULL;
+        return;
+    }
+
+    if (neutral->reported_detour_target == detour) return;
+    neutral->reported_detour_target = detour;
+
+    p = buf_append_cap(p, end, "game: neutral rerouted ");
+    p = buf_append_cap(p, end,
+                       neutral->target && neutral->target->name ? neutral->target->name : "-");
+    p = buf_append_cap(p, end, " -> ");
+    p = buf_append_cap(p, end, detour->name ? detour->name : "-");
+    p = buf_append_cap(p, end, " (deadlock yield)");
+    *p = '\0';
+    game_log_line(buf);
+}
+
 static int game_train_has_min_trip_candidate(int train_num) {
     pos_target_query_t *query = &g_game_query_secondary;
 
@@ -338,6 +454,7 @@ static void game_reset_round_state(void) {
         g_slots[i].standby_sensor_num = 0;
         g_slots[i].standby_dispatched = 0;
         g_slots[i].standby_completed = 0;
+        g_slots[i].reported_detour_target = NULL;
     }
 }
 
@@ -627,14 +744,15 @@ static void game_consume_events(void) {
                 ui_mark_position_dirty();
             } else if (events[i].type == POS_GAME_EVENT_GOAL_STOP &&
                        g_game_state == GAME_STATE_ROUND_RUNNING) {
-                if (events[i].sensor_num == g_slots[role].target_sensor_num &&
-                    g_slots[role].target_sensor_num != 0) {
+                if (game_sensor_matches_target(events[i].sensor_num,
+                                               g_slots[role].target)) {
                     g_slots[role].completed = 1;
                     ui_mark_position_dirty();
                 }
                 if (role == GAME_ROLE_NEUTRAL &&
-                    events[i].sensor_num == g_slots[role].standby_sensor_num &&
-                    g_slots[role].standby_dispatched) {
+                    g_slots[role].standby_dispatched &&
+                    game_sensor_matches_target(events[i].sensor_num,
+                                               g_slots[role].standby_target)) {
                     g_slots[role].standby_completed = 1;
                     ui_mark_position_dirty();
                 }
@@ -648,11 +766,15 @@ static void game_try_redirect_neutral(track_node *standby, const char *reason) {
     char buf[96];
     char *p = buf;
     char *end = buf + sizeof(buf) - 1;
+    game_role_slot_t *neutral = &g_slots[GAME_ROLE_NEUTRAL];
 
     if (!standby) return;
     if (!game_dispatch_target(GAME_ROLE_NEUTRAL, standby, 1)) return;
 
-    p = buf_append_cap(p, end, "game: neutral standby ");
+    p = buf_append_cap(p, end, "game: neutral rerouted ");
+    p = buf_append_cap(p, end,
+                       neutral->target && neutral->target->name ? neutral->target->name : "-");
+    p = buf_append_cap(p, end, " -> ");
     p = buf_append_cap(p, end, standby->name ? standby->name : "-");
     if (reason && reason[0]) {
         p = buf_append_cap(p, end, " (");
@@ -664,12 +786,39 @@ static void game_try_redirect_neutral(track_node *standby, const char *reason) {
     ui_mark_position_dirty();
 }
 
+static void game_mark_neutral_resolved_at_standby(track_node *standby, const char *reason) {
+    game_role_slot_t *neutral = &g_slots[GAME_ROLE_NEUTRAL];
+    char buf[144];
+    char *p = buf;
+    char *end = buf + sizeof(buf) - 1;
+
+    if (!standby) return;
+
+    neutral->standby_target = standby;
+    neutral->standby_sensor_num = (uint16_t)(standby->num + 1);
+    neutral->standby_dispatched = 1;
+    neutral->standby_completed = 1;
+
+    p = buf_append_cap(p, end, "game: neutral resolved at ");
+    p = buf_append_cap(p, end, standby->name ? standby->name : "-");
+    if (reason && reason[0]) {
+        p = buf_append_cap(p, end, " (");
+        p = buf_append_cap(p, end, reason);
+        p = buf_append_cap(p, end, ")");
+    }
+    *p = '\0';
+    game_log_line(buf);
+    game_set_hint("Neutral resolved at standby");
+    ui_mark_position_dirty();
+}
+
 static void game_try_resolve_neutral_cases(void) {
     game_role_slot_t *neutral = &g_slots[GAME_ROLE_NEUTRAL];
     pos_target_query_t *query = &g_game_query_primary;
     train_pos_t *neutral_pos;
 
     if (g_game_state != GAME_STATE_ROUND_RUNNING) return;
+    game_log_neutral_detour_if_needed();
     if (neutral->standby_dispatched || neutral->completed) return;
 
     neutral_pos = pos_get(neutral->train_num);
@@ -701,8 +850,17 @@ static void game_try_resolve_neutral_cases(void) {
         if (pos_query_target(neutral->train_num, neutral->target, query) == POS_TARGET_BLOCKED &&
             query->blocker_mask != 0 &&
             (query->blocker_mask & (uint8_t)~player_mask) == 0) {
-            game_try_redirect_neutral(game_pick_neutral_standby_target(),
-                                      "neutral blocked by completed players");
+            if (neutral_pos->deadlock_recover.valid &&
+                neutral_pos->deadlock_recover.parked_at_yield &&
+                neutral_pos->deadlock_recover.yield_target != NULL) {
+                game_mark_neutral_resolved_at_standby(
+                    neutral_pos->deadlock_recover.yield_target,
+                    "official target blocked by completed players");
+            } else {
+                game_try_redirect_neutral(game_pick_neutral_standby_target(),
+                                          "official target blocked by completed players");
+            }
+            return;
         }
     }
 }
@@ -1122,7 +1280,11 @@ void game_on_tick(uint64_t now_us) {
 
     if (g_game_state != GAME_STATE_ROUND_RUNNING) return;
 
+    game_sync_slot_completion_from_position(GAME_ROLE_HUMAN);
+    game_sync_slot_completion_from_position(GAME_ROLE_AI);
+    game_sync_slot_completion_from_position(GAME_ROLE_NEUTRAL);
     game_try_resolve_neutral_cases();
+    game_sync_slot_completion_from_position(GAME_ROLE_NEUTRAL);
     if (game_round_done()) {
         game_advance_round_or_finish();
     }
