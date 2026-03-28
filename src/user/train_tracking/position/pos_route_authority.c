@@ -19,6 +19,36 @@ static int32_t authority_path_dist(const uint16_t *path, int start_cursor,
     return route_path_dist_from(path, start_cursor, end_cursor + 1);
 }
 
+static int authority_effective_start_cursor(const train_pos_t *pos,
+                                            const uint16_t *path,
+                                            int path_count,
+                                            int start_cursor) {
+    int cur_idx;
+
+    if (!pos || !path || path_count <= 1) return start_cursor;
+    if (start_cursor != 0) return start_cursor;
+    if (!pos->awaiting_post_launch_sensor || !pos->cur_sensor) return start_cursor;
+    if (pos->pred.next_sensor != pos->cur_sensor) return start_cursor;
+
+    cur_idx = (int)(pos->cur_sensor - g_track);
+    if (cur_idx < 0 || cur_idx >= TRACK_MAX) return start_cursor;
+    if ((int)path[1] != cur_idx) return start_cursor;
+    return 1;
+}
+
+static int32_t authority_effective_path_dist(const train_pos_t *pos,
+                                             const uint16_t *path,
+                                             int path_count,
+                                             int start_cursor,
+                                             int end_cursor) {
+    int effective_start_cursor;
+
+    if (!pos || !path || path_count <= 0) return -1;
+    effective_start_cursor =
+        authority_effective_start_cursor(pos, path, path_count, start_cursor);
+    return authority_path_dist(path, effective_start_cursor, end_cursor);
+}
+
 static int32_t authority_early_stop_mm(const train_pos_t *pos) {
     int32_t tv;
 
@@ -59,12 +89,14 @@ static void authority_sync_target_internal(train_pos_t *pos) {
                                 ? pos->orig_target_offset
                                 : 0;
 
-    dist = authority_path_dist(pos->route_path, pos->route_path_cursor, end_cursor);
+    dist = authority_effective_path_dist(pos, pos->route_path, pos->route_path_count,
+                                         pos->route_path_cursor, end_cursor);
     pos->dist_to_target_mm = (dist >= 0) ? dist + pos->target_offset_mm : 0;
     if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
 }
 
-static int authority_build_best_prefix(int requester_train, const uint16_t *path,
+static int authority_build_best_prefix(const train_pos_t *pos,
+                                       int requester_train, const uint16_t *path,
                                        int path_count, int start_cursor,
                                        int32_t min_window_mm,
                                        int32_t stop_dist_mm,
@@ -87,7 +119,9 @@ static int authority_build_best_prefix(int requester_train, const uint16_t *path
             break;
         }
 
-        dist_mm = g_authority_candidate_prefix.total_dist_mm;
+        dist_mm = authority_effective_path_dist(pos, path, path_count,
+                                                start_cursor, end_cursor);
+        if (dist_mm < 0) break;
         if (dist_mm <= 0) continue;
 
         if (end_cursor != path_count - 1 &&
@@ -162,8 +196,9 @@ int32_t pos_route_authority_extend_trigger_mm(const train_pos_t *pos) {
 int32_t pos_route_authority_remaining_mm(const train_pos_t *pos) {
     if (!pos || pos->route_path_count <= 0) return 0;
     if (pos->route_reserved_end_cursor < pos->route_path_cursor) return 0;
-    return authority_path_dist(pos->route_path, pos->route_path_cursor,
-                               pos->route_reserved_end_cursor);
+    return authority_effective_path_dist(pos, pos->route_path, pos->route_path_count,
+                                         pos->route_path_cursor,
+                                         pos->route_reserved_end_cursor);
 }
 
 int pos_route_authority_is_leg_goal_stop(const train_pos_t *pos) {
@@ -193,7 +228,7 @@ int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *ful
     min_window_mm = pos_route_authority_target_mm(pos);
     stop_dist_mm = pos_route_authority_stop_dist_mm(pos);
 
-    return authority_build_best_prefix(pos->train_num, full_plan->path_nodes,
+    return authority_build_best_prefix(pos, pos->train_num, full_plan->path_nodes,
                                        full_plan->path_count, 0,
                                        min_window_mm,
                                        stop_dist_mm,
@@ -218,7 +253,7 @@ int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force)
         return 0;
     }
 
-    if (authority_build_best_prefix(pos->train_num, pos->route_path,
+    if (authority_build_best_prefix(pos, pos->train_num, pos->route_path,
                                     pos->route_path_count, pos->route_path_cursor,
                                     pos_route_authority_target_mm(pos),
                                     pos_route_authority_stop_dist_mm(pos),
