@@ -127,6 +127,11 @@ int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *ful
                                        route_plan_t *out_prefix,
                                        int *out_reserved_end_cursor,
                                        int *out_switch_blocker_owner);
+int pos_route_authority_prepare_launch_strict(train_pos_t *pos,
+                                              const route_plan_t *full_plan,
+                                              route_plan_t *out_prefix,
+                                              int *out_reserved_end_cursor,
+                                              int *out_switch_blocker_owner);
 int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force);
 
 /* Stop and wait for resources; pending_target remains unchanged for retries. */

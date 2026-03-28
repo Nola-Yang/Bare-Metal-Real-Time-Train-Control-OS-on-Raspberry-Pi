@@ -149,10 +149,11 @@ static int pos_deadlock_candidate_can_force_move(train_pos_t *pos,
     result = pos_evaluate_target_plan(pos, target, &g_pos_try_eval_force_move);
     if (result != POS_ROUTE_EVAL_READY) return 0;
 
-    return pos_route_authority_prepare_launch(pos, &g_pos_try_eval_force_move.plan,
-                                              &g_pos_try_launch_prefix,
-                                              &reserved_end_cursor,
-                                              &switch_blocker_owner);
+    return pos_route_authority_prepare_launch_strict(
+        pos, &g_pos_try_eval_force_move.plan,
+        &g_pos_try_launch_prefix,
+        &reserved_end_cursor,
+        &switch_blocker_owner);
 }
 
 int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,

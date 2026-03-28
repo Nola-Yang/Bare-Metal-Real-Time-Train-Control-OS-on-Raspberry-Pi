@@ -91,6 +91,11 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
         return 1;
     }
 
+    if (wait_mode == POS_WAIT_RESUME_ROUTE &&
+        g_pos_try_reserve_plan.total_dist_mm < pos_route_authority_min_mm(pos)) {
+        return pos_replan_from_current_stop(pos);
+    }
+
     if (!pos_route_authority_prepare_launch(pos, &g_pos_try_reserve_plan,
                                             &g_pos_try_authority_plan,
                                             &reserved_end_cursor,
