@@ -55,6 +55,14 @@ void traffic_refresh_sensor_prediction_reservation(int train_num,
                                                    track_node *pred_sensor,
                                                    int32_t rear_mm);
 
+/* Same as traffic_refresh_sensor_prediction_reservation(), but force the
+ * kept nodes to become owned by train_num even if another train held them.
+ * Used for auth-stop target-hit preservation of the adjacent safety sensor. */
+void traffic_refresh_sensor_prediction_reservation_force(int train_num,
+                                                         track_node *cur_sensor,
+                                                         track_node *pred_sensor,
+                                                         int32_t rear_mm);
+
 /* Check if it is safe to set a switch.
  * Any reservation on the switch envelope blocks the change, including self-owned
  * reservations. Returns -1 when safe; otherwise returns the blocking train number. */

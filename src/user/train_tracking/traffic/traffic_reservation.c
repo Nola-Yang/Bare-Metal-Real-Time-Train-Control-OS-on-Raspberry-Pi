@@ -357,10 +357,13 @@ void traffic_refresh_route_reservation(int train_num, track_node *cur_sensor,
     if (changed) traffic_note_change(1);
 }
 
-void traffic_refresh_sensor_prediction_reservation(int train_num,
-                                                   track_node *cur_sensor,
-                                                   track_node *pred_sensor,
-                                                   int32_t rear_mm) {
+static void traffic_refresh_sensor_prediction_reservation_internal(
+    int train_num,
+    track_node *cur_sensor,
+    track_node *pred_sensor,
+    int32_t rear_mm,
+    int force_override
+) {
     if (train_num < 0 || !cur_sensor) return;
 
     uint8_t keep[TRACK_MAX];
@@ -390,9 +393,12 @@ void traffic_refresh_sensor_prediction_reservation(int train_num,
     }
 
     for (int i = 0; i < TRACK_MAX; i++) {
-        if (!keep[i] || node_owner[i] >= 0) continue;
-        node_owner[i] = train_num;
-        changed = 1;
+        if (!keep[i]) continue;
+        if (!force_override && node_owner[i] >= 0) continue;
+        if (node_owner[i] != train_num) {
+            node_owner[i] = train_num;
+            changed = 1;
+        }
     }
 
     int idx = traffic_node_index(cur_sensor);
@@ -407,6 +413,28 @@ void traffic_refresh_sensor_prediction_reservation(int train_num,
     }
 
     if (changed) traffic_note_change(1);
+}
+
+void traffic_refresh_sensor_prediction_reservation(int train_num,
+                                                   track_node *cur_sensor,
+                                                   track_node *pred_sensor,
+                                                   int32_t rear_mm) {
+    traffic_refresh_sensor_prediction_reservation_internal(train_num,
+                                                           cur_sensor,
+                                                           pred_sensor,
+                                                           rear_mm,
+                                                           0);
+}
+
+void traffic_refresh_sensor_prediction_reservation_force(int train_num,
+                                                         track_node *cur_sensor,
+                                                         track_node *pred_sensor,
+                                                         int32_t rear_mm) {
+    traffic_refresh_sensor_prediction_reservation_internal(train_num,
+                                                           cur_sensor,
+                                                           pred_sensor,
+                                                           rear_mm,
+                                                           1);
 }
 
 int traffic_can_set_switch(int sw_num, int requester_train) {

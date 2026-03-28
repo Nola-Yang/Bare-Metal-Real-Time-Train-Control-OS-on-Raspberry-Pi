@@ -83,6 +83,10 @@ static void deadlock_collect_participants(deadlock_participants_t *parts) {
             continue;
         }
 
+        if (pos->route_state == TRAIN_STATE_WAIT_RESOURCE) {
+            pos->replan.blocker_mask = pos_wait_resource_current_blocker_mask(pos);
+        }
+
         local_bit = (uint8_t)(1u << parts->count);
         parts->train_nums[parts->count] = train_order[i];
         parts->global_bits[parts->count] = pos_deadlock_train_bit(train_order[i]);

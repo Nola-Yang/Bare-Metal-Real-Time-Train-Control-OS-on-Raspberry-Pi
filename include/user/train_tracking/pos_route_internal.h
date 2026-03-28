@@ -50,4 +50,8 @@ pos_route_eval_result_t pos_evaluate_target_ready_now(train_pos_t *pos,
                                                       track_node *user_target,
                                                       pos_route_eval_t *out);
 
+/* Recompute the trains currently blocking a WAIT_RESOURCE train.
+ * Returns 0 when the train is not blocked right now. */
+uint8_t pos_wait_resource_current_blocker_mask(train_pos_t *pos);
+
 #endif /* _pos_route_internal_h_ */

@@ -81,7 +81,7 @@ void pos_refresh_stop_reservation(train_pos_t *pos) {
 
     if (!pos || !pos->cur_sensor) return;
 
-    keep_end = pos_release_keep_end(pos->cur_sensor, pos->pred.next_sensor);
+    keep_end = pos_release_keep_end(pos->cur_sensor, NULL);
     keep_after_hit_sensor = NULL;
     if (pos->target_sensor != NULL &&
         pos->cur_sensor == pos->target_sensor) {
@@ -93,10 +93,10 @@ void pos_refresh_stop_reservation(train_pos_t *pos) {
         pos->route_path_cursor < pos->route_reserved_end_cursor;
 
     if (keep_after_hit_sensor != NULL) {
-        traffic_refresh_sensor_prediction_reservation(pos->train_num,
-                                                      pos->cur_sensor,
-                                                      keep_after_hit_sensor,
-                                                      0);
+        traffic_refresh_sensor_prediction_reservation_force(pos->train_num,
+                                                            pos->cur_sensor,
+                                                            keep_after_hit_sensor,
+                                                            0);
         return;
     }
 
