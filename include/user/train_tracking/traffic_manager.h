@@ -25,6 +25,11 @@ void traffic_init(void);
 /* Build blocked-node constraints for requester_train route planning. */
 void traffic_build_constraints(int requester_train, uint8_t blocked[TRACK_MAX]);
 
+/* Pure helpers for local planning on copied reservation maps. */
+void traffic_expand_zone_marks(uint8_t marks[TRACK_MAX]);
+void traffic_build_plan_marks_copy(const route_plan_t *plan,
+                                   uint8_t want[TRACK_MAX]);
+
 /* Reserve a plan's node path for a train. Returns 1 on success, 0 on conflict. */
 int traffic_reserve_plan(int train_num, track_node *start, const route_plan_t *plan);
 

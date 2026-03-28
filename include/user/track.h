@@ -35,6 +35,7 @@ void track_log_sensor(uint16_t sensor_id, uint64_t time_us, uint8_t state);
 void track_update_switch(int sw_id, char state);
 const sensor_entry_t* track_get_sensor_log(int *head);
 const switch_entry_t* track_get_switch_state(void);
+uint32_t track_get_switch_generation(void);
 track_node *track_find_node(const char *name);
 
 // Switch number mapping (user number 1-18, 153-156 to array index 0-21)

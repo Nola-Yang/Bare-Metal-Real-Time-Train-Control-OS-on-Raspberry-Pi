@@ -31,6 +31,8 @@
 #define GAME_SERVER_PRIORITY          6
 #define UI_TICK_PRIORITY              6
 #define TRAIN_COURIER_PRIORITY        6
+#define DEADLOCK_SERVER_PRIORITY      7
+#define DEADLOCK_TICK_PRIORITY        7
 
 #define CAN_NOTIFIER_PRIORITY  1
 

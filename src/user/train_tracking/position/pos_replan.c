@@ -101,7 +101,6 @@ static void pos_replan_service_waiter(train_pos_t *pos, uint64_t now_us) {
     if (!pos_wait_resource_retry_due(pos, now_us)) return;
 
     pos_wait_resource_schedule_retry(pos, now_us);
-    if (pos_deadlock_maybe_reroute_waiter(pos, now_us)) return;
     (void)pos_try_resume_wait_resource(pos, now_us);
 }
 

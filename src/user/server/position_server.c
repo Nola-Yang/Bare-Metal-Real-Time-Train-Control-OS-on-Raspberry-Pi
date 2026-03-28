@@ -1,5 +1,6 @@
 #include "server/position_server.h"
 #include "train_tracking/position.h"
+#include "train_tracking/deadlock.h"
 #include "train_tracking/traffic_manager.h"
 #include "server/nameserver.h"
 #include "syscall.h"
@@ -18,6 +19,8 @@ typedef enum {
     POS_REQ_START_FIND_POS = 8,
     POS_REQ_MARK_ROUTES_DIRTY = 9,
     POS_REQ_RELEASE_TRAIN = 10,
+    POS_REQ_GET_DEADLOCK_SNAPSHOT = 11,
+    POS_REQ_APPLY_DEADLOCK_RESULT = 12,
 } position_request_type_t;
 
 typedef struct {
@@ -28,10 +31,12 @@ typedef struct {
     int32_t offset_mm;
     uint16_t sensor_id;
     uint64_t now_us;
+    deadlock_result_t deadlock_result;
 } PositionRequest_t;
 
 typedef struct {
     int status;
+    deadlock_snapshot_t deadlock_snapshot;
 } PositionReply_t;
 
 static int position_send_request(int tid,
@@ -116,6 +121,16 @@ void position_server_task(void) {
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
 
+            case POS_REQ_GET_DEADLOCK_SNAPSHOT:
+                pos_deadlock_build_snapshot(&reply.deadlock_snapshot, req.now_us);
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                break;
+
+            case POS_REQ_APPLY_DEADLOCK_RESULT:
+                reply.status = pos_deadlock_apply_result(&req.deadlock_result);
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                break;
+
             default:
                 reply.status = -1;
                 Reply(tid, (const char *)&reply, sizeof(reply));
@@ -125,16 +140,16 @@ void position_server_task(void) {
 }
 
 int PositionServerInit(int tid) {
-    PositionRequest_t req;
-    PositionReply_t reply;
+    PositionRequest_t req = {0};
+    PositionReply_t reply = {0};
 
     req.type = POS_REQ_INIT;
     return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
 }
 
 int PositionServerOnSensor(int tid, uint16_t sensor_id, uint64_t time_us) {
-    PositionRequest_t req;
-    PositionReply_t reply;
+    PositionRequest_t req = {0};
+    PositionReply_t reply = {0};
 
     req.type = POS_REQ_SENSOR;
     req.sensor_id = sensor_id;
@@ -143,8 +158,8 @@ int PositionServerOnSensor(int tid, uint16_t sensor_id, uint64_t time_us) {
 }
 
 int PositionServerOnFastTick(int tid, uint64_t now_us) {
-    PositionRequest_t req;
-    PositionReply_t reply;
+    PositionRequest_t req = {0};
+    PositionReply_t reply = {0};
 
     req.type = POS_REQ_FAST_TICK;
     req.now_us = now_us;
@@ -152,8 +167,8 @@ int PositionServerOnFastTick(int tid, uint64_t now_us) {
 }
 
 int PositionServerOnReplanTick(int tid, uint64_t now_us) {
-    PositionRequest_t req;
-    PositionReply_t reply;
+    PositionRequest_t req = {0};
+    PositionReply_t reply = {0};
 
     req.type = POS_REQ_REPLAN_TICK;
     req.now_us = now_us;
@@ -161,8 +176,8 @@ int PositionServerOnReplanTick(int tid, uint64_t now_us) {
 }
 
 int PositionServerOnSwitchSettleTick(int tid, uint64_t now_us) {
-    PositionRequest_t req;
-    PositionReply_t reply;
+    PositionRequest_t req = {0};
+    PositionReply_t reply = {0};
 
     req.type = POS_REQ_SWITCH_SETTLE_TICK;
     req.now_us = now_us;
@@ -170,8 +185,8 @@ int PositionServerOnSwitchSettleTick(int tid, uint64_t now_us) {
 }
 
 int PositionServerSpeedChange(int tid, int train_num, int user_speed) {
-    PositionRequest_t req;
-    PositionReply_t reply;
+    PositionRequest_t req = {0};
+    PositionReply_t reply = {0};
 
     req.type = POS_REQ_SPEED_CHANGE;
     req.train = train_num;
@@ -180,8 +195,8 @@ int PositionServerSpeedChange(int tid, int train_num, int user_speed) {
 }
 
 int PositionServerReverse(int tid, int train_num) {
-    PositionRequest_t req;
-    PositionReply_t reply;
+    PositionRequest_t req = {0};
+    PositionReply_t reply = {0};
 
     req.type = POS_REQ_REVERSE;
     req.train = train_num;
@@ -189,8 +204,8 @@ int PositionServerReverse(int tid, int train_num) {
 }
 
 int PositionServerGoto(int tid, int train_num, int target_idx, int speed_level, int32_t offset_mm) {
-    PositionRequest_t req;
-    PositionReply_t reply;
+    PositionRequest_t req = {0};
+    PositionReply_t reply = {0};
 
     req.type = POS_REQ_GOTO;
     req.train = train_num;
@@ -202,8 +217,8 @@ int PositionServerGoto(int tid, int train_num, int target_idx, int speed_level, 
 }
 
 int PositionServerStartFindPos(int tid, int train_num) {
-    PositionRequest_t req;
-    PositionReply_t reply;
+    PositionRequest_t req = {0};
+    PositionReply_t reply = {0};
 
     req.type = POS_REQ_START_FIND_POS;
     req.train = train_num;
@@ -213,18 +228,40 @@ int PositionServerStartFindPos(int tid, int train_num) {
 }
 
 int PositionServerMarkRoutesDirty(int tid) {
-    PositionRequest_t req;
-    PositionReply_t reply;
+    PositionRequest_t req = {0};
+    PositionReply_t reply = {0};
 
     req.type = POS_REQ_MARK_ROUTES_DIRTY;
     return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
 }
 
 int PositionServerReleaseTrain(int tid, int train_num) {
-    PositionRequest_t req;
-    PositionReply_t reply;
+    PositionRequest_t req = {0};
+    PositionReply_t reply = {0};
 
     req.type = POS_REQ_RELEASE_TRAIN;
     req.train = train_num;
+    return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
+}
+
+int PositionServerGetDeadlockSnapshot(int tid, uint64_t now_us,
+                                      deadlock_snapshot_t *out) {
+    PositionRequest_t req = {0};
+    PositionReply_t reply = {0};
+
+    req.type = POS_REQ_GET_DEADLOCK_SNAPSHOT;
+    req.now_us = now_us;
+
+    if (position_send_request(tid, &req, &reply) < 0) return -1;
+    if (out) *out = reply.deadlock_snapshot;
+    return reply.status;
+}
+
+int PositionServerApplyDeadlockResult(int tid, const deadlock_result_t *result) {
+    PositionRequest_t req = {0};
+    PositionReply_t reply = {0};
+
+    req.type = POS_REQ_APPLY_DEADLOCK_RESULT;
+    req.deadlock_result = result ? *result : (deadlock_result_t){0};
     return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
 }

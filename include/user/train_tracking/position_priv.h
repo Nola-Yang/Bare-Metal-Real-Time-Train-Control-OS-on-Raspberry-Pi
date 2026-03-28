@@ -143,6 +143,11 @@ void pos_clear_committed_route(train_pos_t *pos);
 void pos_commit_route_plan(train_pos_t *pos, const route_plan_t *plan,
                            track_node *launch_origin, int need_initial_reverse,
                            int32_t final_offset_mm);
+int pos_launch_preplanned_route(train_pos_t *pos, const route_plan_t *plan,
+                                track_node *launch_origin,
+                                int need_initial_reverse,
+                                int32_t final_offset_mm,
+                                uint64_t now_us);
 
 /* Seed a new goto request onto an existing train slot. */
 void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int speed_level, int32_t offset_mm);

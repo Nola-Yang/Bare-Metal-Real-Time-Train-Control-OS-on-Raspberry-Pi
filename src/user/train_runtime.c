@@ -6,6 +6,7 @@
 #include "server/can_server.h"
 #include "server/track_server.h"
 #include "server/position_server.h"
+#include "server/deadlock_server.h"
 #include "server/demo_server.h"
 #include "server/game_server.h"
 #include "track.h"
@@ -68,6 +69,19 @@ static void runtime_fast_tick_task(void) {
 
 static void runtime_replan_tick_task(void) {
     runtime_tick_loop(RUNTIME_EVENT_REPLAN_TICK, 100);
+}
+
+static void runtime_deadlock_tick_task(void) {
+    int deadlock_tid = WhoIs(DEADLOCK_SERVER_NAME);
+    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
+
+    KASSERT(deadlock_tid >= 0);
+    KASSERT(clock_tid >= 0);
+
+    for (;;) {
+        Delay(clock_tid, 100);
+        (void)DeadlockServerOnTick(deadlock_tid, read_timer());
+    }
 }
 
 static void runtime_demo_tick_task(void) {
@@ -286,6 +300,7 @@ void runtime_core_task(void) {
     int rv_pending_count = 0;
     int track_tid;
     int position_tid;
+    int deadlock_tid;
     int demo_tid;
     int game_tid;
     runtime_event_t event;
@@ -303,6 +318,10 @@ void runtime_core_task(void) {
     KASSERT(position_tid >= 0);
     KASSERT(PositionServerInit(position_tid) == 0);
 
+    deadlock_tid = Create(DEADLOCK_SERVER_PRIORITY, deadlock_server_task);
+    KASSERT(deadlock_tid >= 0);
+    KASSERT(DeadlockServerInit(deadlock_tid) == 0);
+
     demo_tid = Create(DEMO_SERVER_PRIORITY, demo_server_task);
     KASSERT(demo_tid >= 0);
     KASSERT(DemoServerInit(demo_tid) == 0);
@@ -318,6 +337,7 @@ void runtime_core_task(void) {
     Create(RUNTIME_FAST_TICK_PRIORITY, runtime_fast_tick_task);
     Create(RUNTIME_FAST_TICK_PRIORITY, runtime_switch_settle_tick_task);
     Create(RUNTIME_SLOW_TICK_PRIORITY, runtime_replan_tick_task);
+    Create(DEADLOCK_TICK_PRIORITY, runtime_deadlock_tick_task);
     Create(RUNTIME_SLOW_TICK_PRIORITY, runtime_demo_tick_task);
     Create(RUNTIME_SLOW_TICK_PRIORITY, runtime_game_tick_task);
 

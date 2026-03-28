@@ -2,6 +2,7 @@
 #define _position_server_h_ 1
 
 #include <stdint.h>
+#include "train_tracking/deadlock.h"
 
 #define POSITION_SERVER_NAME "PositionServer"
 
@@ -17,5 +18,8 @@ int PositionServerGoto(int tid, int train_num, int target_idx, int speed_level, 
 int PositionServerStartFindPos(int tid, int train_num);
 int PositionServerMarkRoutesDirty(int tid);
 int PositionServerReleaseTrain(int tid, int train_num);
+int PositionServerGetDeadlockSnapshot(int tid, uint64_t now_us,
+                                      deadlock_snapshot_t *out);
+int PositionServerApplyDeadlockResult(int tid, const deadlock_result_t *result);
 
 #endif /* _position_server_h_ */

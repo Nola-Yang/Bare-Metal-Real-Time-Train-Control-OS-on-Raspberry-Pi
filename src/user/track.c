@@ -21,6 +21,7 @@ static switch_entry_t switch_state[MAX_SWITCHES];
 static sensor_entry_t sensor_log[SENSOR_LOG_SIZE];
 static train_state_t trains[MAX_ACTIVE_TRAINS];
 static int sensor_log_head = 0;
+static uint32_t g_switch_generation = 0;
 
 static int train_num_to_active_index(int train_num) {
     if (13 <= train_num && train_num <= 15) return train_num - 13;
@@ -115,12 +116,15 @@ void track_local_log_sensor(uint16_t sensor_id, uint64_t time_us, uint8_t state)
 
 void track_local_update_switch(int sw_num, char state) {
     int index;
+    char prev;
 
     KASSERT(track_is_valid_switch(sw_num));
 
     index = track_switch_to_index(sw_num);
     if (index >= 0) {
+        prev = switch_state[index].state;
         switch_state[index].state = state;
+        if (prev != state) g_switch_generation++;
     }
 }
 
@@ -305,6 +309,7 @@ void track_local_reset_state(void) {
     for (int i = 0; i < MAX_SWITCHES; i++) {
         switch_state[i].state = '?';
     }
+    g_switch_generation = 0;
 
     for (int i = 0; i < SENSOR_LOG_SIZE; i++) {
         sensor_log[i].sensor_id = 0;
@@ -387,6 +392,10 @@ const sensor_entry_t *track_get_sensor_log(int *head) {
 
 const switch_entry_t *track_get_switch_state(void) {
     return switch_state;
+}
+
+uint32_t track_get_switch_generation(void) {
+    return g_switch_generation;
 }
 
 track_node *track_find_node(const char *name) {

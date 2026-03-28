@@ -54,7 +54,7 @@ static void zone_commit(int zone) {
     }
 }
 
-static void expand_marks_with_zones(uint8_t marks[TRACK_MAX]) {
+void traffic_expand_zone_marks(uint8_t marks[TRACK_MAX]) {
     uint8_t base[TRACK_MAX];
     uint32_t active_zones = 0;
 
@@ -121,7 +121,8 @@ static void keep_mark_walk_to(uint8_t keep[TRACK_MAX], track_node *start, track_
     }
 }
 
-static void build_plan_marks(uint8_t want[TRACK_MAX], const route_plan_t *plan) {
+void traffic_build_plan_marks_copy(const route_plan_t *plan,
+                                   uint8_t want[TRACK_MAX]) {
     for (int i = 0; i < TRACK_MAX; i++) want[i] = 0;
     if (!plan) return;
 
@@ -138,7 +139,7 @@ static void build_plan_marks(uint8_t want[TRACK_MAX], const route_plan_t *plan) 
         }
     }
 
-    expand_marks_with_zones(want);
+    traffic_expand_zone_marks(want);
 }
 
 static int plan_has_conflict(int train_num, const uint8_t want[TRACK_MAX]) {
@@ -169,7 +170,7 @@ static void build_keep_body_marks(uint8_t keep[TRACK_MAX], track_node *last_hit,
     }
 
     if (!last_hit) {
-        expand_marks_with_zones(keep);
+        traffic_expand_zone_marks(keep);
         return;
     }
 
@@ -183,7 +184,7 @@ static void build_keep_body_marks(uint8_t keep[TRACK_MAX], track_node *last_hit,
         }
         keep_mark_walk_dist(keep, next_hit, body_mm);
     }
-    expand_marks_with_zones(keep);
+    traffic_expand_zone_marks(keep);
 }
 
 void traffic_reservation_init(void) {
@@ -229,7 +230,7 @@ void traffic_build_constraints(int requester_train, uint8_t blocked[TRACK_MAX]) 
         int owner = node_owner[i];
         blocked[i] = (owner >= 0 && owner != requester_train) ? 1 : 0;
     }
-    expand_marks_with_zones(blocked);
+    traffic_expand_zone_marks(blocked);
 }
 
 int traffic_reserve_plan(int train_num, track_node *start, const route_plan_t *plan) {
@@ -238,7 +239,7 @@ int traffic_reserve_plan(int train_num, track_node *start, const route_plan_t *p
     uint8_t want[TRACK_MAX];
     int changed = 0;
 
-    build_plan_marks(want, plan);
+    traffic_build_plan_marks_copy(plan, want);
     if (plan_has_conflict(train_num, want)) return 0;
 
     for (int i = 0; i < TRACK_MAX; i++) {
@@ -256,7 +257,7 @@ int traffic_reserve_plan(int train_num, track_node *start, const route_plan_t *p
 int traffic_can_reserve_plan(int train_num, const route_plan_t *plan) {
     if (!plan || train_num < 0) return 0;
     uint8_t want[TRACK_MAX];
-    build_plan_marks(want, plan);
+    traffic_build_plan_marks_copy(plan, want);
     return !plan_has_conflict(train_num, want);
 }
 
@@ -332,7 +333,7 @@ void traffic_refresh_route_reservation(int train_num, track_node *cur_sensor,
         }
     }
 
-    expand_marks_with_zones(keep);
+    traffic_expand_zone_marks(keep);
 
     int changed = 0;
     for (int i = 0; i < TRACK_MAX; i++) {
@@ -378,7 +379,7 @@ void traffic_refresh_sensor_prediction_reservation(int train_num,
         if (keep_to_pred) keep_mark_walk_to(keep, cur_sensor, pred_sensor);
     }
 
-    expand_marks_with_zones(keep);
+    traffic_expand_zone_marks(keep);
 
     int changed = 0;
     for (int i = 0; i < TRACK_MAX; i++) {
@@ -449,7 +450,7 @@ int traffic_collect_plan_blockers(int requester_train, const route_plan_t *plan,
     if (!plan) return 0;
     if (max_trains < 0) max_trains = 0;
 
-    build_plan_marks(want, plan);
+    traffic_build_plan_marks_copy(plan, want);
     for (int i = 0; i < TRACK_MAX; i++) {
         int owner;
         if (!want[i]) continue;
