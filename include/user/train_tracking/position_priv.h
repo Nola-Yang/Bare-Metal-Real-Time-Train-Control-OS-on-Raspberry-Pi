@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "position.h"
 #include "pos_route_internal.h"
+#include "planner_core.h"
 #include "speed_table.h"
 
 /* ===== Shared internal state ===== */
@@ -97,6 +98,13 @@ int pos_try_resume_wait_resource(train_pos_t *pos, uint64_t now_us);
 
 /* Return 1 when `hit` lies on the alternate leg of the next predicted branch. */
 int pos_hit_matches_alt_branch(const train_pos_t *pos, track_node *hit);
+
+/* Build read-only planner inputs from the live position/traffic state. */
+void pos_planner_build_env(planner_env_t *out, int owners[TRACK_MAX],
+                           char switch_state[MAX_SWITCHES]);
+void pos_planner_fill_view(const train_pos_t *pos, planner_train_view_t *out);
+track_node *pos_planner_current_goal(const train_pos_t *pos,
+                                     int32_t *out_offset_mm);
 
 /* Advance the per-train sensor FSM after attribution selects an owner. */
 void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us);
@@ -211,8 +219,6 @@ void pos_clear_deadlock_recover(train_pos_t *pos);
 /* Try to resume a yielded deadlock victim once the blocked peers have moved. */
 int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos);
 void pos_deadlock_refresh_notice_state(uint64_t now_us);
-int pos_deadlock_maybe_reroute_waiter(train_pos_t *pos, uint64_t now_us);
-
 /* Resume the stored second leg of a mid-route reversal after the stop completes. */
 int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us);
 

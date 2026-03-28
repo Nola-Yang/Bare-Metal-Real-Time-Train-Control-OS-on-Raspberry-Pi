@@ -1,16 +1,16 @@
 #include "train_tracking/position_priv.h"
-#include "train_tracking/pos_route_internal.h"
+#include "train_tracking/planner_core.h"
 #include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
-#include "train_tracking/speed_table.h"
-#include "../traffic/traffic_window_internal.h"
 #include "track.h"
 #include "ui.h"
 #include <stddef.h>
 #include <stdint.h>
 
-static route_plan_t g_authority_candidate_prefix;
-static route_plan_t g_authority_short_goal_prefix;
+static planner_workspace_t g_pos_authority_ws;
+static route_plan_t g_pos_authority_top_up_plan;
+static int g_pos_authority_owners[TRACK_MAX];
+static char g_pos_authority_switch_state[MAX_SWITCHES];
 
 static int32_t authority_path_dist(const uint16_t *path, int start_cursor,
                                    int end_cursor) {
@@ -49,24 +49,12 @@ static int32_t authority_effective_path_dist(const train_pos_t *pos,
     return authority_path_dist(path, effective_start_cursor, end_cursor);
 }
 
-static int32_t authority_early_stop_mm(const train_pos_t *pos) {
-    int32_t tv;
-
-    if (!pos) return 0;
-    tv = speed_table_get_v(pos->train_ind, pos->goto_speed);
-    if (tv <= 0) return 0;
-    return (int32_t)((int64_t)tv * (int64_t)speed_table_get_early_stop(pos->train_ind, pos->goto_speed) / 1000000LL);
-}
-
-static int32_t authority_brake_dist_mm(const train_pos_t *pos) {
-    int32_t tv;
-    int32_t ta;
-
-    if (!pos) return 0;
-    tv = speed_table_get_v(pos->train_ind, pos->goto_speed);
-    ta = speed_table_get_nominal_decel(pos->train_ind, pos->goto_speed);
-    if (tv <= 0 || ta <= 0) return 0;
-    return tv * tv / (2 * ta);
+static void authority_fill_view(const train_pos_t *pos, planner_train_view_t *out) {
+    if (!out) return;
+    *out = (planner_train_view_t){0};
+    if (!pos) return;
+    out->train_ind = pos->train_ind;
+    out->goto_speed = pos->goto_speed;
 }
 
 static void authority_sync_target_internal(train_pos_t *pos) {
@@ -96,95 +84,52 @@ static void authority_sync_target_internal(train_pos_t *pos) {
 }
 
 static int authority_build_best_prefix(const train_pos_t *pos,
-                                       int requester_train, const uint16_t *path,
-                                       int path_count, int start_cursor,
-                                       int32_t min_window_mm,
-                                       int32_t stop_dist_mm,
+                                       int requester_train,
+                                       const uint16_t *path,
+                                       int path_count,
+                                       int start_cursor,
                                        int allow_short_goal,
                                        int min_end_cursor,
                                        route_plan_t *out_prefix,
                                        int *out_end_cursor,
                                        int *out_switch_blocker_owner) {
-    int have_short_goal = 0;
-    int short_goal_end_cursor = -1;
+    planner_env_t env;
+    planner_train_view_t view;
+    route_plan_t full_plan = {0};
+    int effective_start_cursor;
 
-    if (!path || !out_prefix || !out_end_cursor) return 0;
+    if (!pos || !path || !out_prefix || !out_end_cursor) return 0;
     if (path_count <= 0 || start_cursor < 0 || start_cursor >= path_count) return 0;
-    if (out_switch_blocker_owner) *out_switch_blocker_owner = -1;
 
-    for (int end_cursor = start_cursor; end_cursor < path_count; end_cursor++) {
-        int32_t dist_mm;
-        int switch_blocker;
-        if (!traffic_window_build_prefix_plan(path, path_count, start_cursor,
-                                              end_cursor, &g_authority_candidate_prefix)) {
-            break;
-        }
+    pos_planner_build_env(&env, g_pos_authority_owners, g_pos_authority_switch_state);
+    pos_planner_fill_view(pos, &view);
+    view.train_num = requester_train;
 
-        dist_mm = authority_effective_path_dist(pos, path, path_count,
-                                                start_cursor, end_cursor);
-        if (dist_mm < 0) break;
-        if (dist_mm <= 0) continue;
-
-        if (end_cursor != path_count - 1 &&
-            g_track[path[end_cursor]].type != NODE_SENSOR) {
-            continue;
-        }
-
-        switch_blocker = pos_route_switch_blocker(g_authority_candidate_prefix.sw_nums,
-                                                  g_authority_candidate_prefix.sw_dirs,
-                                                  g_authority_candidate_prefix.sw_count,
-                                                  requester_train);
-        if (switch_blocker >= 0) {
-            if (out_switch_blocker_owner) *out_switch_blocker_owner = switch_blocker;
-            break;
-        }
-        if (!traffic_can_reserve_plan(requester_train,
-                                      &g_authority_candidate_prefix)) break;
-
-        if (allow_short_goal &&
-            end_cursor == path_count - 1 &&
-            dist_mm >= stop_dist_mm &&
-            end_cursor > min_end_cursor) {
-            g_authority_short_goal_prefix = g_authority_candidate_prefix;
-            short_goal_end_cursor = end_cursor;
-            have_short_goal = 1;
-        }
-
-        if (dist_mm < min_window_mm) continue;
-        if (end_cursor <= min_end_cursor) continue;
-
-        *out_prefix = g_authority_candidate_prefix;
-        *out_end_cursor = end_cursor;
-        return 1;
+    full_plan.path_count = path_count;
+    for (int i = 0; i < path_count; i++) {
+        full_plan.path_nodes[i] = path[i];
     }
 
-    if (have_short_goal) {
-        *out_prefix = g_authority_short_goal_prefix;
-        *out_end_cursor = short_goal_end_cursor;
-        return 1;
-    }
-
-    return 0;
+    effective_start_cursor =
+        authority_effective_start_cursor(pos, path, path_count, start_cursor);
+    return planner_prepare_launch_prefix(
+        &env, &view, &full_plan, start_cursor, effective_start_cursor,
+        allow_short_goal, min_end_cursor, &g_pos_authority_ws, out_prefix,
+        out_end_cursor, out_switch_blocker_owner);
 }
 
 int32_t pos_route_authority_stop_dist_mm(const train_pos_t *pos) {
-    int32_t d_brake;
-    int32_t d_early;
+    planner_train_view_t view;
 
-    d_brake = authority_brake_dist_mm(pos);
-    d_early = authority_early_stop_mm(pos);
-    if (d_brake < 0) d_brake = 0;
-    if (d_early < 0) d_early = 0;
-    return d_brake + d_early;
+    authority_fill_view(pos, &view);
+    return planner_view_stop_dist_mm(&view);
 }
 
 int32_t pos_route_authority_min_mm(const train_pos_t *pos) {
-    int32_t d_brake = authority_brake_dist_mm(pos);
-    int32_t d_early = authority_early_stop_mm(pos);
+    planner_train_view_t view;
 
-    if (d_brake < 0) d_brake = 0;
-    if (d_early < 0) d_early = 0;
-    return GOTO_MIN_DIST_FACTOR * d_brake + d_early;
+    authority_fill_view(pos, &view);
+    return planner_view_min_window_mm(&view);
 }
 
 int32_t pos_route_authority_target_mm(const train_pos_t *pos) {
@@ -225,24 +170,15 @@ static int authority_prepare_launch_internal(train_pos_t *pos,
                                              int *out_reserved_end_cursor,
                                              int *out_switch_blocker_owner,
                                              int allow_short_goal) {
-    int32_t min_window_mm;
-    int32_t stop_dist_mm;
-
-    if (!pos || !full_plan || !out_prefix || !out_reserved_end_cursor) return 0;
-    min_window_mm = pos_route_authority_target_mm(pos);
-    stop_dist_mm = pos_route_authority_stop_dist_mm(pos);
-
     return authority_build_best_prefix(pos, pos->train_num, full_plan->path_nodes,
                                        full_plan->path_count, 0,
-                                       min_window_mm,
-                                       stop_dist_mm,
-                                       allow_short_goal,
-                                       -1,
-                                       out_prefix, out_reserved_end_cursor,
+                                       allow_short_goal, -1, out_prefix,
+                                       out_reserved_end_cursor,
                                        out_switch_blocker_owner);
 }
 
-int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *full_plan,
+int pos_route_authority_prepare_launch(train_pos_t *pos,
+                                       const route_plan_t *full_plan,
                                        route_plan_t *out_prefix,
                                        int *out_reserved_end_cursor,
                                        int *out_switch_blocker_owner) {
@@ -279,19 +215,16 @@ int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force)
 
     if (authority_build_best_prefix(pos, pos->train_num, pos->route_path,
                                     pos->route_path_count, pos->route_path_cursor,
-                                    pos_route_authority_target_mm(pos),
-                                    pos_route_authority_stop_dist_mm(pos),
-                                    1,
-                                    pos->route_reserved_end_cursor,
-                                    &g_authority_candidate_prefix, &new_end_cursor,
+                                    1, pos->route_reserved_end_cursor,
+                                    &g_pos_authority_top_up_plan, &new_end_cursor,
                                     NULL) &&
         new_end_cursor > pos->route_reserved_end_cursor) {
-        if (pos_apply_route_switches_safe(g_authority_candidate_prefix.sw_nums,
-                                          g_authority_candidate_prefix.sw_dirs,
-                                          g_authority_candidate_prefix.sw_count,
+        if (pos_apply_route_switches_safe(g_pos_authority_top_up_plan.sw_nums,
+                                          g_pos_authority_top_up_plan.sw_dirs,
+                                          g_pos_authority_top_up_plan.sw_count,
                                           pos->train_num) &&
             traffic_reserve_plan(pos->train_num, pos->cur_sensor,
-                                 &g_authority_candidate_prefix)) {
+                                 &g_pos_authority_top_up_plan)) {
             pos->route_reserved_end_cursor = new_end_cursor;
             authority_sync_target_internal(pos);
             extended = 1;
