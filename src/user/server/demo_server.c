@@ -1,29 +1,6 @@
 #include "server/demo_server.h"
+#include "server/manager_server.h"
 #include "demo_manager.h"
-#include "server/nameserver.h"
-#include "syscall.h"
-
-typedef enum {
-    DEMO_REQ_INIT = 0,
-    DEMO_REQ_COMMAND = 1,
-    DEMO_REQ_TICK = 2,
-} demo_request_type_t;
-
-typedef struct {
-    int type;
-    uint64_t now_us;
-    train_command_t command;
-} DemoRequest_t;
-
-typedef struct {
-    int status;
-} DemoReply_t;
-
-static int demo_send_request(int tid, const DemoRequest_t *req, DemoReply_t *reply) {
-    if (!req || !reply) return -1;
-    return Send(tid, (const char *)req, sizeof(*req),
-                (char *)reply, sizeof(*reply));
-}
 
 static int demo_handle_runtime_command(const train_command_t *cmd) {
     char *argv[TRAIN_CMD_MAX_ARGS + 1];
@@ -64,66 +41,21 @@ static int demo_handle_runtime_command(const train_command_t *cmd) {
 }
 
 void demo_server_task(void) {
-    int tid;
-    DemoRequest_t req;
-    DemoReply_t reply;
-
-    RegisterAs(DEMO_SERVER_NAME);
-
-    for (;;) {
-        int msglen = Receive(&tid, (char *)&req, sizeof(req));
-        (void)msglen;
-
-        reply.status = 0;
-
-        switch ((demo_request_type_t)req.type) {
-            case DEMO_REQ_INIT:
-                demo_init();
-                Reply(tid, (const char *)&reply, sizeof(reply));
-                break;
-
-            case DEMO_REQ_COMMAND:
-                reply.status = demo_handle_runtime_command(&req.command);
-                Reply(tid, (const char *)&reply, sizeof(reply));
-                break;
-
-            case DEMO_REQ_TICK:
-                demo_on_tick(req.now_us);
-                Reply(tid, (const char *)&reply, sizeof(reply));
-                break;
-
-            default:
-                reply.status = -1;
-                Reply(tid, (const char *)&reply, sizeof(reply));
-                break;
-        }
-    }
+    manager_server_task_loop(DEMO_SERVER_NAME,
+                             demo_init,
+                             demo_handle_runtime_command,
+                             demo_on_tick);
 }
 
 int DemoServerInit(int tid) {
-    DemoRequest_t req;
-    DemoReply_t reply;
-
-    req.type = DEMO_REQ_INIT;
-    return (demo_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
+    return manager_server_send_request(tid, MANAGER_REQ_INIT, 0, 0);
 }
 
 int DemoServerHandleCommand(int tid, const train_command_t *cmd) {
-    DemoRequest_t req;
-    DemoReply_t reply;
-
     if (!cmd) return -1;
-
-    req.type = DEMO_REQ_COMMAND;
-    req.command = *cmd;
-    return (demo_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
+    return manager_server_send_request(tid, MANAGER_REQ_COMMAND, cmd, 0);
 }
 
 int DemoServerOnTick(int tid, uint64_t now_us) {
-    DemoRequest_t req;
-    DemoReply_t reply;
-
-    req.type = DEMO_REQ_TICK;
-    req.now_us = now_us;
-    return (demo_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
+    return manager_server_send_request(tid, MANAGER_REQ_TICK, 0, now_us);
 }

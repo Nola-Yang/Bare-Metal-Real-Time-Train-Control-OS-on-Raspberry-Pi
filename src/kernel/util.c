@@ -116,6 +116,31 @@ int str2int(const char *str) {
     return result * sign;
 }
 
+int str_parse_int(const char *tok, int *out) {
+    if (!tok || !tok[0] || !out) return 0;
+
+    const char *p = tok;
+    if (*p == '+' || *p == '-') p++;
+    if (!*p) return 0;
+
+    while (*p) {
+        if (*p < '0' || *p > '9') return 0;
+        p++;
+    }
+
+    *out = str2int(tok);
+    return 1;
+}
+
+int str_eq(const char *a, const char *b) {
+    if (!a || !b) return 0;
+    while (*a && *b && *a == *b) {
+        a++;
+        b++;
+    }
+    return (*a == '\0' && *b == '\0');
+}
+
 // Buffer formatting helpers
 
 char* buf_append(char *p, const char *str) {

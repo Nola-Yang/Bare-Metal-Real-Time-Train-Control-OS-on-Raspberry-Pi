@@ -1,20 +1,6 @@
 #include "game_manager_internal.h"
 #include "demo_manager.h"
 
-static int parse_int_token_local(const char *tok, int *out) {
-    const char *p;
-    if (!tok || !tok[0] || !out) return 0;
-    p = tok;
-    if (*p == '+' || *p == '-') p++;
-    if (!*p) return 0;
-    while (*p) {
-        if (*p < '0' || *p > '9') return 0;
-        p++;
-    }
-    *out = str2int(tok);
-    return 1;
-}
-
 static int game_build_sensor_pool(game_context_t *ctx) {
     ctx->sensor_pool_count = 0;
     for (int i = 0; i < TRACK_MAX; i++) {
@@ -153,7 +139,7 @@ int game_handle_setup_input(game_context_t *ctx, const train_command_t *cmd) {
         return 2;
     }
 
-    if (!parse_int_token_local(tok, &train_num) || !track_is_valid_train(train_num)) {
+    if (!str_parse_int(tok, &train_num) || !track_is_valid_train(train_num)) {
         game_log_line("game setup: invalid train number (valid: 13 14 15 17 18 55)");
         game_setup_print_prompt(ctx);
         return 2;

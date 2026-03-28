@@ -600,10 +600,19 @@ void game_try_resolve_neutral_cases(game_context_t *ctx) {
     }
 }
 
+static int game_round_dispatch_failed(game_context_t *ctx) {
+    ctx->state = GAME_STATE_STOPPING;
+    game_set_hint(ctx, "Dispatch failed");
+    game_log_line("game: round dispatch failed");
+    return 2;
+}
+
 int game_handle_pick(game_context_t *ctx, const train_command_t *cmd) {
     track_node *target;
     pos_target_query_t *query = &ctx->game_query_primary;
     int require_min_trip;
+    game_role_t first_role;
+    game_role_t second_role;
 
     if (!cmd) return 2;
     if (ctx->state != GAME_STATE_WAIT_PICK) {
@@ -642,28 +651,13 @@ int game_handle_pick(game_context_t *ctx, const train_command_t *cmd) {
     game_set_result(ctx, "-");
     game_log_targets(ctx);
 
-    if (ctx->round_priority == GAME_ROLE_HUMAN) {
-        if (!game_dispatch_target(ctx, GAME_ROLE_HUMAN, ctx->slots[GAME_ROLE_HUMAN].target, 0) ||
-            !game_dispatch_target(ctx, GAME_ROLE_AI, ctx->slots[GAME_ROLE_AI].target, 0)) {
-            ctx->state = GAME_STATE_STOPPING;
-            game_set_hint(ctx, "Dispatch failed");
-            game_log_line("game: round dispatch failed");
-            return 2;
-        }
-    } else {
-        if (!game_dispatch_target(ctx, GAME_ROLE_AI, ctx->slots[GAME_ROLE_AI].target, 0) ||
-            !game_dispatch_target(ctx, GAME_ROLE_HUMAN, ctx->slots[GAME_ROLE_HUMAN].target, 0)) {
-            ctx->state = GAME_STATE_STOPPING;
-            game_set_hint(ctx, "Dispatch failed");
-            game_log_line("game: round dispatch failed");
-            return 2;
-        }
-    }
-    if (!game_dispatch_target(ctx, GAME_ROLE_NEUTRAL, ctx->slots[GAME_ROLE_NEUTRAL].target, 0)) {
-        ctx->state = GAME_STATE_STOPPING;
-        game_set_hint(ctx, "Dispatch failed");
-        game_log_line("game: round dispatch failed");
-        return 2;
+    first_role = ctx->round_priority;
+    second_role = (first_role == GAME_ROLE_HUMAN) ? GAME_ROLE_AI : GAME_ROLE_HUMAN;
+
+    if (!game_dispatch_target(ctx, first_role, ctx->slots[first_role].target, 0) ||
+        !game_dispatch_target(ctx, second_role, ctx->slots[second_role].target, 0) ||
+        !game_dispatch_target(ctx, GAME_ROLE_NEUTRAL, ctx->slots[GAME_ROLE_NEUTRAL].target, 0)) {
+        return game_round_dispatch_failed(ctx);
     }
     ui_mark_position_dirty();
     return 2;

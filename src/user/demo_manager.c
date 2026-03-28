@@ -75,19 +75,6 @@ int get_demo_train_ind(int train_num) {
     return -1;
 }
 
-static int parse_int_token_local(const char *tok, int *out) {
-    if (!tok || !tok[0] || !out) return 0;
-    const char *p = tok;
-    if (*p == '+' || *p == '-') p++;
-    if (!*p) return 0;
-    while (*p) {
-        if (*p < '0' || *p > '9') return 0;
-        p++;
-    }
-    *out = str2int(tok);
-    return 1;
-}
-
 static const char *demo_mode_str(demo_mode_t m) {
     switch (m) {
     case DEMO_MODE_OFF:   return "OFF";
@@ -351,15 +338,6 @@ static void demo_force_stop(void) {
     ui_mark_position_dirty();
 }
 
-static int tok_eq(const char *a, const char *b) {
-    if (!a || !b) return 0;
-    while (*a && *b && *a == *b) {
-        a++;
-        b++;
-    }
-    return (*a == '\0' && *b == '\0');
-}
-
 void demo_get_ui_summary(demo_ui_summary_t *out, uint64_t now_us) {
     if (!out) return;
     out->mode_name = demo_mode_str(g_demo_mode);
@@ -482,7 +460,7 @@ static int demo_start_gold(int argc, char *argv[]) {
     int seed_override = -1;
     int speed_level = 0;
 
-    if (argc < 2 || !parse_int_token_local(argv[1], &speed_level)) {
+    if (argc < 2 || !str_parse_int(argv[1], &speed_level)) {
         demo_puts_gold_usage();
         return 2;
     }
@@ -499,7 +477,7 @@ static int demo_start_gold(int argc, char *argv[]) {
 
     for (int i = 2; i < argc; i++) {
         int v = 0;
-        if (!parse_int_token_local(argv[i], &v)) {
+        if (!str_parse_int(argv[i], &v)) {
             ui_cmd_puts("demo: numeric args required\r\n");
             return 2;
         }
@@ -540,7 +518,7 @@ int demo_handle_command(int argc, char *argv[]) {
     int speed_level = 0;
 
     if (argc <= 0 || !argv || !argv[0]) return 2;
-    if (!tok_eq(argv[0], "demo")) {
+    if (!str_eq(argv[0], "demo")) {
         return 2;
     }
 
@@ -549,12 +527,12 @@ int demo_handle_command(int argc, char *argv[]) {
         return 2;
     }
 
-    if (tok_eq(argv[1], "stop")) {
+    if (str_eq(argv[1], "stop")) {
         if (g_demo_mode == DEMO_MODE_OFF) {
             ui_cmd_puts("demo: already stopped\r\n");
             return 2;
         }
-        if (argc >= 3 && tok_eq(argv[2], "force")) {
+        if (argc >= 3 && str_eq(argv[2], "force")) {
             demo_force_stop();
             ui_cmd_puts("demo: force-stopped\r\n");
             return 2;
@@ -570,13 +548,13 @@ int demo_handle_command(int argc, char *argv[]) {
         return 2;
     }
 
-    if (tok_eq(argv[1], "seed")) {
+    if (str_eq(argv[1], "seed")) {
         if (argc != 3) {
             ui_cmd_puts("Usage: demo seed <u32>\r\n");
             return 2;
         }
         int sv = 0;
-        if (!parse_int_token_local(argv[2], &sv)) {
+        if (!str_parse_int(argv[2], &sv)) {
             ui_cmd_puts("demo seed: numeric value required\r\n");
             return 2;
         }
@@ -586,17 +564,17 @@ int demo_handle_command(int argc, char *argv[]) {
         return 2;
     }
 
-    if (tok_eq(argv[1], "tune")) {
+    if (str_eq(argv[1], "tune")) {
         if (argc != 4) {
             ui_cmd_puts("Usage: demo tune <trip> <mm>\r\n");
             return 2;
         }
         int mm = 0;
-        if (!parse_int_token_local(argv[3], &mm) || mm <= 0) {
+        if (!str_parse_int(argv[3], &mm) || mm <= 0) {
             ui_cmd_puts("demo tune: positive mm required\r\n");
             return 2;
         }
-        if (tok_eq(argv[2], "trip")) {
+        if (str_eq(argv[2], "trip")) {
             g_gold_min_trip_mm = mm;
             ui_cmd_puts("demo tune trip: updated\r\n");
             return 2;
@@ -606,7 +584,7 @@ int demo_handle_command(int argc, char *argv[]) {
     }
 
 
-    if (parse_int_token_local(argv[1], &speed_level)) {
+    if (str_parse_int(argv[1], &speed_level)) {
         if (argc < 3 || argc > 7) {
             demo_puts_gold_usage();
             return 2;

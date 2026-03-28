@@ -3,22 +3,6 @@
 #include "util.h"
 #include "kassert.h"
 
-static int parse_int_token(const char *tok, int *out) {
-    if (!tok || !tok[0] || !out) return 0;
-
-    const char *p = tok;
-    if (*p == '+' || *p == '-') p++;
-    if (!*p) return 0;
-
-    while (*p) {
-        if (*p < '0' || *p > '9') return 0;
-        p++;
-    }
-
-    *out = str2int(tok);
-    return 1;
-}
-
 bool is_valid_goto_speed(int speed_level) {
     switch (speed_level) {
         case 8:
@@ -32,15 +16,6 @@ bool is_valid_goto_speed(int speed_level) {
 
 bool is_valid_speed_level(int speed_level) {
     return (0 <= speed_level && speed_level <= 14);
-}
-
-static int tok_eq(const char *a, const char *b) {
-    if (!a || !b) return 0;
-    while (*a && *b && *a == *b) {
-        a++;
-        b++;
-    }
-    return (*a == '\0' && *b == '\0');
 }
 
 static int tokenize(char *cmd, char *argv[], int max_args) {
@@ -101,7 +76,7 @@ static void command_set_parse_error(train_command_t *out,
 }
 
 static int parse_train_token(const char *tok, train_command_t *out, int *train) {
-    if (!parse_int_token(tok, train)) {
+    if (!str_parse_int(tok, train)) {
         command_set_parse_error(out, TRAIN_CMD_ERR_TRAIN_NOT_NUMBER);
         return 0;
     }
@@ -150,12 +125,12 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
         command_copy_token(out->argv[i], argv[i]);
     }
 
-    if (tok_eq(argv[0], "q") || tok_eq(argv[0], "Q")) {
+    if (str_eq(argv[0], "q") || str_eq(argv[0], "Q")) {
         out->type = TRAIN_CMD_QUIT;
         return 1;
     }
 
-    if (tok_eq(argv[0], "demo")) {
+    if (str_eq(argv[0], "demo")) {
         out->type = TRAIN_CMD_DEMO;
         if (argc < 2) {
             command_set_parse_error(out, TRAIN_CMD_ERR_USAGE_DEMO);
@@ -163,12 +138,12 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
         return 1;
     }
 
-    if (tok_eq(argv[0], "game")) {
+    if (str_eq(argv[0], "game")) {
         out->type = TRAIN_CMD_GAME;
         return 1;
     }
 
-    if (tok_eq(argv[0], "pick")) {
+    if (str_eq(argv[0], "pick")) {
         track_node *target;
 
         out->type = TRAIN_CMD_PICK;
@@ -187,7 +162,7 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
         return 1;
     }
 
-    if (tok_eq(argv[0], "findpos")) {
+    if (str_eq(argv[0], "findpos")) {
         out->type = TRAIN_CMD_FINDPOS;
         if (argc < 2 || argc > 5) {
             command_set_parse_error(out, TRAIN_CMD_ERR_USAGE_FINDPOS);
@@ -195,7 +170,7 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
         return 1;
     }
 
-    if (tok_eq(argv[0], "tr")) {
+    if (str_eq(argv[0], "tr")) {
         int train = 0;
         int speed = 0;
 
@@ -205,7 +180,7 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
             return 1;
         }
         if (!parse_train_token(argv[1], out, &train)) return 1;
-        if (!parse_int_token(argv[2], &speed)) {
+        if (!str_parse_int(argv[2], &speed)) {
             command_set_parse_error(out, TRAIN_CMD_ERR_SPEED_NOT_NUMBER);
             return 1;
         }
@@ -218,7 +193,7 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
         return 1;
     }
 
-    if (tok_eq(argv[0], "sw")) {
+    if (str_eq(argv[0], "sw")) {
         int sw = 0;
         char dir;
 
@@ -227,7 +202,7 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
             command_set_parse_error(out, TRAIN_CMD_ERR_USAGE_SW);
             return 1;
         }
-        if (!parse_int_token(argv[1], &sw)) {
+        if (!str_parse_int(argv[1], &sw)) {
             command_set_parse_error(out, TRAIN_CMD_ERR_SWITCH_NOT_NUMBER);
             return 1;
         }
@@ -249,7 +224,7 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
         return 1;
     }
 
-    if (tok_eq(argv[0], "rv")) {
+    if (str_eq(argv[0], "rv")) {
         int train = 0;
 
         out->type = TRAIN_CMD_RV;
@@ -262,7 +237,7 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
         return 1;
     }
 
-    if (tok_eq(argv[0], "li")) {
+    if (str_eq(argv[0], "li")) {
         int train = 0;
         int on = 0;
 
@@ -272,7 +247,7 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
             return 1;
         }
         if (!parse_train_token(argv[1], out, &train)) return 1;
-        if (!parse_int_token(argv[2], &on)) {
+        if (!str_parse_int(argv[2], &on)) {
             command_set_parse_error(out, TRAIN_CMD_ERR_LIGHT_NOT_NUMBER);
             return 1;
         }
@@ -285,7 +260,7 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
         return 1;
     }
 
-    if (tok_eq(argv[0], "goto")) {
+    if (str_eq(argv[0], "goto")) {
         int train = 0;
         int offset = 0;
         int speed = 0;
@@ -305,7 +280,7 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
             return 1;
         }
 
-        if (!parse_int_token(argv[3], &speed)) {
+        if (!str_parse_int(argv[3], &speed)) {
             command_set_parse_error(out, TRAIN_CMD_ERR_SPEED_NOT_NUMBER);
             return 1;
         }
@@ -320,7 +295,7 @@ int parse_train_command(const char *cmdline, train_command_t *out) {
             return 1;
         }
 
-        if (argc >= 5 && !parse_int_token(argv[4], &offset)) {
+        if (argc >= 5 && !str_parse_int(argv[4], &offset)) {
             command_set_parse_error(out, TRAIN_CMD_ERR_OFFSET_NOT_NUMBER);
             return 1;
         }

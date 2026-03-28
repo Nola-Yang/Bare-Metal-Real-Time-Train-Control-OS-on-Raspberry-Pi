@@ -45,89 +45,41 @@ static void rv_delay_task(void) {
     Exit();
 }
 
-static void runtime_fast_tick_task(void) {
+static void runtime_tick_loop(int event_type, int delay_ticks) {
     int parent = MyParentTid();
     int clock_tid = WhoIs(CLOCK_SERVER_NAME);
     runtime_event_t event;
     runtime_reply_t reply;
 
     KASSERT(clock_tid >= 0);
-    event.type = RUNTIME_EVENT_FAST_TICK;
+    event.type = event_type;
 
     for (;;) {
-        Delay(clock_tid, 10);
+        Delay(clock_tid, delay_ticks);
         event.now_us = read_timer();
         Send(parent, (const char *)&event, sizeof(event),
              (char *)&reply, sizeof(reply));
     }
+}
+
+static void runtime_fast_tick_task(void) {
+    runtime_tick_loop(RUNTIME_EVENT_FAST_TICK, 10);
 }
 
 static void runtime_replan_tick_task(void) {
-    int parent = MyParentTid();
-    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
-    runtime_event_t event;
-    runtime_reply_t reply;
-
-    KASSERT(clock_tid >= 0);
-    event.type = RUNTIME_EVENT_REPLAN_TICK;
-
-    for (;;) {
-        Delay(clock_tid, 100);
-        event.now_us = read_timer();
-        Send(parent, (const char *)&event, sizeof(event),
-             (char *)&reply, sizeof(reply));
-    }
+    runtime_tick_loop(RUNTIME_EVENT_REPLAN_TICK, 100);
 }
 
 static void runtime_demo_tick_task(void) {
-    int parent = MyParentTid();
-    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
-    runtime_event_t event;
-    runtime_reply_t reply;
-
-    KASSERT(clock_tid >= 0);
-    event.type = RUNTIME_EVENT_DEMO_TICK;
-
-    for (;;) {
-        Delay(clock_tid, 100);
-        event.now_us = read_timer();
-        Send(parent, (const char *)&event, sizeof(event),
-             (char *)&reply, sizeof(reply));
-    }
+    runtime_tick_loop(RUNTIME_EVENT_DEMO_TICK, 100);
 }
 
 static void runtime_game_tick_task(void) {
-    int parent = MyParentTid();
-    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
-    runtime_event_t event;
-    runtime_reply_t reply;
-
-    KASSERT(clock_tid >= 0);
-    event.type = RUNTIME_EVENT_GAME_TICK;
-
-    for (;;) {
-        Delay(clock_tid, 100);
-        event.now_us = read_timer();
-        Send(parent, (const char *)&event, sizeof(event),
-             (char *)&reply, sizeof(reply));
-    }
+    runtime_tick_loop(RUNTIME_EVENT_GAME_TICK, 100);
 }
 
 static void runtime_switch_settle_tick_task(void) {
-    int parent = MyParentTid();
-    int clock_tid = WhoIs(CLOCK_SERVER_NAME);
-    runtime_event_t event;
-    runtime_reply_t reply;
-
-    KASSERT(clock_tid >= 0);
-    event.type = RUNTIME_EVENT_SWITCH_SETTLE_TICK;
-
-    for (;;) {
-        Delay(clock_tid, 1);
-        event.now_us = read_timer();
-        Send(parent, (const char *)&event, sizeof(event),
-             (char *)&reply, sizeof(reply));
-    }
+    runtime_tick_loop(RUNTIME_EVENT_SWITCH_SETTLE_TICK, 1);
 }
 
 static void runtime_print_parse_error(const train_command_t *cmd) {

@@ -22,6 +22,15 @@ int32_t route_direct_sensor_dist(track_node *start, track_node *sensor);
  * Returns accumulated distance (mm), or -1 if not reached within max_hops. */
 int32_t follow_dist(track_node *cur, track_node *to, int max_hops);
 
+/* Return the first remaining sensor on pos->route_path from the active cursor,
+ * or NULL when no sensor remains on the committed path. */
+track_node *route_path_first_remaining_sensor(const train_pos_t *pos);
+
+/* Infer which direction a branch should take for the train's current planned
+ * path, falling back to the physical switch state when the next planned sensor
+ * is ambiguous or unavailable. */
+int route_branch_planned_dir(const train_pos_t *pos, track_node *branch);
+
 /* Predict the next sensor after cur.  Writes dt (us) to *out_dt_us. */
 track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
                                 uint64_t *out_dt_us);

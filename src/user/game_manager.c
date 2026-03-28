@@ -238,15 +238,12 @@ int game_handle_command(const train_command_t *cmd) {
         return 2;
     }
 
-    if (cmd->argv[1][0] == 's' && cmd->argv[1][1] == 't' && cmd->argv[1][2] == 'o' &&
-        cmd->argv[1][3] == 'p' && cmd->argv[1][4] == '\0') {
+    if (str_eq(cmd->argv[1], "stop")) {
         if (ctx->state == GAME_STATE_OFF) {
             game_log_line("game: already stopped");
             return 2;
         }
-        if (cmd->argc >= 3 &&
-            cmd->argv[2][0] == 'f' && cmd->argv[2][1] == 'o' && cmd->argv[2][2] == 'r' &&
-            cmd->argv[2][3] == 'c' && cmd->argv[2][4] == 'e' && cmd->argv[2][5] == '\0') {
+        if (cmd->argc >= 3 && str_eq(cmd->argv[2], "force")) {
             game_force_stop_now(ctx);
             game_log_line("game: force-stopped");
             return 2;
@@ -257,9 +254,7 @@ int game_handle_command(const train_command_t *cmd) {
         return 2;
     }
 
-    if (cmd->argv[1][0] == 's' && cmd->argv[1][1] == 't' && cmd->argv[1][2] == 'a' &&
-        cmd->argv[1][3] == 't' && cmd->argv[1][4] == 'u' && cmd->argv[1][5] == 's' &&
-        cmd->argv[1][6] == '\0') {
+    if (str_eq(cmd->argv[1], "status")) {
         return game_print_status(ctx);
     }
 
