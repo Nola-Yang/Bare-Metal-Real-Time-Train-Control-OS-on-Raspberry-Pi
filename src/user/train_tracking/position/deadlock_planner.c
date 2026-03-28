@@ -88,6 +88,19 @@ static int snapshot_same_physical_sensor_idx(int a_idx, int b_idx) {
     return a == b || a->reverse == b || b->reverse == a;
 }
 
+static int snapshot_candidate_in_yield_history(
+    const deadlock_participant_snapshot_t *part, int cand_idx) {
+    if (!part || cand_idx < 0) return 0;
+
+    for (int i = 0; i < part->yield_history_count &&
+                    i < DEADLOCK_YIELD_HISTORY_MAX; i++) {
+        int hist_idx = part->yield_history_idx[i];
+        if (hist_idx < 0) continue;
+        if (snapshot_same_physical_sensor_idx(hist_idx, cand_idx)) return 1;
+    }
+    return 0;
+}
+
 static void snapshot_deadlock_route_plan_clear(deadlock_route_plan_t *out) {
     if (!out) return;
     *out = (deadlock_route_plan_t){0};
@@ -107,6 +120,9 @@ static void snapshot_deadlock_result_clear(deadlock_result_t *out) {
     for (int i = 0; i < DEADLOCK_MAX_TRAINS; i++) {
         out->cycle_trains[i] = -1;
         out->participants[i].train_num = -1;
+        for (int j = 0; j < DEADLOCK_YIELD_HISTORY_MAX; j++) {
+            out->participants[i].yield_history_idx[j] = -1;
+        }
     }
     snapshot_deadlock_route_plan_clear(&out->route_plan);
 }
@@ -1290,6 +1306,9 @@ static int snapshot_pick_yield_target(const snapshot_ctx_t *ctx,
                                               (int)(current_target - g_track))) {
             continue;
         }
+        if (snapshot_candidate_in_yield_history(part, (int)(cand - g_track))) {
+            continue;
+        }
 
         if (snapshot_evaluate_target_ready_now(ctx, part, cand, &eval) !=
             POS_ROUTE_EVAL_READY) {
@@ -1335,6 +1354,9 @@ static int snapshot_pick_yield_target(const snapshot_ctx_t *ctx,
         if (current_target &&
             snapshot_same_physical_sensor_idx((int)(cand - g_track),
                                               (int)(current_target - g_track))) {
+            continue;
+        }
+        if (snapshot_candidate_in_yield_history(part, (int)(cand - g_track))) {
             continue;
         }
         if (!snapshot_candidate_can_force_move(ctx, part, cand, &eval)) continue;

@@ -22,6 +22,20 @@ static int pos_deadlock_same_physical_sensor(const track_node *a,
     return a == b || a->reverse == b || b->reverse == a;
 }
 
+static int pos_deadlock_candidate_in_yield_history(const train_pos_t *pos,
+                                                   const track_node *cand) {
+    if (!pos || !cand) return 0;
+
+    for (int i = 0; i < pos->deadlock_recover.yield_history_count &&
+                    i < DEADLOCK_YIELD_HISTORY_MAX; i++) {
+        if (pos_deadlock_same_physical_sensor(pos->deadlock_recover.yield_history[i],
+                                              cand)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int32_t pos_deadlock_candidate_sort_dist(track_node *origins[2],
                                                 track_node *cand) {
     int32_t best = -1;
@@ -191,6 +205,7 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
         if (sort_dist < 0 || sort_dist < min_dist_mm) continue;
         if (pos_deadlock_same_physical_sensor(cand, pos->cur_sensor)) continue;
         if (pos_deadlock_same_physical_sensor(cand, current_target)) continue;
+        if (pos_deadlock_candidate_in_yield_history(pos, cand)) continue;
 
         if (pos_evaluate_target_ready_now(pos, cand,
                                           &g_pos_try_eval_candidate) != POS_ROUTE_EVAL_READY) {
@@ -227,6 +242,7 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
         if (sort_dist < 0 || sort_dist < min_dist_mm) continue;
         if (pos_deadlock_same_physical_sensor(cand, pos->cur_sensor)) continue;
         if (pos_deadlock_same_physical_sensor(cand, current_target)) continue;
+        if (pos_deadlock_candidate_in_yield_history(pos, cand)) continue;
         if (!pos_deadlock_candidate_can_force_move(pos, cand)) continue;
 
         if (out_target) *out_target = cand;

@@ -8,6 +8,7 @@
 /* Maximum number of trains tracked simultaneously */
 #define MAX_POS_TRAINS 5
 #define DEADLOCK_MAX_TRAINS 3
+#define DEADLOCK_YIELD_HISTORY_MAX 4
 
 /* Physical train body length (mm). */
 #define TRAIN_BODY_MM 200
@@ -101,6 +102,8 @@ typedef struct {
     track_node *yield_target;
     uint8_t    wait_start_mask;
     uint8_t    parked_at_yield;
+    uint8_t    yield_history_count;
+    track_node *yield_history[DEADLOCK_YIELD_HISTORY_MAX];
 } pos_deadlock_recover_t;
 
 typedef struct {

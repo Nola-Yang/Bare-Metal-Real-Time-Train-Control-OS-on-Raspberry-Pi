@@ -34,6 +34,35 @@ static track_node *deadlock_node_from_index(int idx) {
     return &g_track[idx];
 }
 
+static int deadlock_same_physical_sensor(track_node *a, track_node *b) {
+    if (!a || !b) return 0;
+    return a == b || a->reverse == b || b->reverse == a;
+}
+
+static void deadlock_record_yield_history(train_pos_t *pos, track_node *yield_target) {
+    pos_deadlock_recover_t *recover;
+
+    if (!pos || !yield_target) return;
+    recover = &pos->deadlock_recover;
+
+    for (int i = 0; i < recover->yield_history_count &&
+                    i < DEADLOCK_YIELD_HISTORY_MAX; i++) {
+        if (deadlock_same_physical_sensor(recover->yield_history[i], yield_target)) {
+            return;
+        }
+    }
+
+    if (recover->yield_history_count < DEADLOCK_YIELD_HISTORY_MAX) {
+        recover->yield_history[recover->yield_history_count++] = yield_target;
+        return;
+    }
+
+    for (int i = 1; i < DEADLOCK_YIELD_HISTORY_MAX; i++) {
+        recover->yield_history[i - 1] = recover->yield_history[i];
+    }
+    recover->yield_history[DEADLOCK_YIELD_HISTORY_MAX - 1] = yield_target;
+}
+
 static void deadlock_route_plan_from_serialized(route_plan_t *out,
                                                 const deadlock_route_plan_t *plan) {
     if (!out) return;
@@ -592,6 +621,9 @@ static void deadlock_fill_participant_snapshot(
     out->goal_idx = -1;
     out->resume_target_idx = -1;
     out->yield_target_idx = -1;
+    for (int i = 0; i < DEADLOCK_YIELD_HISTORY_MAX; i++) {
+        out->yield_history_idx[i] = -1;
+    }
 
     if (!pos) return;
 
@@ -613,6 +645,12 @@ static void deadlock_fill_participant_snapshot(
     out->yield_target_idx = deadlock_node_index(pos->deadlock_recover.yield_target);
     out->parked_at_yield = pos->deadlock_recover.parked_at_yield;
     out->wait_start_mask = pos->deadlock_recover.wait_start_mask;
+    out->yield_history_count = pos->deadlock_recover.yield_history_count;
+    for (int i = 0; i < pos->deadlock_recover.yield_history_count &&
+                    i < DEADLOCK_YIELD_HISTORY_MAX; i++) {
+        out->yield_history_idx[i] =
+            deadlock_node_index(pos->deadlock_recover.yield_history[i]);
+    }
 }
 
 void pos_deadlock_build_snapshot(deadlock_snapshot_t *out, uint64_t now_us) {
@@ -660,7 +698,19 @@ static int deadlock_participant_snapshot_matches(
            a->resume_offset_mm == b->resume_offset_mm &&
            a->yield_target_idx == b->yield_target_idx &&
            a->parked_at_yield == b->parked_at_yield &&
-           a->wait_start_mask == b->wait_start_mask;
+           a->wait_start_mask == b->wait_start_mask &&
+           a->yield_history_count == b->yield_history_count;
+}
+
+static int deadlock_participant_snapshot_history_matches(
+    const deadlock_participant_snapshot_t *a,
+    const deadlock_participant_snapshot_t *b) {
+    if (!a || !b) return 0;
+    for (int i = 0; i < a->yield_history_count &&
+                    i < DEADLOCK_YIELD_HISTORY_MAX; i++) {
+        if (a->yield_history_idx[i] != b->yield_history_idx[i]) return 0;
+    }
+    return 1;
 }
 
 static int deadlock_result_snapshot_is_current(const deadlock_result_t *result) {
@@ -676,7 +726,9 @@ static int deadlock_result_snapshot_is_current(const deadlock_result_t *result) 
 
     for (int i = 0; i < result->participant_count; i++) {
         if (!deadlock_participant_snapshot_matches(&current.participants[i],
-                                                   &result->participants[i])) {
+                                                   &result->participants[i]) ||
+            !deadlock_participant_snapshot_history_matches(&current.participants[i],
+                                                           &result->participants[i])) {
             return 0;
         }
     }
@@ -771,6 +823,7 @@ int pos_deadlock_apply_result(const deadlock_result_t *result) {
     actual_yield_target = deadlock_actual_yield_target(victim, yield_target);
     if (resume_target != NULL) {
         victim->deadlock_recover.yield_target = actual_yield_target;
+        deadlock_record_yield_history(victim, actual_yield_target);
     }
 
     deadlock_write_notice_from_result(result, 0, actual_yield_target);
