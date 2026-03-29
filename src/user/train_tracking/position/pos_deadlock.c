@@ -540,6 +540,14 @@ int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos) {
     if (!pos->deadlock_recover.valid || pos->deadlock_recover.resume_target == NULL) return 0;
     if (pos->deadlock_recover.yield_target == NULL) return 0;
     if (!pos->deadlock_recover.parked_at_yield) return 0;
+
+    /* Demo gold should continue with a fresh auto-picked destination instead
+     * of resuming the pre-deadlock target after yielding. */
+    if (demo_is_auto_dispatching_targets()) {
+        pos_clear_deadlock_recover(pos);
+        return 0;
+    }
+
     if (pos->deadlock_recover.wait_start_mask != 0 &&
         !deadlock_resume_waiting_trains_reserved(pos->deadlock_recover.wait_start_mask)) {
         return 0;
