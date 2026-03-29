@@ -160,6 +160,7 @@ static void pos_init_slot(train_pos_t *slot, int train_num, int train_ind, int s
     slot->awaiting_post_launch_sensor = 0;
     slot->force_offroute_on_next_sensor = 0;
     slot->dead_track_rescue_pending = 0;
+    slot->dead_track_warn_active = 0;
     pos_reset_dead_track_recover(slot);
     pos_clear_deadlock_recover(slot);
     pos_reset_midrev_fields(slot);
@@ -240,6 +241,7 @@ void pos_reset_dead_train(int train_num) {
     pos->awaiting_post_launch_sensor = 0;
     pos->force_offroute_on_next_sensor = 0;
     pos->dead_track_rescue_pending = 0;
+    pos->dead_track_warn_active = 0;
     pos->dead_track_recover.valid = 0;
     pos->dead_track_bootstrap_due_us = 0;
     pos->replan.blocker_mask = 0;
@@ -279,6 +281,7 @@ void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int speed_le
     pos_reset_wait_fields(pos);
     pos_clear_deadlock_recover(pos);
     pos_reset_dead_track_recover(pos);
+    pos->dead_track_warn_active = 0;
     pos->dead_track_bootstrap_due_us = 0;
     pos->offroute_valid = 0;
     pos->offroute_expected_sensor = NULL;
@@ -302,6 +305,9 @@ void pos_prepare_find_pos_request(train_pos_t *pos) {
     pos_reset_wait_fields(pos);
     pos_clear_deadlock_recover(pos);
     pos_reset_dead_track_recover(pos);
+    if (pos->route_state != TRAIN_STATE_DEAD_TRACK) {
+        pos->dead_track_warn_active = 0;
+    }
     pos->dead_track_bootstrap_due_us = 0;
     pos->target_sensor = NULL;
     pos->target_offset_mm = 0;

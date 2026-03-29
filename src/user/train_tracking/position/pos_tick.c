@@ -450,6 +450,7 @@ static void enter_terminal_dead_track(train_pos_t *pos, uint64_t now_us) {
     pos_clear_committed_route(pos);
     pos->force_offroute_on_next_sensor = 0;
     pos->dead_track_rescue_pending = 0;
+    pos->dead_track_warn_active = 1;
     pos_clear_deadlock_recover(pos);
     pos->offroute_valid = 1;
     pos->offroute_expected_sensor = guessed_end;

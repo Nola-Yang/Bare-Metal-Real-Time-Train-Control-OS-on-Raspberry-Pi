@@ -211,6 +211,7 @@ typedef struct {
     uint8_t     awaiting_post_launch_sensor; /* 1 until the first hit after a goto launch */
     uint8_t     force_offroute_on_next_sensor;
     uint8_t     dead_track_rescue_pending;
+    uint8_t     dead_track_warn_active; /* UI latch: dead-track rebootstrap is in progress. */
     pos_dead_track_recover_t dead_track_recover;
     pos_deadlock_recover_t deadlock_recover;
 

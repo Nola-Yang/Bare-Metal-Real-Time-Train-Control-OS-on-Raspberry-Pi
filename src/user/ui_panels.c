@@ -419,6 +419,13 @@ static char *ui_append_deadlock_warn(char *p, const pos_deadlock_notice_t *notic
     return p;
 }
 
+static char *ui_append_dead_track_warn(char *p, int train_num) {
+    p = buf_append(p, "\033[31mtr");
+    p = buf_append_int(p, train_num);
+    p = buf_append(p, " dead-track\033[0m");
+    return p;
+}
+
 typedef struct {
     uint16_t idx;
     uint8_t  hidden;
@@ -710,10 +717,9 @@ void ui_draw_position(void) {
         for (int i = 0; i < MAX_POS_TRAINS; i++) {
             train_pos_t *pos = pos_get_by_index(i);
             if (!pos || pos->train_num < 0) continue;
-            if (pos->route_state == TRAIN_STATE_DEAD_TRACK) {
-                p = buf_append(p, "tr");
-                p = buf_append_int(p, pos->train_num);
-                p = buf_append(p, " dead-track");
+            if (pos->route_state == TRAIN_STATE_DEAD_TRACK ||
+                pos->dead_track_warn_active) {
+                p = ui_append_dead_track_warn(p, pos->train_num);
                 warned = 1;
                 break;
             }
