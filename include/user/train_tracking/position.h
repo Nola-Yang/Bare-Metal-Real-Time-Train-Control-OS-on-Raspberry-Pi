@@ -101,6 +101,7 @@ typedef struct {
     track_node *yield_target;
     uint8_t    wait_start_mask;
     uint8_t    parked_at_yield;
+    uint64_t   parked_since_us;
 } pos_deadlock_recover_t;
 
 typedef struct {

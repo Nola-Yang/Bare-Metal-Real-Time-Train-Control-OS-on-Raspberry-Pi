@@ -21,6 +21,7 @@ void pos_clear_deadlock_recover(train_pos_t *pos) {
     pos->deadlock_recover.yield_target = NULL;
     pos->deadlock_recover.wait_start_mask = 0;
     pos->deadlock_recover.parked_at_yield = 0;
+    pos->deadlock_recover.parked_since_us = 0;
 }
 
 void pos_clear_prediction(train_pos_t *pos) {

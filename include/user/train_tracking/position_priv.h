@@ -37,6 +37,8 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
 
 /* Keep resolved deadlock notices visible in the UI briefly after reroute. */
 #define DEADLOCK_NOTICE_RESOLVED_US 8000000ULL
+/* After a deadlock-yield stop, wait briefly before resuming the original target. */
+#define DEADLOCK_RESUME_DELAY_US 1000000ULL
 
 /* Give turnout commands a short settle window before launching the train. */
 #define SWITCH_SETTLE_TICKS     5
@@ -197,7 +199,7 @@ void pos_save_ema_and_stop(train_pos_t *pos);
 void pos_clear_deadlock_recover(train_pos_t *pos);
 
 /* Try to resume a yielded deadlock victim once the blocked peers have moved. */
-int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos);
+int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos, uint64_t now_us);
 void pos_deadlock_refresh_notice_state(uint64_t now_us);
 int pos_deadlock_maybe_reroute_waiter(train_pos_t *pos, uint64_t now_us);
 

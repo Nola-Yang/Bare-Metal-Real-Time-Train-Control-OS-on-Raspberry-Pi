@@ -184,6 +184,7 @@ static void handle_normal_stop(train_pos_t *pos, uint64_t now_us) {
         /* Keep the train logically parked here until
          * the deadlock recovery logic explicitly decides to resume. */
         pos->deadlock_recover.parked_at_yield = 1;
+        pos->deadlock_recover.parked_since_us = now_us;
         return;
     }
 
@@ -553,7 +554,7 @@ void pos_on_tick(uint64_t now_us) {
             continue;
         }
         if (pos->route_state == TRAIN_STATE_STOPPED) {
-            if (pos_deadlock_maybe_resume_after_yield(pos)) continue;
+            if (pos_deadlock_maybe_resume_after_yield(pos, now_us)) continue;
             tick_handle_stopping(pos, now_us);
             continue;
         }

@@ -452,6 +452,7 @@ static int deadlock_apply_reroute(train_pos_t *victim,
         victim->deadlock_recover.yield_target = yield_target;
         victim->deadlock_recover.wait_start_mask = unblocked_mask;
         victim->deadlock_recover.parked_at_yield = 0;
+        victim->deadlock_recover.parked_since_us = 0;
     } else {
         pos_clear_deadlock_recover(victim);
     }
@@ -532,7 +533,7 @@ static int deadlock_resume_waiting_trains_reserved(uint8_t wait_start_mask) {
     return !any_waiting;
 }
 
-int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos) {
+int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos, uint64_t now_us) {
     track_node *resume_target;
     int32_t resume_offset_mm;
 
@@ -545,6 +546,11 @@ int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos) {
      * of resuming the pre-deadlock target after yielding. */
     if (demo_is_auto_dispatching_targets()) {
         pos_clear_deadlock_recover(pos);
+        return 0;
+    }
+
+    if (pos->deadlock_recover.parked_since_us == 0 ||
+        now_us - pos->deadlock_recover.parked_since_us < DEADLOCK_RESUME_DELAY_US) {
         return 0;
     }
 
