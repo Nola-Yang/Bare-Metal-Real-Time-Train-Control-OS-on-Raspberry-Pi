@@ -690,6 +690,7 @@ void ui_draw_position(void) {
     int *trains = g_ui_position_trains;
     uint64_t now_us = read_timer();
     char *line_buf = g_ui_position_line_buf;
+    int line_cap = (int)sizeof(g_ui_position_line_buf);
     static const int RESERVATION_TRAINS[UI_RESERVATION_TRAIN_COUNT] = {13, 14, 15, 17, 18, 55};
     char (*reservation_blocks)[UI_RESERVATION_BLOCK_ROWS][UI_RESERVATION_COL_WIDTH + 1] =
         g_ui_reservation_blocks;
@@ -769,25 +770,25 @@ void ui_draw_position(void) {
 
     p = ui_append_section_bar(p, 30, game_is_active() ? "Game Status" : "Demo Status");
     if (game_is_active()) {
-        ui_build_game_header_line(now_us, line_buf, sizeof(line_buf));
+        ui_build_game_header_line(now_us, line_buf, line_cap);
     } else {
-        ui_build_demo_sensor_line(now_us, line_buf, sizeof(line_buf));
+        ui_build_demo_sensor_line(now_us, line_buf, line_cap);
     }
     p = ui_move_to_row(p, 31);
     p = buf_append(p, line_buf);
     p = buf_append(p, "\033[K");
 
     if (game_is_active()) {
-        ui_build_game_score_line(now_us, line_buf, sizeof(line_buf));
+        ui_build_game_score_line(now_us, line_buf, line_cap);
     } else {
-        ui_build_demo_tuning_line(now_us, line_buf, sizeof(line_buf));
+        ui_build_demo_tuning_line(now_us, line_buf, line_cap);
     }
     p = ui_move_to_row(p, 32);
     p = buf_append(p, line_buf);
     p = buf_append(p, "\033[K");
 
     if (game_is_active()) {
-        ui_build_game_detail_line(now_us, line_buf, sizeof(line_buf));
+        ui_build_game_detail_line(now_us, line_buf, line_cap);
         p = ui_move_to_row(p, 33);
         p = buf_append(p, line_buf);
         p = buf_append(p, "\033[K");
