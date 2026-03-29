@@ -14,6 +14,31 @@ static void pos_reset_dead_track_recover(train_pos_t *pos) {
     pos->dead_track_recover.orig_offset_mm = 0;
 }
 
+static track_node *pos_find_preserved_target(const train_pos_t *pos,
+                                             int32_t *out_offset_mm) {
+    track_node *target = NULL;
+    int32_t offset_mm = 0;
+
+    if (!pos) {
+        if (out_offset_mm) *out_offset_mm = 0;
+        return NULL;
+    }
+
+    if (pos->orig_user_target != NULL) {
+        target = pos->orig_user_target;
+        offset_mm = pos->orig_target_offset;
+    } else if (pos->pending_target != NULL) {
+        target = pos->pending_target;
+        offset_mm = pos->pending_offset_mm;
+    } else if (pos->target_sensor != NULL) {
+        target = pos->target_sensor;
+        offset_mm = pos->target_offset_mm;
+    }
+
+    if (out_offset_mm) *out_offset_mm = target ? offset_mm : 0;
+    return target;
+}
+
 void pos_clear_deadlock_recover(train_pos_t *pos) {
     if (!pos) return;
     pos->deadlock_recover.valid = 0;
@@ -295,12 +320,31 @@ void pos_prepare_goto_request(train_pos_t *pos, track_node *target, int speed_le
 }
 
 void pos_prepare_find_pos_request(train_pos_t *pos) {
+    track_node *preserved_target;
+    int32_t preserved_offset_mm = 0;
+    int keep_target;
+
     if (!pos) return;
 
-    pos->pending_target = NULL;
-    pos->pending_offset_mm = 0;
-    pos->orig_user_target = NULL;
-    pos->orig_target_offset = 0;
+    preserved_target = pos_find_preserved_target(pos, &preserved_offset_mm);
+    keep_target = pos->route_state == TRAIN_STATE_DEAD_TRACK &&
+                  preserved_target != NULL;
+
+    if (keep_target) {
+        pos->pending_target = preserved_target;
+        pos->pending_offset_mm = preserved_offset_mm;
+        pos->orig_user_target = preserved_target;
+        pos->orig_target_offset = preserved_offset_mm;
+        pos->target_sensor = preserved_target;
+        pos->target_offset_mm = preserved_offset_mm;
+    } else {
+        pos->pending_target = NULL;
+        pos->pending_offset_mm = 0;
+        pos->orig_user_target = NULL;
+        pos->orig_target_offset = 0;
+        pos->target_sensor = NULL;
+        pos->target_offset_mm = 0;
+    }
     pos->replan.blocker_mask = 0;
     pos_reset_wait_fields(pos);
     pos_clear_deadlock_recover(pos);
@@ -309,8 +353,6 @@ void pos_prepare_find_pos_request(train_pos_t *pos) {
         pos->dead_track_warn_active = 0;
     }
     pos->dead_track_bootstrap_due_us = 0;
-    pos->target_sensor = NULL;
-    pos->target_offset_mm = 0;
     pos->dist_to_target_mm = 0;
     pos->parked_target_col = POS_TARGET_COL_NONE;
     pos->replan.next_us = 0;

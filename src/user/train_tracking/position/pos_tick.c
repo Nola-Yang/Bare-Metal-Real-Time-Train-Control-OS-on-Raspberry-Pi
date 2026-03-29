@@ -123,6 +123,31 @@ static int pos_targets_same_sensor(track_node *a, track_node *b) {
     return a == b || a->reverse == b || b->reverse == a;
 }
 
+static track_node *pos_dead_track_resume_target(const train_pos_t *pos,
+                                                int32_t *out_offset_mm) {
+    track_node *target = NULL;
+    int32_t offset_mm = 0;
+
+    if (!pos) {
+        if (out_offset_mm) *out_offset_mm = 0;
+        return NULL;
+    }
+
+    if (pos->orig_user_target != NULL) {
+        target = pos->orig_user_target;
+        offset_mm = pos->orig_target_offset;
+    } else if (pos->pending_target != NULL) {
+        target = pos->pending_target;
+        offset_mm = pos->pending_offset_mm;
+    } else if (pos->target_sensor != NULL) {
+        target = pos->target_sensor;
+        offset_mm = pos->target_offset_mm;
+    }
+
+    if (out_offset_mm) *out_offset_mm = target ? offset_mm : 0;
+    return target;
+}
+
 static uint8_t stop_wait_blocker_mask(const train_pos_t *pos) {
     route_plan_t remaining_plan;
 
@@ -293,6 +318,8 @@ static int tick_handle_stopping_goto(train_pos_t *pos, uint64_t now_us) {
 
     pos_save_ema_and_stop(pos);
     if (pos->stop_after_find_pos) {
+        int32_t resume_offset_mm = 0;
+        track_node *resume_target = pos_dead_track_resume_target(pos, &resume_offset_mm);
         track_node *keep_pred = pos->cur_sensor
                                 ? pos_release_keep_end(pos->cur_sensor,
                                                        pos->pred.next_sensor)
@@ -306,7 +333,17 @@ static int tick_handle_stopping_goto(train_pos_t *pos, uint64_t now_us) {
                                                       keep_pred,
                                                       TRAIN_BODY_MM);
         pos_clear_prediction(pos);
-        ui_mark_position_dirty();
+        if (resume_target != NULL) {
+            pos_restore_pending_target(pos);
+            if (pos->pending_target == NULL) {
+                pos->pending_target = resume_target;
+                pos->pending_offset_mm = resume_offset_mm;
+            }
+            int ok = pos_try_direct_goto(pos);
+            KASSERT(ok);
+        } else {
+            ui_mark_position_dirty();
+        }
     } else {
         int ok = pos_try_direct_goto(pos);
         KASSERT(ok);
@@ -395,8 +432,12 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
 
 static void enter_terminal_dead_track(train_pos_t *pos, uint64_t now_us) {
     track_node *guessed_end;
+    track_node *resume_target;
+    int32_t resume_offset_mm = 0;
 
     if (!pos) return;
+
+    resume_target = pos_dead_track_resume_target(pos, &resume_offset_mm);
 
     int can_rescue_dead_track =
         pos->route_state == TRAIN_STATE_ON_ROUTE &&
@@ -432,16 +473,16 @@ static void enter_terminal_dead_track(train_pos_t *pos, uint64_t now_us) {
     pos->is_accelerating = 0;
     pos->route_state = TRAIN_STATE_DEAD_TRACK;
     pos->parked_target_col = POS_TARGET_COL_NONE;
-    pos->target_sensor = NULL;
-    pos->target_offset_mm = 0;
+    pos->target_sensor = resume_target;
+    pos->target_offset_mm = resume_target ? resume_offset_mm : 0;
     pos->dist_to_target_mm = 0;
-    pos->pending_target = NULL;
-    pos->pending_offset_mm = 0;
+    pos->pending_target = resume_target;
+    pos->pending_offset_mm = resume_target ? resume_offset_mm : 0;
     pos->queued_target = NULL;
     pos->queued_offset_mm = 0;
     pos->queued_valid = 0;
-    pos->orig_user_target = NULL;
-    pos->orig_target_offset = 0;
+    pos->orig_user_target = resume_target;
+    pos->orig_target_offset = resume_target ? resume_offset_mm : 0;
     pos->stop_after_find_pos = 0;
     pos->midrev.active = 0;
     pos->replan.next_us = 0;

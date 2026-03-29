@@ -231,8 +231,9 @@ typedef struct {
     uint32_t authority_seen_generation;
     uint64_t authority_next_us;
 
-    /* If 1: started via pos_start_find_pos; stop after the first sensor hit
-     * instead of planning a route to a target. */
+    /* If 1: the current FIND_POS pass brakes on the first sensor hit before
+     * deciding what to do next. Plain findpos stops there; dead-track
+     * recovery may immediately replan the preserved mission target. */
     uint8_t  stop_after_find_pos;
 
 } train_pos_t;
