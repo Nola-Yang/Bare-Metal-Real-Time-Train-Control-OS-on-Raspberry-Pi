@@ -319,7 +319,8 @@ void pos_enter_wait_resource(train_pos_t *pos, uint64_t now_us, uint8_t blocker_
 }
 
 static int pos_try_direct_goto_impl(train_pos_t *pos,
-                                    int wait_on_unreachable) {
+                                    int wait_on_unreachable,
+                                    int deadlock_mode) {
     track_node *user_target = pos->pending_target;
     int32_t     offset_mm   = pos->pending_offset_mm;
     route_plan_t *rp;
@@ -329,7 +330,11 @@ static int pos_try_direct_goto_impl(train_pos_t *pos,
 
     if (!pos->cur_sensor || !user_target) return 0;
 
-    eval_result = pos_evaluate_target_plan(pos, user_target, &g_pos_try_eval_main);
+    eval_result = deadlock_mode
+                      ? pos_evaluate_target_plan_deadlock(pos, user_target,
+                                                          &g_pos_try_eval_main)
+                      : pos_evaluate_target_plan(pos, user_target,
+                                                 &g_pos_try_eval_main);
     switch (eval_result) {
     case POS_ROUTE_EVAL_UNREACHABLE:
         if (!wait_on_unreachable) return 0;
@@ -355,11 +360,19 @@ static int pos_try_direct_goto_impl(train_pos_t *pos,
 }
 
 int pos_try_direct_goto(train_pos_t *pos) {
-    return pos_try_direct_goto_impl(pos, 1);
+    return pos_try_direct_goto_impl(pos, 1, 0);
+}
+
+int pos_try_direct_goto_deadlock(train_pos_t *pos) {
+    return pos_try_direct_goto_impl(pos, 1, 1);
 }
 
 int pos_try_direct_goto_strict(train_pos_t *pos) {
-    return pos_try_direct_goto_impl(pos, 0);
+    return pos_try_direct_goto_impl(pos, 0, 0);
+}
+
+int pos_try_direct_goto_strict_deadlock(train_pos_t *pos) {
+    return pos_try_direct_goto_impl(pos, 0, 1);
 }
 
 int pos_try_resume_committed_route(train_pos_t *pos, uint64_t now_us) {

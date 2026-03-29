@@ -83,10 +83,12 @@ static inline uint8_t pos_deadlock_train_bit(int train_num) {
  * pos->pending_target. Returns 1 when the request is accepted, either by
  * launching immediately or by entering WAIT_RESOURCE for retry. */
 int pos_try_direct_goto(train_pos_t *pos);
+int pos_try_direct_goto_deadlock(train_pos_t *pos);
 
 /* Strict variant for deadlock reroute probes: planner-unreachable results
  * fail without forcing the train into WAIT_RESOURCE. */
 int pos_try_direct_goto_strict(train_pos_t *pos);
+int pos_try_direct_goto_strict_deadlock(train_pos_t *pos);
 
 /* Retry launching the already committed route for WAIT_RESOURCE resumes. */
 int pos_try_resume_committed_route(train_pos_t *pos, uint64_t now_us);

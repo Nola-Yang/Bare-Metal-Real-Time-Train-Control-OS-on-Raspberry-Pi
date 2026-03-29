@@ -260,6 +260,77 @@ static int deadlock_choose_victim(const deadlock_participants_t *parts,
     return -1;
 }
 
+static int deadlock_apply_reroute(train_pos_t *victim,
+                                  const deadlock_participants_t *parts,
+                                  uint8_t cycle_mask,
+                                  uint64_t now_us,
+                                  int resume_after_yield);
+
+static int deadlock_notice_matches_cycle(const pos_deadlock_notice_t *notice,
+                                         const deadlock_participants_t *parts,
+                                         uint8_t cycle_mask) {
+    uint8_t notice_mask = 0;
+    uint8_t cycle_global_mask;
+
+    if (!notice || !notice->active || !notice->unresolved || !parts) return 0;
+
+    for (int i = 0; i < notice->cycle_count && i < DEADLOCK_MAX_TRAINS; i++) {
+        uint8_t bit = pos_deadlock_train_bit(notice->cycle_trains[i]);
+        if (!bit) return 0;
+        notice_mask |= bit;
+    }
+    if (deadlock_bit_count(notice_mask) < 2) return 0;
+
+    cycle_global_mask = deadlock_global_mask_from_local(parts, cycle_mask);
+    return cycle_global_mask == notice_mask;
+}
+
+static int deadlock_first_wait_cycle_index(const deadlock_participants_t *parts,
+                                           uint8_t cycle_mask) {
+    if (!parts) return -1;
+
+    for (int i = 0; i < parts->count; i++) {
+        train_pos_t *pos;
+        if (!(cycle_mask & (uint8_t)(1u << i))) continue;
+        pos = pos_get(parts->train_nums[i]);
+        if (pos && pos->route_state == TRAIN_STATE_WAIT_RESOURCE) return i;
+    }
+    return -1;
+}
+
+static int deadlock_wait_cycle_start_index(const deadlock_participants_t *parts,
+                                           uint8_t cycle_mask) {
+    pos_deadlock_notice_t notice;
+    int base_idx;
+    int notice_idx;
+
+    if (!parts) return -1;
+
+    base_idx = deadlock_first_wait_cycle_index(parts, cycle_mask);
+    if (base_idx < 0) return -1;
+
+    pos_get_deadlock_notice(&notice);
+    if (!deadlock_notice_matches_cycle(&notice, parts, cycle_mask)) {
+        return base_idx;
+    }
+
+    notice_idx = deadlock_participant_index(parts, notice.victim_train);
+    if (notice_idx < 0 || !(cycle_mask & (uint8_t)(1u << notice_idx))) {
+        return base_idx;
+    }
+
+    for (int offset = 1; offset <= parts->count; offset++) {
+        int idx = (notice_idx + offset) % parts->count;
+        train_pos_t *pos;
+
+        if (!(cycle_mask & (uint8_t)(1u << idx))) continue;
+        pos = pos_get(parts->train_nums[idx]);
+        if (pos && pos->route_state == TRAIN_STATE_WAIT_RESOURCE) return idx;
+    }
+
+    return base_idx;
+}
+
 static void deadlock_fill_cycle_trains(pos_deadlock_notice_t *notice,
                                        const deadlock_participants_t *parts,
                                        uint8_t cycle_mask) {
@@ -375,12 +446,16 @@ static void deadlock_write_notice(const deadlock_participants_t *parts,
 
 static void deadlock_note_detected(const deadlock_participants_t *parts,
                                    uint8_t cycle_mask,
-                                   deadlock_kind_t kind) {
+                                   deadlock_kind_t kind,
+                                   int preferred_victim_train) {
     int victim_train;
 
     if (!parts || deadlock_bit_count(cycle_mask) < 2) return;
 
-    victim_train = deadlock_choose_victim(parts, cycle_mask, kind);
+    victim_train = preferred_victim_train;
+    if (victim_train < 0) {
+        victim_train = deadlock_choose_victim(parts, cycle_mask, kind);
+    }
     if (victim_train < 0 && parts->count > 0) {
         for (int i = 0; i < parts->count; i++) {
             if (cycle_mask & (uint8_t)(1u << i)) {
@@ -393,6 +468,41 @@ static void deadlock_note_detected(const deadlock_participants_t *parts,
 
     deadlock_write_notice(parts, cycle_mask, victim_train,
                           NULL, NULL, NULL, 0, 1);
+}
+
+static int deadlock_apply_wait_cycle_reroute(
+    uint8_t cycle_mask, const deadlock_participants_t *parts, uint64_t now_us,
+    int *out_victim_train) {
+    int start_idx;
+    int last_attempted_train = -1;
+
+    if (out_victim_train) *out_victim_train = -1;
+    if (!parts) return 0;
+
+    start_idx = deadlock_wait_cycle_start_index(parts, cycle_mask);
+    if (start_idx < 0) return 0;
+
+    for (int offset = 0; offset < parts->count; offset++) {
+        int idx = (start_idx + offset) % parts->count;
+        train_pos_t *pos;
+
+        if (!(cycle_mask & (uint8_t)(1u << idx))) continue;
+
+        pos = pos_get(parts->train_nums[idx]);
+        if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) continue;
+
+        last_attempted_train = parts->train_nums[idx];
+        if (deadlock_apply_reroute(pos, parts, cycle_mask, now_us, 1)) {
+            if (out_victim_train) *out_victim_train = parts->train_nums[idx];
+            return 1;
+        }
+    }
+
+    if (last_attempted_train >= 0) {
+        deadlock_note_detected(parts, cycle_mask, DEADLOCK_KIND_WAIT_CYCLE,
+                               last_attempted_train);
+    }
+    return 0;
 }
 
 static track_node *deadlock_actual_yield_target(const train_pos_t *pos,
@@ -468,9 +578,9 @@ static int deadlock_apply_reroute(train_pos_t *victim,
     pos_clear_committed_route(victim);
 
     if (pick_kind == POS_DEADLOCK_PICK_FORCE_MOVE) {
-        if (!pos_try_direct_goto(victim)) return 0;
+        if (!pos_try_direct_goto_deadlock(victim)) return 0;
     } else {
-        if (!pos_try_direct_goto_strict(victim)) return 0;
+        if (!pos_try_direct_goto_strict_deadlock(victim)) return 0;
     }
     if (victim->route_state != TRAIN_STATE_ON_ROUTE &&
         victim->route_state != TRAIN_STATE_WAIT_SWITCH_SETTLE) {
@@ -580,7 +690,6 @@ int pos_deadlock_maybe_reroute_waiter(train_pos_t *pos, uint64_t now_us) {
     deadlock_participants_t parts;
     uint8_t cycle_mask = 0;
     int victim_train = -1;
-    train_pos_t *victim;
     deadlock_kind_t deadlock_kind = DEADLOCK_KIND_NONE;
 
     if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) return 0;
@@ -588,18 +697,12 @@ int pos_deadlock_maybe_reroute_waiter(train_pos_t *pos, uint64_t now_us) {
     cycle_mask = deadlock_find_mask_for_train(pos->train_num, &deadlock_kind, &parts);
     if (!cycle_mask) return 0;
 
-    deadlock_note_detected(&parts, cycle_mask, deadlock_kind);
-
     if (deadlock_kind == DEADLOCK_KIND_STOPPED_BLOCKER) {
+        deadlock_note_detected(&parts, cycle_mask, deadlock_kind, -1);
         return deadlock_apply_stopped_blocker_reroute(cycle_mask, &parts, now_us,
                                                       &victim_train);
     }
 
-    victim_train = deadlock_choose_victim(&parts, cycle_mask, deadlock_kind);
-    if (victim_train < 0) return 0;
-
-    victim = pos_get(victim_train);
-    if (!victim) return 0;
-
-    return deadlock_apply_reroute(victim, &parts, cycle_mask, now_us, 1);
+    return deadlock_apply_wait_cycle_reroute(cycle_mask, &parts, now_us,
+                                             &victim_train);
 }

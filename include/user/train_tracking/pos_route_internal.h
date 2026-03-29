@@ -27,6 +27,8 @@ typedef enum {
 track_node *pos_route_current_goal(train_pos_t *pos);
 
 void pos_route_fill_origins(const train_pos_t *pos, track_node *origins[2]);
+void pos_route_fill_deadlock_origins(const train_pos_t *pos,
+                                     track_node *origins[2]);
 
 void pos_route_build_constraints_for_train(int requester_train,
                                            uint8_t blocked[TRACK_MAX],
@@ -45,10 +47,16 @@ int pos_route_blocker_mask_bit_count(uint8_t mask);
 pos_route_eval_result_t pos_evaluate_target_plan(train_pos_t *pos,
                                                  track_node *user_target,
                                                  pos_route_eval_t *out);
+pos_route_eval_result_t pos_evaluate_target_plan_deadlock(train_pos_t *pos,
+                                                          track_node *user_target,
+                                                          pos_route_eval_t *out);
 
 pos_route_eval_result_t pos_evaluate_target_ready_now(train_pos_t *pos,
                                                       track_node *user_target,
                                                       pos_route_eval_t *out);
+pos_route_eval_result_t pos_evaluate_target_ready_now_deadlock(train_pos_t *pos,
+                                                               track_node *user_target,
+                                                               pos_route_eval_t *out);
 
 /* Recompute the trains currently blocking a WAIT_RESOURCE train.
  * Returns 0 when the train is not blocked right now. */
