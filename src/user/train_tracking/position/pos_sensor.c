@@ -167,7 +167,7 @@ void pos_revive_dead_track_for_current_hit(train_pos_t *pos) {
     pos->offroute_expected_sensor = NULL;
     pos->force_offroute_on_next_sensor = 1;
     pos->dead_track_rescue_pending = 1;
-    pos->dead_track_bootstrap_due_us = 0;
+    pos->dead_track_retry_due_us = 0;
     pos_clear_prediction(pos);
 }
 

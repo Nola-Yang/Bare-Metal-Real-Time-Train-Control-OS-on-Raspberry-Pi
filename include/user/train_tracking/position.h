@@ -24,7 +24,7 @@ typedef enum {
     TRAIN_STATE_FIND_POS     = 6,  /* position unknown; running until first sensor hit */
     TRAIN_STATE_RECOVERY_STOPPING = 7,  /* off-route deviation; stopping -> replan */
     TRAIN_STATE_STOPPING_GOTO     = 8, /* goto while running; stop sent -> replan */
-    TRAIN_STATE_DEAD_TRACK        = 9, /* dead track detected; stop is sent and bootstrap may re-arm immediately */
+    TRAIN_STATE_DEAD_TRACK        = 9, /* dead track detected; pause, then retry launch from cur_sensor */
     TRAIN_STATE_WAIT_RESOURCE     = 10, /* route blocked by reservation; stopped and waiting */
     TRAIN_STATE_WAIT_SWITCH_SETTLE = 11, /* switches set; waiting for turnout settle before launch */
 } train_route_state_t;
@@ -186,7 +186,7 @@ typedef struct {
     /* Deadline for observing the next predicted progress sensor.
      * Typically now + DEAD_TRACK_DEADLINE_MULTIPLIER * T1. */
     uint64_t    dead_track_deadline_us;
-    uint64_t    dead_track_bootstrap_due_us;
+    uint64_t    dead_track_retry_due_us;
 
     /* Per-speed EMA cache.
      * cached_v[s] holds the last calibrated effective_v for user speed s.
@@ -211,7 +211,7 @@ typedef struct {
     uint8_t     awaiting_post_launch_sensor; /* 1 until the first hit after a goto launch */
     uint8_t     force_offroute_on_next_sensor;
     uint8_t     dead_track_rescue_pending;
-    uint8_t     dead_track_warn_active; /* UI latch: dead-track rebootstrap is in progress. */
+    uint8_t     dead_track_warn_active; /* UI latch: dead-track pause/retry is in progress. */
     pos_dead_track_recover_t dead_track_recover;
     pos_deadlock_recover_t deadlock_recover;
 

@@ -45,7 +45,7 @@ static void pos_begin_pos_find(train_pos_t *pos, uint64_t now_us) {
     pos->dead_track_recover.valid = 0;
     pos->dead_track_recover.orig_target = NULL;
     pos->dead_track_recover.orig_offset_mm = 0;
-    pos->dead_track_bootstrap_due_us = 0;
+    pos->dead_track_retry_due_us = 0;
     pos->stopped_on_target_hit = 0;
     pos_clear_deadlock_recover(pos);
     pos->route_state     = TRAIN_STATE_FIND_POS;
@@ -119,7 +119,7 @@ void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
     pos->dead_track_rescue_pending = 0;
     pos->dead_track_warn_active = 0;
     pos->dead_track_recover.valid = 0;
-    pos->dead_track_bootstrap_due_us = 0;
+    pos->dead_track_retry_due_us = 0;
     pos->stopped_on_target_hit = 0;
 }
 

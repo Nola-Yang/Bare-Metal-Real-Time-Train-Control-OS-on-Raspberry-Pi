@@ -424,12 +424,58 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
     return 0;
 }
 
+static void resume_onroute_after_dead_track(train_pos_t *pos, uint64_t now_us) {
+    uint64_t dt = 0;
+
+    if (!pos || pos->cur_sensor == NULL) return;
+
+    if (pos->route_path_count > 0) {
+        pos_route_authority_sync_target(pos);
+    }
+
+    pos->route_state = TRAIN_STATE_ON_ROUTE;
+    pos_launch_at_goto_speed(pos, now_us);
+    pos->dead_track_warn_active = 1;
+
+    pos->pred.next_sensor = predict_next_sensor(pos, pos->cur_sensor, &dt);
+    pos->pred.trigger_time = (dt > 0) ? (pos->accel_start_us + dt) : 0;
+    pos->pred.skipped_sensor_count = 0;
+    pos->route_rem_tick_us = now_us;
+    pos->stopping_since_us = 0;
+    pos->dead_track_retry_due_us = 0;
+    pos_refresh_dead_track_deadline(pos, now_us);
+    ui_mark_position_dirty();
+}
+
 static void enter_terminal_dead_track(train_pos_t *pos, uint64_t now_us) {
     track_node *guessed_end;
     track_node *resume_target;
     int32_t resume_offset_mm = 0;
 
     if (!pos) return;
+
+    if (pos->route_state == TRAIN_STATE_ON_ROUTE &&
+        pos->cur_sensor != NULL &&
+        pos->route_path_count > 0) {
+        track_set_speed(pos->train_num, 0);
+        pos_save_ema_and_stop(pos);
+        pos->is_accelerating = 0;
+        pos->route_state = TRAIN_STATE_DEAD_TRACK;
+        pos->stopping_since_us = now_us;
+        pos->route_rem_tick_us = 0;
+        pos->dead_track_deadline_us = 0;
+        pos->dead_track_retry_due_us =
+            (now_us > UINT64_MAX - DEAD_TRACK_RETRY_DELAY_US)
+                ? UINT64_MAX
+                : now_us + DEAD_TRACK_RETRY_DELAY_US;
+        pos->dead_track_warn_active = 1;
+        pos->dead_track_recover.valid = 0;
+        pos->dead_track_recover.orig_target = NULL;
+        pos->dead_track_recover.orig_offset_mm = 0;
+        pos->offroute_valid = 0;
+        pos->offroute_expected_sensor = NULL;
+        return;
+    }
 
     resume_target = pos_dead_track_resume_target(pos, &resume_offset_mm);
 
@@ -492,7 +538,7 @@ static void enter_terminal_dead_track(train_pos_t *pos, uint64_t now_us) {
     pos_clear_prediction(pos);
     /* Keep the dead-track reservation anchor above, but allow the train to
      * re-enter bootstrap on the very next tick after the stop command is sent. */
-    pos->dead_track_bootstrap_due_us = (now_us == 0) ? 1 : now_us;
+    pos->dead_track_retry_due_us = (now_us == 0) ? 1 : now_us;
 }
 
 /* Detect dead-track: no sensor fired before the deadline. */
@@ -509,10 +555,14 @@ static int tick_check_dead_track(train_pos_t *pos, uint64_t now_us) {
 
 static int tick_handle_dead_track(train_pos_t *pos, uint64_t now_us) {
     if (!pos || pos->route_state != TRAIN_STATE_DEAD_TRACK) return 0;
-    if (pos->dead_track_bootstrap_due_us == 0) return 1;
-    if (now_us < pos->dead_track_bootstrap_due_us) return 1;
+    if (pos->dead_track_retry_due_us == 0) return 1;
+    if (now_us < pos->dead_track_retry_due_us) return 1;
 
-    pos_enter_find_pos(pos, now_us);
+    if (pos->cur_sensor != NULL && pos->route_path_count > 0) {
+        resume_onroute_after_dead_track(pos, now_us);
+    } else {
+        pos_enter_find_pos(pos, now_us);
+    }
     return 1;
 }
 
