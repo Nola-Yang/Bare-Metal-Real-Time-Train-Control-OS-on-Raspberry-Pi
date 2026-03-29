@@ -13,7 +13,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define GAME_ROUNDS 4
 #define GAME_ROLES 3
 #define GAME_SCORE_PLAYERS 2
 #define GAME_SENSOR_KEYS 80

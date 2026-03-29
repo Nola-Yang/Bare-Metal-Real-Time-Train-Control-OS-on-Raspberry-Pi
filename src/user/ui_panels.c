@@ -319,7 +319,8 @@ static void ui_build_game_header_line(uint64_t now_us, char *out, int cap) {
     n = ui_limited_append_str(out, n, cap, summary.state_name);
     n = ui_limited_append_str(out, n, cap, "  R=");
     n = ui_limited_append_int(out, n, cap, summary.round_num);
-    n = ui_limited_append_str(out, n, cap, "/4");
+    n = ui_limited_append_str(out, n, cap, "/");
+    n = ui_limited_append_int(out, n, cap, GAME_ROUNDS);
     n = ui_limited_append_str(out, n, cap, "  Priority=");
     n = ui_limited_append_str(out, n, cap, summary.priority_name);
     n = ui_limited_append_str(out, n, cap, "  ");

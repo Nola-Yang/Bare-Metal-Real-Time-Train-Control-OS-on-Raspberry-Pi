@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include "runtime_protocol.h"
 
+#define GAME_ROUNDS 2
+
 typedef struct {
     int active;
     const char *state_name;

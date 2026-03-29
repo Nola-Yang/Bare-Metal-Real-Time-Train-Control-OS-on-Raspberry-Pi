@@ -116,11 +116,11 @@ Enter commands at the prompt:
 
 ---
 
-## Four-Round Competitive Game Rules
+## Two-Round Competitive Game Rules
 
 ### Overview
 
-- The match lasts for `4` rounds.
+- The match lasts for `2` rounds.
 - There are `3` trains on the track during the game:
   - `2` scoring trains: one controlled by the human player and one controlled by the AI.
   - `1` neutral train: it creates traffic pressure but never scores.
@@ -130,12 +130,10 @@ Enter commands at the prompt:
 
 ### Round Priority
 
-- Priority alternates in a fixed order across the four rounds.
+- Priority alternates in a fixed order across the two rounds.
 - Before Round 1, the system performs one random draw to decide which scoring player has priority first.
 - Round 2 gives priority to the other scoring player.
-- Round 3 returns priority to the Round 1 player.
-- Round 4 gives priority to the other scoring player again.
-- Each scoring player therefore receives priority in exactly `2` rounds.
+- Each scoring player therefore receives priority in exactly `1` round.
 
 ### Round Flow
 
@@ -157,7 +155,7 @@ There is no round time limit.
 ### Neutral Train Rules
 
 - The neutral train receives one official destination sensor per round.
-- Its round destination is chosen by a public draw without replacement, so the same neutral destination is not repeated within the same 4-round match.
+- Its round destination is chosen by a public draw without replacement, so the same neutral destination is not repeated within the same 2-round match.
 - The neutral destination pool contains only physical sensors.
 - At draw time, the neutral destination must not be the current sensor occupied by any train.
 - The system should prefer reachable neutral destinations whose shortest path from the neutral train is at least `1400 mm`.
@@ -192,5 +190,5 @@ There is no round time limit.
 
 ### Winning the Match
 
-- After 4 rounds, the scoring player with the higher total score wins.
+- After 2 rounds, the scoring player with the higher total score wins.
 - If both scoring players have the same total score, the match ends in a draw.
