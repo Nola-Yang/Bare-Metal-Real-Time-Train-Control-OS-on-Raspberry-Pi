@@ -276,6 +276,17 @@ static void demo_try_finish_stop(uint64_t now_us) {
     if (g_demo_state != DEMO_RUN_STOPPING) return;
     if (demo_any_active_goto()) return;
 
+    int pos_tid = demo_position_server_tid();
+    for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
+        if (!g_slots[i].enabled) continue;
+        if (!track_is_valid_train(g_slots[i].train_num)) continue;
+        if (pos_tid >= 0) {
+            (void)PositionServerSpeedChange(pos_tid, g_slots[i].train_num, 0);
+        }
+        track_set_speed(g_slots[i].train_num, 0);
+        pos_reset_dead_train(g_slots[i].train_num);
+    }
+
     g_demo_mode = DEMO_MODE_OFF;
     g_demo_state = DEMO_RUN_IDLE;
     g_demo_start_us = 0;
@@ -324,10 +335,12 @@ static void demo_force_stop(void) {
 
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         if (!g_slots[i].enabled) continue;
-        if (demo_slot_is_dead_track(&g_slots[i])) continue;
+        if (!track_is_valid_train(g_slots[i].train_num)) continue;
         if (pos_tid >= 0) {
-            PositionServerReleaseTrain(pos_tid, g_slots[i].train_num);
+            (void)PositionServerSpeedChange(pos_tid, g_slots[i].train_num, 0);
         }
+        track_set_speed(g_slots[i].train_num, 0);
+        pos_reset_dead_train(g_slots[i].train_num);
     }
     g_demo_mode = DEMO_MODE_OFF;
     g_demo_state = DEMO_RUN_IDLE;

@@ -1,6 +1,7 @@
 #include "train_tracking/position_priv.h"
 #include "train_tracking/traffic_manager.h"
 #include "track.h"
+#include "kassert.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -210,8 +211,27 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level) {
 
 void pos_reset_dead_train(int train_num) {
     train_pos_t *pos = pos_find_slot(train_num);
+    int was_stopped;
+    track_node *keep_hint;
     if (!pos) return;
 
+    was_stopped = pos->route_state == TRAIN_STATE_STOPPED;
+    keep_hint = pos->pred.next_sensor ? pos->pred.next_sensor
+                                      : pos->offroute_expected_sensor;
+    KASSERT(pos->cur_sensor != NULL);
+
+    if (!was_stopped) {
+        traffic_release_train_keep_body(train_num, pos->cur_sensor,
+                                        TRAIN_BODY_MM,
+                                        pos_release_keep_end(pos->cur_sensor,
+                                                             keep_hint));
+    }
+
+    pos->user_speed = 0;
+    pos->effective_v = 0;
+    pos->stopping_since_us = 0;
+    pos->is_accelerating = 0;
+    pos->accel_start_us = 0;
     pos->route_state = TRAIN_STATE_STOPPED;
     pos->stopped_on_target_hit = 0;
     pos->parked_target_col = POS_TARGET_COL_NONE;
@@ -223,6 +243,10 @@ void pos_reset_dead_train(int train_num) {
     pos->dead_track_recover.valid = 0;
     pos->dead_track_bootstrap_due_us = 0;
     pos->replan.blocker_mask = 0;
+    pos->replan.next_us = 0;
+    pos->replan.retry_count = 0;
+    pos_clear_prediction(pos);
+    pos_reset_target_fields(pos);
     pos_clear_committed_route(pos);
     pos_clear_deadlock_recover(pos);
 }
