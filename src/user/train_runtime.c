@@ -63,7 +63,7 @@ static void runtime_tick_loop(int event_type, int delay_ticks) {
 }
 
 static void runtime_fast_tick_task(void) {
-    runtime_tick_loop(RUNTIME_EVENT_FAST_TICK, 10);
+    runtime_tick_loop(RUNTIME_EVENT_FAST_TICK, 3);
 }
 
 static void runtime_replan_tick_task(void) {
