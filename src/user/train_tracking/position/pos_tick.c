@@ -15,9 +15,9 @@
 
 /* Offsets at end of train with undershoot of 2 cm. */
 static uint32_t Train_Forward_Stop_Offset = 64;
-static uint32_t Train_Reverse_Stop_Offset = 176;
-static uint32_t Train_Forward_to_Rev_Stop_Offset = 180;
-static uint32_t Train_Rev_to_Forward_Stop_Offset = 180;
+static uint32_t Train_Reverse_Stop_Offset = 76;
+static uint32_t Train_Forward_to_Rev_Stop_Offset = 80;
+static uint32_t Train_Rev_to_Forward_Stop_Offset = 80;
 
 void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us) {
     if (!pos || !pos->is_accelerating) return;
