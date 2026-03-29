@@ -15,9 +15,9 @@
 
 /* Offsets at end of train with undershoot of 2 cm. */
 static uint32_t Train_Forward_Stop_Offset = 64;
-static uint32_t Train_Reverse_Stop_Offset = 76;
-static uint32_t Train_Forward_to_Rev_Stop_Offset = 80;
-static uint32_t Train_Rev_to_Forward_Stop_Offset = 80;
+static uint32_t Train_Reverse_Stop_Offset = 176;
+static uint32_t Train_Forward_to_Rev_Stop_Offset = 180;
+static uint32_t Train_Rev_to_Forward_Stop_Offset = 180;
 
 void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us) {
     if (!pos || !pos->is_accelerating) return;
@@ -93,10 +93,10 @@ void pos_refresh_stop_reservation(train_pos_t *pos) {
         pos->route_path_cursor < pos->route_reserved_end_cursor;
 
     if (keep_after_hit_sensor != NULL) {
-        traffic_refresh_sensor_prediction_reservation_force(pos->train_num,
-                                                            pos->cur_sensor,
-                                                            keep_after_hit_sensor,
-                                                            0);
+        traffic_refresh_sensor_prediction_reservation(pos->train_num,
+                                                      pos->cur_sensor,
+                                                      keep_after_hit_sensor,
+                                                      0);
         return;
     }
 

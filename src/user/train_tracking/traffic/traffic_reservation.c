@@ -424,16 +424,6 @@ void traffic_refresh_sensor_prediction_reservation(int train_num,
                                                            rear_mm);
 }
 
-void traffic_refresh_sensor_prediction_reservation_force(int train_num,
-                                                         track_node *cur_sensor,
-                                                         track_node *pred_sensor,
-                                                         int32_t rear_mm) {
-    traffic_refresh_sensor_prediction_reservation_internal(train_num,
-                                                           cur_sensor,
-                                                           pred_sensor,
-                                                           rear_mm);
-}
-
 int traffic_can_set_switch(int sw_num, int requester_train) {
     (void)requester_train;
     for (int i = 0; i < TRACK_MAX; i++) {
