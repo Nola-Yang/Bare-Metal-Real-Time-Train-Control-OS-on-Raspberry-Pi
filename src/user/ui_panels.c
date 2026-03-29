@@ -431,6 +431,13 @@ typedef struct {
     uint8_t  hidden;
 } ui_reservation_display_node_t;
 
+static ui_reservation_display_node_t g_ui_reservation_nodes[TRACK_MAX];
+static int g_ui_position_trains[5];
+static char g_ui_position_line_buf[160];
+static char g_ui_reservation_blocks[UI_RESERVATION_TRAIN_COUNT]
+                                   [UI_RESERVATION_BLOCK_ROWS]
+                                   [UI_RESERVATION_COL_WIDTH + 1];
+
 static int ui_node_index(const track_node *node) {
     if (!node) return -1;
     {
@@ -584,7 +591,7 @@ static void ui_build_reservation_block_lines(
     int train_num,
     char lines[UI_RESERVATION_BLOCK_ROWS][UI_RESERVATION_COL_WIDTH + 1]
 ) {
-    ui_reservation_display_node_t nodes[TRACK_MAX];
+    ui_reservation_display_node_t *nodes = g_ui_reservation_nodes;
     int total = ui_collect_reservation_display_nodes(train_num, nodes, TRACK_MAX);
     int hidden_total = 0;
     int fill = total;
@@ -680,13 +687,12 @@ static void ui_build_reservation_block_lines(
 void ui_draw_position(void) {
     char *temp_buf = buf_get_temp();
     char *p = temp_buf;
-    int trains[5];
+    int *trains = g_ui_position_trains;
     uint64_t now_us = read_timer();
-    char line_buf[160];
+    char *line_buf = g_ui_position_line_buf;
     static const int RESERVATION_TRAINS[UI_RESERVATION_TRAIN_COUNT] = {13, 14, 15, 17, 18, 55};
-    char reservation_blocks[UI_RESERVATION_TRAIN_COUNT]
-                           [UI_RESERVATION_BLOCK_ROWS]
-                           [UI_RESERVATION_COL_WIDTH + 1];
+    char (*reservation_blocks)[UI_RESERVATION_BLOCK_ROWS][UI_RESERVATION_COL_WIDTH + 1] =
+        g_ui_reservation_blocks;
 
     ui_build_train_rows(trains);
 

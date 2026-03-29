@@ -15,6 +15,9 @@ static pos_route_eval_t g_pos_try_eval_main;
 static route_plan_t g_pos_try_reserve_plan;
 static route_plan_t g_pos_try_authority_plan;
 static route_plan_t g_pos_midrev_second_leg_plan;
+static route_plan_t g_pos_wait_full_plan;
+static route_plan_t g_pos_wait_authority_plan;
+static pos_route_eval_t g_pos_wait_eval;
 
 static int pos_build_midrev_second_leg_plan(const train_pos_t *pos,
                                             route_plan_t *out_plan);
@@ -76,9 +79,9 @@ static int pos_build_wait_plan(const train_pos_t *pos, route_plan_t *out_plan,
 }
 
 uint8_t pos_wait_resource_current_blocker_mask(train_pos_t *pos) {
-    route_plan_t full_plan;
-    route_plan_t authority_plan;
-    pos_route_eval_t eval;
+    route_plan_t *full_plan = &g_pos_wait_full_plan;
+    route_plan_t *authority_plan = &g_pos_wait_authority_plan;
+    pos_route_eval_t *eval = &g_pos_wait_eval;
     pos_wait_mode_t wait_mode;
     track_node *target;
     int start_cursor = 0;
@@ -91,9 +94,9 @@ uint8_t pos_wait_resource_current_blocker_mask(train_pos_t *pos) {
     switch (wait_mode) {
     case POS_WAIT_PRELAUNCH_ROUTE:
     case POS_WAIT_RESUME_ROUTE:
-        if (!pos_build_wait_plan(pos, &full_plan, &start_cursor)) return 0;
+        if (!pos_build_wait_plan(pos, full_plan, &start_cursor)) return 0;
 
-        if (!pos_route_authority_prepare_launch(pos, &full_plan, &authority_plan,
+        if (!pos_route_authority_prepare_launch(pos, full_plan, authority_plan,
                                                 &reserved_end_cursor,
                                                 &switch_blocker_owner)) {
             if (wait_mode == POS_WAIT_RESUME_ROUTE &&
@@ -101,30 +104,30 @@ uint8_t pos_wait_resource_current_blocker_mask(train_pos_t *pos) {
                 return 0;
             }
             return pos_blocker_mask_from_plan_and_switches(pos->train_num,
-                                                           &full_plan);
+                                                           full_plan);
         }
 
-        if (pos_route_switch_blocker(authority_plan.sw_nums,
-                                     authority_plan.sw_dirs,
-                                     authority_plan.sw_count,
+        if (pos_route_switch_blocker(authority_plan->sw_nums,
+                                     authority_plan->sw_dirs,
+                                     authority_plan->sw_count,
                                      pos->train_num) >= 0) {
             return pos_route_blocker_mask_from_switches(
-                authority_plan.sw_nums, authority_plan.sw_dirs,
-                authority_plan.sw_count, pos->train_num);
+                authority_plan->sw_nums, authority_plan->sw_dirs,
+                authority_plan->sw_count, pos->train_num);
         }
 
-        if (!traffic_can_reserve_plan(pos->train_num, &authority_plan)) {
+        if (!traffic_can_reserve_plan(pos->train_num, authority_plan)) {
             return pos_route_blocker_mask_from_plan(pos->train_num,
-                                                    &authority_plan);
+                                                    authority_plan);
         }
         return 0;
 
     case POS_WAIT_MIDREV_SECOND_LEG:
-        if (!pos_build_midrev_second_leg_plan(pos, &full_plan)) return 0;
+        if (!pos_build_midrev_second_leg_plan(pos, full_plan)) return 0;
 
-        if (!traffic_can_reserve_plan(pos->train_num, &full_plan)) {
+        if (!traffic_can_reserve_plan(pos->train_num, full_plan)) {
             return pos_route_blocker_mask_from_plan(pos->train_num,
-                                                    &full_plan);
+                                                    full_plan);
         }
 
         if (pos_route_switch_blocker(pos->midrev.sw_nums, pos->midrev.sw_dirs,
@@ -144,9 +147,9 @@ uint8_t pos_wait_resource_current_blocker_mask(train_pos_t *pos) {
                                      : pos_route_current_goal(pos);
         if (!target) return 0;
 
-        if (pos_evaluate_target_ready_now(pos, target, &eval) ==
+        if (pos_evaluate_target_ready_now(pos, target, eval) ==
             POS_ROUTE_EVAL_BLOCKED) {
-            return eval.blocker_mask;
+            return eval->blocker_mask;
         }
         return 0;
     }
