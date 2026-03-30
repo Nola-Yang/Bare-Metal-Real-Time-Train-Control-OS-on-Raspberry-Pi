@@ -165,6 +165,7 @@ static void pos_init_slot(train_pos_t *slot, int train_num, int train_ind, int s
     slot->stopping_since_us = 0;
     slot->stopped_on_target_hit = 0;
     slot->parked_target_col = POS_TARGET_COL_NONE;
+    slot->parked_restart_block_initial_reverse = 0;
     slot->switch_settle_due_us = 0;
     slot->switch_settle_mode = POS_SWITCH_SETTLE_NONE;
     slot->replan.next_us = 0;
@@ -261,6 +262,7 @@ void pos_reset_dead_train(int train_num) {
     pos->route_state = TRAIN_STATE_STOPPED;
     pos->stopped_on_target_hit = 0;
     pos->parked_target_col = POS_TARGET_COL_NONE;
+    pos->parked_restart_block_initial_reverse = 0;
     pos->switch_settle_due_us = 0;
     pos->switch_settle_mode = POS_SWITCH_SETTLE_NONE;
     pos->awaiting_post_launch_sensor = 0;

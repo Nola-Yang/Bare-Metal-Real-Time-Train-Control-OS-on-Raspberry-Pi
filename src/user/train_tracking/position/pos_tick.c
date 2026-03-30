@@ -9,6 +9,7 @@
 #include "syscall.h"
 #include "kassert.h"
 #include "ui.h"
+#include "util.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -123,6 +124,25 @@ static int pos_targets_same_sensor(track_node *a, track_node *b) {
     return a == b || a->reverse == b || b->reverse == a;
 }
 
+static int pos_sensor_name_is(const track_node *node, const char *name) {
+    return node != NULL &&
+           node->type == NODE_SENSOR &&
+           node->name != NULL &&
+           str_eq(node->name, name);
+}
+
+static int pos_should_block_initial_reverse_restart(track_node *entry_sensor,
+                                                    track_node *target_sensor) {
+    return (pos_sensor_name_is(entry_sensor, "E15") &&
+            pos_sensor_name_is(target_sensor, "C12")) ||
+           (pos_sensor_name_is(entry_sensor, "E4") &&
+            pos_sensor_name_is(target_sensor, "E5")) ||
+           (pos_sensor_name_is(entry_sensor, "D16") &&
+            pos_sensor_name_is(target_sensor, "E14")) ||
+           (pos_sensor_name_is(entry_sensor, "B4") &&
+            pos_sensor_name_is(target_sensor, "C9"));
+}
+
 static track_node *pos_dead_track_resume_target(const train_pos_t *pos,
                                                 int32_t *out_offset_mm) {
     track_node *target = NULL;
@@ -181,10 +201,14 @@ static void handle_normal_stop(train_pos_t *pos, uint64_t now_us) {
         pos->cur_sensor != NULL &&
         pos_targets_same_sensor(pos->cur_sensor, pos->target_sensor);
     stopped_at_leg_goal = pos_route_authority_is_leg_goal_stop(pos);
-    /* STOPPING -> STOPPED means the train reached the planned stop target even
-     * if that final sensor never physically fired; use the planned target, not
-     * cur_sensor, to arm deadlock-yield resume. */
+    /* STOPPING -> STOPPED preserves the current planned stop target, whether
+     * it is the final goal or an authority/stage stop. */
     stopped_target = pos->target_sensor;
+    pos->parked_restart_block_initial_reverse =
+        (stopped_target != NULL &&
+         pos_should_block_initial_reverse_restart(pos->cur_sensor, stopped_target))
+            ? 1
+            : 0;
     if (stopped_target != NULL) {
         pos->parked_target_col =
             stopped_at_leg_goal ? POS_TARGET_COL_FINAL : POS_TARGET_COL_STAGE;
@@ -236,6 +260,7 @@ static void handle_midrev_stop(train_pos_t *pos, uint64_t now_us) {
     pos->stopped_on_target_hit =
         pos_route_authority_is_leg_goal_stop(pos) && hit_stage_target;
     pos->parked_target_col = POS_TARGET_COL_STAGE;
+    pos->parked_restart_block_initial_reverse = 0;
 
     pos_refresh_stop_reservation(pos);
     pos_clear_prediction(pos);

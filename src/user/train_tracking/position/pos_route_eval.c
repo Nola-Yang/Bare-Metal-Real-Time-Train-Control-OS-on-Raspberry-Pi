@@ -128,7 +128,9 @@ static void pos_route_fill_origins_internal(const train_pos_t *pos,
                          : (plan_start ? plan_start->reverse
                                        : cur_sensor_orig->reverse);
     origins[0] = plan_start;
-    origins[1] = reverse_plan_start;
+    origins[1] = pos->parked_restart_block_initial_reverse
+                     ? NULL
+                     : reverse_plan_start;
 }
 
 void pos_route_fill_origins(const train_pos_t *pos, track_node *origins[2]) {
