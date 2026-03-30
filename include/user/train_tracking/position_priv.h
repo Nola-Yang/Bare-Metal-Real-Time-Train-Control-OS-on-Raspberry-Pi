@@ -27,7 +27,7 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
 #define DEAD_TRACK_TIMEOUT_MIN_US 5000000ULL
 #define DEAD_TRACK_TIMEOUT_SPEED10_MIN_US 4000000ULL
 #define DEAD_TRACK_TIMEOUT_MULTIPLIER 3ULL
-#define DEAD_TRACK_RETRY_DELAY_US 10000000ULL
+#define DEAD_TRACK_RETRY_DELAY_US 5000000ULL
 /* Fixed user speed used for all goto operations. */
 #define GOTO_USER_SPEED 8
 
