@@ -172,6 +172,7 @@ static int pos_deadlock_candidate_can_force_move(train_pos_t *pos,
 }
 
 int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
+                                   int allow_force_move,
                                    track_node **out_target,
                                    uint8_t *out_unblocked_mask,
                                    pos_deadlock_pick_kind_t *out_kind) {
@@ -235,6 +236,8 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
         if (out_kind) *out_kind = POS_DEADLOCK_PICK_READY_RELOCATE;
         return 1;
     }
+
+    if (!allow_force_move) return 0;
 
     for (int i = merged_count - 1; i >= 0; i--) {
         track_node *cand = &g_track[g_pos_try_merged_candidates[i]];

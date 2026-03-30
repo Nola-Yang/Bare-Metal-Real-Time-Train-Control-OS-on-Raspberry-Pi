@@ -38,6 +38,8 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
 
 /* Keep resolved deadlock notices visible in the UI briefly after reroute. */
 #define DEADLOCK_NOTICE_RESOLVED_US 8000000ULL
+/* Wait up to this long for a strict deadlock reroute before forcing fallback. */
+#define DEADLOCK_FALLBACK_TIMEOUT_US 7000000ULL
 /* After a deadlock-yield stop, wait briefly before resuming the original target. */
 #define DEADLOCK_RESUME_DELAY_US 1000000ULL
 
@@ -114,6 +116,7 @@ void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us);
 /* Pick the nearest safe deadlock-yield sensor target for the current stopped train.
  * Returns 1 and stores the chosen sensor in *out_target, 0 if none is available. */
 int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
+                                   int allow_force_move,
                                    track_node **out_target,
                                    uint8_t *out_unblocked_mask,
                                    pos_deadlock_pick_kind_t *out_kind);

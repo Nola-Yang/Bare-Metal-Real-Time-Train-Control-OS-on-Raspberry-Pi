@@ -439,7 +439,8 @@ static int ui_text_len(const char *s) {
     return n;
 }
 
-static char *ui_append_deadlock_warn(char *p, const pos_deadlock_notice_t *notice) {
+static char *ui_append_deadlock_warn(char *p, const pos_deadlock_notice_t *notice,
+                                     uint64_t now_us) {
     if (!notice || !notice->active) return p;
 
     p = buf_append(p, "deadlock ");
@@ -450,10 +451,21 @@ static char *ui_append_deadlock_warn(char *p, const pos_deadlock_notice_t *notic
 
     if (notice->unresolved || !notice->yield_target || !notice->blocked_target) {
         p = buf_append(p, " unresolved");
+        if (notice->fallback_due_us > 0) {
+            if (now_us < notice->fallback_due_us) {
+                uint64_t remain_us = notice->fallback_due_us - now_us;
+                int remain_s = (int)((remain_us + 999999ULL) / 1000000ULL);
+                p = buf_append(p, " fallback in ");
+                p = buf_append_int(p, remain_s);
+                p = buf_append(p, "s");
+            } else {
+                p = buf_append(p, " timeout fallback");
+            }
+        }
         return p;
     }
 
-    p = buf_append(p, " reroute ");
+    p = buf_append(p, notice->fallback_used ? " timeout fallback " : " reroute ");
     p = buf_append_int(p, notice->victim_train);
     p = buf_append(p, " ");
     p = buf_append(p, notice->blocked_target->name ? notice->blocked_target->name : "-");
@@ -786,7 +798,7 @@ void ui_draw_position(void) {
         if (!warned && deadlock_notice.active &&
             (deadlock_notice.unresolved ||
              (deadlock_notice.expire_us > 0 && now_us <= deadlock_notice.expire_us))) {
-            p = ui_append_deadlock_warn(p, &deadlock_notice);
+            p = ui_append_deadlock_warn(p, &deadlock_notice, now_us);
             warned = 1;
         }
         if (!warned) {

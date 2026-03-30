@@ -107,12 +107,15 @@ typedef struct {
 typedef struct {
     uint8_t    active;
     uint8_t    unresolved;
+    uint8_t    fallback_used;
     int        victim_train;
     int        cycle_trains[DEADLOCK_MAX_TRAINS];
     int        cycle_count;
     track_node *blocked_target;
     track_node *yield_target;
     track_node *resume_target;
+    uint64_t   detect_us;
+    uint64_t   fallback_due_us;
     uint64_t   expire_us;
 } pos_deadlock_notice_t;
 
@@ -281,6 +284,14 @@ typedef struct {
     uint8_t                  blocker_mask;
 } pos_target_query_t;
 
+typedef struct {
+    uint8_t    active;
+    uint8_t    blocked_by_switch;
+    track_node *node;
+    int        blocker_train;
+    int        switch_num;
+} pos_wait_info_t;
+
 typedef enum {
     POS_GAME_EVENT_NONE       = 0,
     POS_GAME_EVENT_SENSOR_HIT = 1,
@@ -349,6 +360,8 @@ int pos_read_game_events(uint32_t *io_seq, pos_game_event_t *out, int max_events
 
 pos_target_query_status_t pos_query_target(int train_num, track_node *target,
                                            pos_target_query_t *out);
+
+void pos_get_wait_info(int train_num, pos_wait_info_t *out);
 
 void pos_mark_routes_dirty(void);
 
