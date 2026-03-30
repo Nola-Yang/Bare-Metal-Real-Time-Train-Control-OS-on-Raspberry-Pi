@@ -23,8 +23,9 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
  * from the predicted next sensor (off-route / skip detection). */
 #define OFF_ROUTE_PATH_MAX_HOPS 120
 
-/* Dead-track timeout is prediction-relative, but never shorter than this floor. */
-#define DEAD_TRACK_TIMEOUT_MIN_US 7000000ULL
+/* Dead-track timeout is prediction-relative, with a per-speed floor. */
+#define DEAD_TRACK_TIMEOUT_MIN_US 5000000ULL
+#define DEAD_TRACK_TIMEOUT_SPEED10_MIN_US 4000000ULL
 #define DEAD_TRACK_TIMEOUT_MULTIPLIER 3ULL
 #define DEAD_TRACK_RETRY_DELAY_US 10000000ULL
 /* Fixed user speed used for all goto operations. */
@@ -181,7 +182,8 @@ void pos_clear_prediction(train_pos_t *pos);
 void pos_refresh_dead_track_deadline(train_pos_t *pos, uint64_t now_us);
 
 /* Convert a predicted next-sensor interval into an absolute dead-track deadline. */
-uint64_t pos_dead_track_deadline_from_interval(uint64_t now_us, uint64_t interval_us);
+uint64_t pos_dead_track_deadline_from_interval(uint64_t now_us, uint64_t interval_us,
+                                               const train_pos_t *pos);
 
 /* If pending_target is NULL but orig_user_target is set, restore it so the
  * next replan attempt can reach the original destination. */
