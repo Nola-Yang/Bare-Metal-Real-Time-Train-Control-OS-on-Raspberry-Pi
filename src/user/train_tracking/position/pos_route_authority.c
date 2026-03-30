@@ -24,7 +24,7 @@ static int32_t authority_early_stop_mm(const train_pos_t *pos) {
     if (!pos) return 0;
     tv = speed_table_get_v(pos->train_ind, pos->goto_speed);
     if (tv <= 0) return 0;
-    return (int32_t)((int64_t)tv * (int64_t)speed_table_get_early_stop(pos->train_ind, pos->goto_speed) / 1000000LL);
+    return (int32_t)((int64_t)tv * (int64_t)pos_target_early_stop_us(pos) / 1000000LL);
 }
 
 static int32_t authority_brake_dist_mm(const train_pos_t *pos) {
@@ -82,10 +82,12 @@ static int authority_build_best_prefix(int requester_train, const uint16_t *path
                                        int min_end_cursor,
                                        route_plan_t *out_prefix,
                                        int *out_end_cursor,
-                                       int *out_switch_blocker_owner) {
+                                       int *out_switch_blocker_owner,
+                                       uint8_t *out_blocker_mask) {
     if (!path || !out_prefix || !out_end_cursor) return 0;
     if (path_count <= 0 || start_cursor < 0 || start_cursor >= path_count) return 0;
     if (out_switch_blocker_owner) *out_switch_blocker_owner = -1;
+    if (out_blocker_mask) *out_blocker_mask = 0;
 
     for (int end_cursor = start_cursor; end_cursor < path_count; end_cursor++) {
         int32_t dist_mm;
@@ -110,10 +112,25 @@ static int authority_build_best_prefix(int requester_train, const uint16_t *path
                                                   requester_train);
         if (switch_blocker >= 0) {
             if (out_switch_blocker_owner) *out_switch_blocker_owner = switch_blocker;
+            if (out_blocker_mask) {
+                *out_blocker_mask =
+                    pos_route_blocker_mask_from_switches(
+                        g_authority_candidate_prefix.sw_nums,
+                        g_authority_candidate_prefix.sw_dirs,
+                        g_authority_candidate_prefix.sw_count,
+                        requester_train);
+            }
             break;
         }
         if (!traffic_can_reserve_plan(requester_train,
-                                      &g_authority_candidate_prefix)) break;
+                                      &g_authority_candidate_prefix)) {
+            if (out_blocker_mask) {
+                *out_blocker_mask =
+                    pos_route_blocker_mask_from_plan(requester_train,
+                                                     &g_authority_candidate_prefix);
+            }
+            break;
+        }
 
         if (dist_mm < min_window_mm) continue;
         if (end_cursor <= min_end_cursor) continue;
@@ -180,7 +197,8 @@ void pos_route_authority_sync_target(train_pos_t *pos) {
 int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *full_plan,
                                        route_plan_t *out_prefix,
                                        int *out_reserved_end_cursor,
-                                       int *out_switch_blocker_owner) {
+                                       int *out_switch_blocker_owner,
+                                       uint8_t *out_blocker_mask) {
     int32_t min_window_mm;
 
     if (!pos || !full_plan || !out_prefix || !out_reserved_end_cursor) return 0;
@@ -191,7 +209,8 @@ int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *ful
                                        min_window_mm,
                                        -1,
                                        out_prefix, out_reserved_end_cursor,
-                                       out_switch_blocker_owner);
+                                       out_switch_blocker_owner,
+                                       out_blocker_mask);
 }
 
 int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force) {
@@ -215,7 +234,7 @@ int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force)
                                     pos_route_authority_target_mm(pos),
                                     pos->route_reserved_end_cursor,
                                     &g_authority_candidate_prefix, &new_end_cursor,
-                                    NULL) &&
+                                    NULL, NULL) &&
         new_end_cursor > pos->route_reserved_end_cursor) {
         if (pos_apply_route_switches_safe(g_authority_candidate_prefix.sw_nums,
                                           g_authority_candidate_prefix.sw_dirs,

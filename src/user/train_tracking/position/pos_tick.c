@@ -44,7 +44,7 @@ void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us) {
 static uint64_t calc_brake_us(train_pos_t *pos) {
     int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed);
     if (pos->effective_v > 0 && decel > 0) {
-        return speed_table_get_early_stop(pos->train_ind, pos->goto_speed) +
+        return pos_target_early_stop_us(pos) +
                (uint64_t)pos->effective_v * 1500000ULL / (uint64_t)decel;
     }
     return 1000000ULL;
@@ -385,9 +385,10 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
 
     int32_t a = speed_table_get_decel(pos->train_ind, pos->user_speed);
     if (a > 0) {
+        uint64_t early_stop_us = pos_target_early_stop_us(pos);
         int32_t d_brake = (int32_t)((int64_t)pos->effective_v * pos->effective_v / (2LL * a));
         int32_t d_early = d_brake + (int32_t)((int64_t)pos->effective_v *
-                                              (int64_t)speed_table_get_early_stop(pos->train_ind, pos->goto_speed) / 1000000LL);
+                                              (int64_t)early_stop_us / 1000000LL);
 
         if (pos->going_forward && pos->prev_going_forward != 0) {
             d_early += Train_Forward_Stop_Offset;
@@ -400,11 +401,11 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
         }
 
         if (rem <= d_early) {
-            // if (!stop_cmd_sent && pos_route_authority_try_top_up(pos, now_us, 1)) {
-            //     pos->route_rem_tick_us = now_us;
-            //     ui_mark_position_dirty();
-            //     return 0;
-            // }
+            if (!stop_cmd_sent && pos_route_authority_try_top_up(pos, now_us, 1)) {
+                pos->route_rem_tick_us = now_us;
+                ui_mark_position_dirty();
+                return 0;
+            }
             if (waiting_for_first_hit) {
                 if (!stop_cmd_sent) {
                     pos->stopping_since_us = now_us;

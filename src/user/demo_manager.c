@@ -13,6 +13,7 @@
 
 #define DEMO_MAX_TRAINS 4
 #define GOLD_DISPATCH_DELAY_US 1000000ULL
+#define DEMO_DEFAULT_SEED 03302002U
 
 typedef enum {
     DEMO_MODE_OFF = 0,
@@ -393,7 +394,7 @@ void demo_init(void) {
     g_demo_stop_request_us = 0;
     g_gold_min_trip_mm = 1400;
     g_demo_last_ui_uptime_sec = UINT32_MAX;
-    demo_seed_rng((uint32_t)read_timer());
+    demo_seed_rng(DEMO_DEFAULT_SEED);
     demo_build_sensor_pool();
 }
 

@@ -71,6 +71,14 @@ int traffic_collect_plan_blockers(int requester_train, const route_plan_t *plan,
 int traffic_collect_switch_envelope_blockers(int sw_num, int *out_trains,
                                              int max_trains);
 
+/* Return the first conflicting reserved node for `plan`, or NULL if none. */
+track_node *traffic_find_plan_blocking_node(int requester_train,
+                                            const route_plan_t *plan,
+                                            int *out_owner);
+
+/* Return the first occupied node in the switch safety envelope, or NULL if clear. */
+track_node *traffic_find_switch_blocking_node(int sw_num, int *out_owner);
+
 /* Copy and restore the current reservation owner map for local simulations. */
 void traffic_snapshot_reservations(int out_owners[TRACK_MAX]);
 void traffic_restore_reservations(const int owners[TRACK_MAX]);
