@@ -167,6 +167,56 @@ static int append_unique_train(int *out, int count, int max_trains, int train_nu
     return count + 1;
 }
 
+static int traffic_owner_blocks(int owner, int requester_train, int include_requester) {
+    if (owner < 0) return 0;
+    return include_requester || owner != requester_train;
+}
+
+static track_node *traffic_find_related_blocking_node(int idx,
+                                                      int requester_train,
+                                                      int include_requester,
+                                                      int *out_owner) {
+    int ridx;
+    uint32_t zones;
+    int owner;
+
+    if (out_owner) *out_owner = -1;
+    if (idx < 0 || idx >= TRACK_MAX) return NULL;
+
+    owner = node_owner[idx];
+    if (traffic_owner_blocks(owner, requester_train, include_requester)) {
+        if (out_owner) *out_owner = owner;
+        return &g_track[idx];
+    }
+
+    ridx = traffic_reverse_index(idx);
+    if (ridx >= 0) {
+        owner = node_owner[ridx];
+        if (traffic_owner_blocks(owner, requester_train, include_requester)) {
+            if (out_owner) *out_owner = owner;
+            return &g_track[ridx];
+        }
+    }
+
+    zones = g_node_zone_mask[idx];
+    if (ridx >= 0) zones |= g_node_zone_mask[ridx];
+
+    for (int zone = 0; zone < g_zone_count; zone++) {
+        if ((zones & (1u << zone)) == 0) continue;
+        for (int i = 0; i < g_zone_counts[zone]; i++) {
+            int zone_idx = g_zone_nodes[zone][i];
+            owner = node_owner[zone_idx];
+            if (!traffic_owner_blocks(owner, requester_train, include_requester)) {
+                continue;
+            }
+            if (out_owner) *out_owner = owner;
+            return &g_track[zone_idx];
+        }
+    }
+
+    return NULL;
+}
+
 static void build_keep_body_marks(uint8_t keep[TRACK_MAX], track_node *last_hit,
                                   int32_t body_mm, track_node *next_hit) {
     int keep_to_next = 0;
@@ -523,6 +573,87 @@ int traffic_collect_switch_envelope_blockers(int sw_num, int *out_trains,
     }
     for (int i = 0; out_trains && i < total && i < max_trains; i++) out_trains[i] = unique[i];
     return total;
+}
+
+track_node *traffic_find_plan_blocking_node(int requester_train,
+                                            const route_plan_t *plan,
+                                            int *out_owner) {
+    if (out_owner) *out_owner = -1;
+    if (!plan) return NULL;
+
+    for (int leg = 0; leg < 2; leg++) {
+        const uint16_t *path = (leg == 0) ? plan->path_nodes : plan->path_nodes2;
+        int path_count = (leg == 0) ? plan->path_count : plan->path_count2;
+
+        for (int i = 0; i < path_count; i++) {
+            track_node *node = traffic_find_related_blocking_node((int)path[i],
+                                                                  requester_train,
+                                                                  0,
+                                                                  out_owner);
+            if (node) return node;
+        }
+    }
+
+    for (int i = 0; i < plan->extra_reserve_count; i++) {
+        track_node *node =
+            traffic_find_related_blocking_node((int)plan->extra_reserve_nodes[i],
+                                               requester_train,
+                                               0,
+                                               out_owner);
+        if (node) return node;
+    }
+
+    {
+        uint8_t want[TRACK_MAX];
+        build_plan_marks(want, plan);
+        for (int i = 0; i < TRACK_MAX; i++) {
+            int owner;
+            if (!want[i]) continue;
+            owner = node_owner[i];
+            if (!traffic_owner_blocks(owner, requester_train, 0)) continue;
+            if (out_owner) *out_owner = owner;
+            return &g_track[i];
+        }
+    }
+
+    return NULL;
+}
+
+track_node *traffic_find_switch_blocking_node(int sw_num, int *out_owner) {
+    if (out_owner) *out_owner = -1;
+
+    for (int i = 0; i < TRACK_MAX; i++) {
+        track_node *n = &g_track[i];
+        if (n->type != NODE_BRANCH || n->num != sw_num) continue;
+
+        int checks[6];
+        int c = 0;
+        checks[c++] = i;
+        checks[c++] = traffic_reverse_index(i);
+        if (n->edge[DIR_STRAIGHT].dest) {
+            int idx = traffic_node_index(n->edge[DIR_STRAIGHT].dest);
+            checks[c++] = idx;
+            checks[c++] = traffic_reverse_index(idx);
+        }
+        if (n->edge[DIR_CURVED].dest) {
+            int idx = traffic_node_index(n->edge[DIR_CURVED].dest);
+            checks[c++] = idx;
+            checks[c++] = traffic_reverse_index(idx);
+        }
+
+        for (int j = 0; j < c; j++) {
+            int idx = checks[j];
+            int owner;
+            if (idx < 0 || idx >= TRACK_MAX) continue;
+            owner = node_owner[idx];
+            if (owner < 0) continue;
+            if (out_owner) *out_owner = owner;
+            return &g_track[idx];
+        }
+        break;
+    }
+
+    return NULL;
 }
 
 void traffic_snapshot_reservations(int out_owners[TRACK_MAX]) {

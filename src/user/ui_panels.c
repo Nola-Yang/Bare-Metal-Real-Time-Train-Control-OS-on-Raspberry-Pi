@@ -296,6 +296,53 @@ static void ui_build_demo_tuning_line(uint64_t now_us, char *out, int cap) {
     ui_limited_finish(out, n, cap);
 }
 
+static void ui_build_wait_line(const int *trains, char *out, int cap) {
+    int n = 0;
+
+    n = ui_limited_append_str(out, n, cap, "Wait: ");
+    for (int i = 0; i < 5; i++) {
+        int train = trains ? trains[i] : -1;
+        train_pos_t *pos = (train > 0) ? pos_get(train) : NULL;
+        pos_wait_info_t wait_info;
+
+        if (i > 0) {
+            n = ui_limited_append_str(out, n, cap, "  ");
+        }
+
+        n = ui_limited_append_str(out, n, cap, "tr");
+        if (train > 0) n = ui_limited_append_int(out, n, cap, train);
+        else n = ui_limited_append_char(out, n, cap, '-');
+        n = ui_limited_append_char(out, n, cap, '=');
+
+        if (pos && pos->route_state == TRAIN_STATE_WAIT_SWITCH_SETTLE) {
+            n = ui_limited_append_str(out, n, cap, "settle");
+            continue;
+        }
+
+        pos_get_wait_info(train, &wait_info);
+        if (!wait_info.active) {
+            n = ui_limited_append_char(out, n, cap, '-');
+            continue;
+        }
+
+        if (wait_info.node && wait_info.node->name) {
+            n = ui_limited_append_str(out, n, cap, wait_info.node->name);
+        } else if (wait_info.blocked_by_switch && wait_info.switch_num > 0) {
+            n = ui_limited_append_str(out, n, cap, "SW");
+            n = ui_limited_append_int(out, n, cap, wait_info.switch_num);
+        } else {
+            n = ui_limited_append_char(out, n, cap, '?');
+        }
+
+        if (wait_info.blocker_train > 0) {
+            n = ui_limited_append_char(out, n, cap, '@');
+            n = ui_limited_append_int(out, n, cap, wait_info.blocker_train);
+        }
+    }
+
+    ui_limited_finish(out, n, cap);
+}
+
 static int ui_limited_append_score_half(char *dst, int pos, int cap, int half_points) {
     int whole = half_points / 2;
     int half = half_points & 1;
@@ -714,7 +761,12 @@ void ui_draw_position(void) {
         p = ui_append_position_row(p, 24 + i, train, pos);
     }
 
+    ui_build_wait_line(trains, line_buf, line_cap);
     p = ui_move_to_row(p, 29);
+    p = buf_append(p, line_buf);
+    p = buf_append(p, "\033[K");
+
+    p = ui_move_to_row(p, 30);
     p = buf_append(p, "Warn: ");
     {
         pos_deadlock_notice_t deadlock_notice;
@@ -768,13 +820,13 @@ void ui_draw_position(void) {
     }
     p = buf_append(p, "\033[K");
 
-    p = ui_append_section_bar(p, 30, game_is_active() ? "Game Status" : "Demo Status");
+    p = ui_append_section_bar(p, 31, game_is_active() ? "Game Status" : "Demo Status");
     if (game_is_active()) {
         ui_build_game_header_line(now_us, line_buf, line_cap);
     } else {
         ui_build_demo_sensor_line(now_us, line_buf, line_cap);
     }
-    p = ui_move_to_row(p, 31);
+    p = ui_move_to_row(p, 32);
     p = buf_append(p, line_buf);
     p = buf_append(p, "\033[K");
 
@@ -783,20 +835,20 @@ void ui_draw_position(void) {
     } else {
         ui_build_demo_tuning_line(now_us, line_buf, line_cap);
     }
-    p = ui_move_to_row(p, 32);
+    p = ui_move_to_row(p, 33);
     p = buf_append(p, line_buf);
     p = buf_append(p, "\033[K");
 
     if (game_is_active()) {
         ui_build_game_detail_line(now_us, line_buf, line_cap);
-        p = ui_move_to_row(p, 33);
+        p = ui_move_to_row(p, 34);
         p = buf_append(p, line_buf);
         p = buf_append(p, "\033[K");
     } else {
-        p = ui_append_blank_row(p, 33);
+        p = ui_append_blank_row(p, 34);
     }
 
-    p = ui_append_section_bar(p, 34, "Reservations");
+    p = ui_append_section_bar(p, 35, "Reservations");
     for (int i = 0; i < UI_RESERVATION_TRAIN_COUNT; i++) {
         ui_build_reservation_block_lines(RESERVATION_TRAINS[i], reservation_blocks[i]);
     }
