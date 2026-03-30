@@ -239,7 +239,7 @@ int pos_pick_deadlock_timeout_fallback_target(train_pos_t *pos,
 
         if (pos_deadlock_same_physical_sensor(cand, pos->cur_sensor)) continue;
         if (pos_deadlock_same_physical_sensor(cand, current_target)) continue;
-        if (pos_evaluate_target_plan(pos, cand, &g_pos_try_eval_candidate) !=
+        if (pos_evaluate_target_ready_now(pos, cand, &g_pos_try_eval_candidate) !=
             POS_ROUTE_EVAL_READY) {
             continue;
         }

@@ -122,8 +122,9 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
                                    uint8_t *out_unblocked_mask,
                                    pos_deadlock_pick_kind_t *out_kind);
 
-/* Pick a timeout-fallback target that is planner-reachable, preferring farther
- * deadlock sensor candidates over nearer ones. */
+/* Pick a timeout-fallback target that is ready now, preferring farther
+ * deadlock sensor candidates over nearer ones. The chosen target must be
+ * immediately launchable without depending on other trains' reservations. */
 int pos_pick_deadlock_timeout_fallback_target(train_pos_t *pos,
                                               track_node **out_target);
 
