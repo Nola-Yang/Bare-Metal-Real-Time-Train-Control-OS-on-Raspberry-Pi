@@ -87,6 +87,7 @@ uint8_t pos_wait_resource_current_blocker_mask(train_pos_t *pos) {
     int start_cursor = 0;
     int reserved_end_cursor = -1;
     int switch_blocker_owner = -1;
+    uint8_t authority_blocker_mask = 0;
 
     if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) return 0;
 
@@ -98,10 +99,14 @@ uint8_t pos_wait_resource_current_blocker_mask(train_pos_t *pos) {
 
         if (!pos_route_authority_prepare_launch(pos, full_plan, authority_plan,
                                                 &reserved_end_cursor,
-                                                &switch_blocker_owner)) {
+                                                &switch_blocker_owner,
+                                                &authority_blocker_mask)) {
             if (wait_mode == POS_WAIT_RESUME_ROUTE &&
                 switch_blocker_owner == pos->train_num) {
                 return 0;
+            }
+            if (authority_blocker_mask != 0) {
+                return authority_blocker_mask;
             }
             return pos_blocker_mask_from_plan_and_switches(pos->train_num,
                                                            full_plan);
@@ -160,6 +165,7 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
     int start_cursor = 0;
     int did_initial_reverse;
     int switch_blocker_owner = -1;
+    uint8_t authority_blocker_mask = 0;
     track_node *cur_sensor_orig;
     pos_wait_mode_t wait_mode;
 
@@ -182,14 +188,17 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
     if (!pos_route_authority_prepare_launch(pos, &g_pos_try_reserve_plan,
                                             &g_pos_try_authority_plan,
                                             &reserved_end_cursor,
-                                            &switch_blocker_owner)) {
+                                            &switch_blocker_owner,
+                                            &authority_blocker_mask)) {
         if (wait_mode == POS_WAIT_RESUME_ROUTE &&
             switch_blocker_owner == pos->train_num) {
             return pos_replan_from_current_stop(pos);
         }
         uint8_t blocker_mask =
-            pos_blocker_mask_from_plan_and_switches(pos->train_num,
-                                                    &g_pos_try_reserve_plan);
+            authority_blocker_mask
+                ? authority_blocker_mask
+                : pos_blocker_mask_from_plan_and_switches(pos->train_num,
+                                                          &g_pos_try_reserve_plan);
         pos_enter_wait_resource(pos, now_us, blocker_mask, wait_mode);
         return 1;
     }

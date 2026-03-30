@@ -129,7 +129,8 @@ void pos_route_authority_sync_target(train_pos_t *pos);
 int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *full_plan,
                                        route_plan_t *out_prefix,
                                        int *out_reserved_end_cursor,
-                                       int *out_switch_blocker_owner);
+                                       int *out_switch_blocker_owner,
+                                       uint8_t *out_blocker_mask);
 int pos_route_authority_try_top_up(train_pos_t *pos, uint64_t now_us, int force);
 
 /* Stop and wait for resources; pending_target remains unchanged for retries. */

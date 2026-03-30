@@ -168,7 +168,7 @@ static int pos_deadlock_candidate_can_force_move(train_pos_t *pos,
         pos, &g_pos_try_eval_force_move.plan,
         &g_pos_try_launch_prefix,
         &reserved_end_cursor,
-        NULL);
+        NULL, NULL);
 }
 
 int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
