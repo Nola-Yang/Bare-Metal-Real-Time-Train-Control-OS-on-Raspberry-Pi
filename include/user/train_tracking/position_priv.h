@@ -32,9 +32,9 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
 
 /* WAIT_RESOURCE exponential backoff parameters.
  * wait = BASE * 2^min(retry, MAX_BACKOFF_STEPS) + jitter
- * where jitter is in [0, BASE). Max wait ~3.2s + jitter. */
+ * where jitter is in [0, BASE). Max wait is under 1s. */
 #define REPLAN_INTERVAL_US    200000ULL   /* base interval (us) */
-#define REPLAN_MAX_BACKOFF      4         /* cap exponent at 2^4 = 16x */
+#define REPLAN_MAX_BACKOFF      2         /* cap exponent at 2^2 = 4x */
 
 /* Keep resolved deadlock notices visible in the UI briefly after reroute. */
 #define DEADLOCK_NOTICE_RESOLVED_US 8000000ULL
@@ -49,6 +49,7 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
  * auth target  = first reachable sensor on the committed route whose
  *                distance is >= threshold
  * extend point = actual stop distance (brake + early stop) */
+#define AUTH_TARGET_EXTRA_EARLY_STOP_US 500000ULL
 
 /* Train order used for deadlock blocker masks. */
 static inline int pos_deadlock_train_to_index(int train_num) {
@@ -124,6 +125,16 @@ int32_t pos_route_authority_target_mm(const train_pos_t *pos);
 int32_t pos_route_authority_extend_trigger_mm(const train_pos_t *pos);
 int32_t pos_route_authority_remaining_mm(const train_pos_t *pos);
 int pos_route_authority_is_leg_goal_stop(const train_pos_t *pos);
+static inline uint64_t pos_target_early_stop_us(const train_pos_t *pos) {
+    uint64_t early_stop_us;
+
+    if (!pos) return 0;
+    early_stop_us = speed_table_get_early_stop(pos->train_ind, pos->goto_speed);
+    if (!pos_route_authority_is_leg_goal_stop(pos)) {
+        early_stop_us += AUTH_TARGET_EXTRA_EARLY_STOP_US;
+    }
+    return early_stop_us;
+}
 void pos_route_authority_reset(train_pos_t *pos);
 void pos_route_authority_sync_target(train_pos_t *pos);
 int pos_route_authority_prepare_launch(train_pos_t *pos, const route_plan_t *full_plan,
