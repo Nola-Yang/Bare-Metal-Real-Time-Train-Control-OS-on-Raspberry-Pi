@@ -262,6 +262,11 @@ typedef struct {
     uint16_t   path_nodes[TRACK_MAX];
     int        path_count2;
     uint16_t   path_nodes2[TRACK_MAX];
+
+    /* Extra nodes reserved beyond the stop target, typically the branch
+     * immediately after an authority stop so its switch cannot be stolen. */
+    int        extra_reserve_count;
+    uint16_t   extra_reserve_nodes[4];
 } route_plan_t;
 
 typedef enum {

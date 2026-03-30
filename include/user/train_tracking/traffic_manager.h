@@ -49,7 +49,8 @@ void traffic_refresh_route_reservation(int train_num, track_node *cur_sensor,
                                        int path_count);
 
 /* Refresh a bootstrap/dead-track reservation window anchored at cur_sensor:
- * keep cur_sensor, rear_mm behind it, and the reachable path to pred_sensor. */
+ * keep cur_sensor, rear_mm behind it, and every reachable node on the path
+ * from cur_sensor to pred_sensor. */
 void traffic_refresh_sensor_prediction_reservation(int train_num,
                                                    track_node *cur_sensor,
                                                    track_node *pred_sensor,

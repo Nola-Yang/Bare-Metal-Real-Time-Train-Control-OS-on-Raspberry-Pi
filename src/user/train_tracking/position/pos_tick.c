@@ -400,6 +400,11 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
         }
 
         if (rem <= d_early) {
+            // if (!stop_cmd_sent && pos_route_authority_try_top_up(pos, now_us, 1)) {
+            //     pos->route_rem_tick_us = now_us;
+            //     ui_mark_position_dirty();
+            //     return 0;
+            // }
             if (waiting_for_first_hit) {
                 if (!stop_cmd_sent) {
                     pos->stopping_since_us = now_us;

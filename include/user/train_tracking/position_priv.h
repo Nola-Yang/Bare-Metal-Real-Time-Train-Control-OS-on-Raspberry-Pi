@@ -166,13 +166,16 @@ uint64_t pos_dead_track_deadline_from_interval(uint64_t now_us, uint64_t interva
 void pos_restore_pending_target(train_pos_t *pos);
 
 /* Pick the sensor-window end used by reservation release:
- * prefer `hint`, otherwise predict the next sensor after `last_hit`. */
+ * prefer `hint`, otherwise predict the next sensor after `last_hit`.
+ * The kept window is the full reachable segment from `last_hit` to this
+ * sensor, not just the two sensor endpoints. */
 track_node *pos_release_keep_end(track_node *last_hit, track_node *hint);
 
 /* Refresh reservations after a planned stop:
- * if the stop target was physically hit, keep that hit plus the next sensor
- * in the original travel direction; otherwise keep the remaining reserved
- * route tail to that target. */
+ * if the stop target was physically hit, keep the full contiguous segment
+ * from that hit to the next reachable sensor in the original travel
+ * direction; otherwise keep the remaining reserved route tail to that
+ * target. */
 void pos_refresh_stop_reservation(train_pos_t *pos);
 
 /* Apply a route's switch commands only if every touched switch envelope is free. */

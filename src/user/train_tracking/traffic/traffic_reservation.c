@@ -138,6 +138,15 @@ static void build_plan_marks(uint8_t want[TRACK_MAX], const route_plan_t *plan) 
         }
     }
 
+    for (int i = 0; i < plan->extra_reserve_count; i++) {
+        int idx = (int)plan->extra_reserve_nodes[i];
+        int ridx;
+        if (idx < 0 || idx >= TRACK_MAX) continue;
+        want[idx] = 1;
+        ridx = traffic_reverse_index(idx);
+        if (ridx >= 0 && ridx < TRACK_MAX) want[ridx] = 1;
+    }
+
     expand_marks_with_zones(want);
 }
 
