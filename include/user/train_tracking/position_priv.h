@@ -47,7 +47,7 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
 #define SWITCH_SETTLE_TICKS     5
 
 /* Rolling reservation window tuning.
- * threshold    = GOTO_MIN_DIST_FACTOR * brake_dist + early_stop_dist
+ * threshold    = goto_min_dist_factor(goto_speed) * brake_dist + early_stop_dist
  * auth target  = first reachable sensor on the committed route whose
  *                distance is >= threshold
  * extend point = actual stop distance (brake + early stop) */

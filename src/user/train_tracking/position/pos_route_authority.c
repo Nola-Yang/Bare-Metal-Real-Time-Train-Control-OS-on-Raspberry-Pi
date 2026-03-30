@@ -157,10 +157,13 @@ int32_t pos_route_authority_stop_dist_mm(const train_pos_t *pos) {
 int32_t pos_route_authority_min_mm(const train_pos_t *pos) {
     int32_t d_brake = authority_brake_dist_mm(pos);
     int32_t d_early = authority_early_stop_mm(pos);
+    int min_dist_factor;
 
     if (d_brake < 0) d_brake = 0;
     if (d_early < 0) d_early = 0;
-    return GOTO_MIN_DIST_FACTOR * d_brake + d_early;
+    min_dist_factor = pos ? route_goto_min_dist_factor(pos->goto_speed)
+                          : GOTO_MIN_DIST_FACTOR_DEFAULT;
+    return min_dist_factor * d_brake + d_early;
 }
 
 int32_t pos_route_authority_target_mm(const train_pos_t *pos) {
