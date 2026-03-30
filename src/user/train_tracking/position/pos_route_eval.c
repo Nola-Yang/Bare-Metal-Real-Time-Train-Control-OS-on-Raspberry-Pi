@@ -106,8 +106,7 @@ static int pos_route_use_cur_reverse_start(const train_pos_t *pos) {
 }
 
 static void pos_route_fill_origins_internal(const train_pos_t *pos,
-                                            track_node *origins[2],
-                                            int deadlock_mode) {
+                                            track_node *origins[2]) {
     track_node *cur_sensor_orig;
     track_node *plan_start;
     track_node *reverse_plan_start;
@@ -124,27 +123,16 @@ static void pos_route_fill_origins_internal(const train_pos_t *pos,
         plan_start = predict_next_sensor((train_pos_t *)pos, pos->cur_sensor,
                                          &dt_ignored);
     }
-    if (deadlock_mode && cur_sensor_orig->reverse) {
-        /* Deadlock reroutes should search reverse-origin plans from the
-         * train's actual stopped anchor, not from a speculative next sensor. */
-        reverse_plan_start = cur_sensor_orig->reverse;
-    } else {
-        reverse_plan_start = pos_route_use_cur_reverse_start(pos)
-                             ? cur_sensor_orig->reverse
-                             : (plan_start ? plan_start->reverse
-                                           : cur_sensor_orig->reverse);
-    }
+    reverse_plan_start = pos_route_use_cur_reverse_start(pos)
+                         ? cur_sensor_orig->reverse
+                         : (plan_start ? plan_start->reverse
+                                       : cur_sensor_orig->reverse);
     origins[0] = plan_start;
     origins[1] = reverse_plan_start;
 }
 
 void pos_route_fill_origins(const train_pos_t *pos, track_node *origins[2]) {
-    pos_route_fill_origins_internal(pos, origins, 0);
-}
-
-void pos_route_fill_deadlock_origins(const train_pos_t *pos,
-                                     track_node *origins[2]) {
-    pos_route_fill_origins_internal(pos, origins, 1);
+    pos_route_fill_origins_internal(pos, origins);
 }
 
 static void pos_build_fixed_switch_dirs(int requester_train,
@@ -228,7 +216,6 @@ static int pos_select_best_route_for_origins(track_node *origins[2],
 static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *pos,
                                                                  track_node *user_target,
                                                                  int allow_blocked_fallback,
-                                                                 int deadlock_mode,
                                                                  pos_route_eval_t *out) {
     route_plan_t *rp = &g_pos_try_rp;
     route_plan_t *best_blocked_plan = &g_pos_try_best_blocked_plan;
@@ -250,11 +237,7 @@ static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *po
     }
     if (!pos || !pos->cur_sensor || !user_target) return POS_ROUTE_EVAL_UNREACHABLE;
 
-    if (deadlock_mode) {
-        pos_route_fill_deadlock_origins(pos, origins);
-    } else {
-        pos_route_fill_origins(pos, origins);
-    }
+    pos_route_fill_origins(pos, origins);
 
     d_stop    = pos_route_authority_stop_dist_mm(pos);
     threshold = pos_route_authority_min_mm(pos);
@@ -308,13 +291,7 @@ static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *po
 pos_route_eval_result_t pos_evaluate_target_plan(train_pos_t *pos,
                                                  track_node *user_target,
                                                  pos_route_eval_t *out) {
-    return pos_evaluate_target_plan_internal(pos, user_target, 1, 0, out);
-}
-
-pos_route_eval_result_t pos_evaluate_target_plan_deadlock(train_pos_t *pos,
-                                                          track_node *user_target,
-                                                          pos_route_eval_t *out) {
-    return pos_evaluate_target_plan_internal(pos, user_target, 1, 1, out);
+    return pos_evaluate_target_plan_internal(pos, user_target, 1, out);
 }
 
 pos_route_eval_result_t pos_evaluate_target_ready_now(train_pos_t *pos,
@@ -323,41 +300,7 @@ pos_route_eval_result_t pos_evaluate_target_ready_now(train_pos_t *pos,
     pos_route_eval_t *eval = out ? out : &g_pos_try_eval_ready;
     route_plan_t reserve_plan;
     pos_route_eval_result_t result =
-        pos_evaluate_target_plan_internal(pos, user_target, 0, 0, eval);
-
-    if (result != POS_ROUTE_EVAL_READY) return result;
-
-    reserve_plan = eval->plan;
-    if (reserve_plan.has_reversal) {
-        reserve_plan.path_count2 = 0;
-    }
-
-    if (!traffic_can_reserve_plan(pos->train_num, &reserve_plan)) {
-        eval->blocker_mask = pos_route_blocker_mask_from_plan(pos->train_num,
-                                                              &reserve_plan);
-        return POS_ROUTE_EVAL_BLOCKED;
-    }
-
-    if (pos_route_switch_blocker(eval->plan.sw_nums, eval->plan.sw_dirs,
-                                 eval->plan.sw_count, pos->train_num) >= 0) {
-        eval->blocker_mask = pos_route_blocker_mask_from_switches(eval->plan.sw_nums,
-                                                                  eval->plan.sw_dirs,
-                                                                  eval->plan.sw_count,
-                                                                  pos->train_num);
-        return POS_ROUTE_EVAL_BLOCKED;
-    }
-
-    eval->blocker_mask = 0;
-    return POS_ROUTE_EVAL_READY;
-}
-
-pos_route_eval_result_t pos_evaluate_target_ready_now_deadlock(train_pos_t *pos,
-                                                               track_node *user_target,
-                                                               pos_route_eval_t *out) {
-    pos_route_eval_t *eval = out ? out : &g_pos_try_eval_ready;
-    route_plan_t reserve_plan;
-    pos_route_eval_result_t result =
-        pos_evaluate_target_plan_internal(pos, user_target, 0, 1, eval);
+        pos_evaluate_target_plan_internal(pos, user_target, 0, eval);
 
     if (result != POS_ROUTE_EVAL_READY) return result;
 

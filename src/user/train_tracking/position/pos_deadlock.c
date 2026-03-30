@@ -620,9 +620,9 @@ static int deadlock_apply_reroute(train_pos_t *victim,
     pos_clear_committed_route(victim);
 
     if (pick_kind == POS_DEADLOCK_PICK_FORCE_MOVE) {
-        if (!pos_try_direct_goto_deadlock(victim)) return 0;
+        if (!pos_try_direct_goto(victim)) return 0;
     } else {
-        if (!pos_try_direct_goto_strict_deadlock(victim)) return 0;
+        if (!pos_try_direct_goto_strict(victim)) return 0;
     }
     if (victim->route_state != TRAIN_STATE_ON_ROUTE &&
         victim->route_state != TRAIN_STATE_WAIT_SWITCH_SETTLE) {

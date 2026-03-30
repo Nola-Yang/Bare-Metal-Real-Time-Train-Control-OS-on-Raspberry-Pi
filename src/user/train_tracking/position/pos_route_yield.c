@@ -160,8 +160,7 @@ static int pos_deadlock_candidate_can_force_move(train_pos_t *pos,
 
     if (!pos || !target) return 0;
 
-    result = pos_evaluate_target_plan_deadlock(pos, target,
-                                               &g_pos_try_eval_force_move);
+    result = pos_evaluate_target_plan(pos, target, &g_pos_try_eval_force_move);
     if (result != POS_ROUTE_EVAL_READY) return 0;
 
     return pos_route_authority_prepare_launch(
@@ -190,7 +189,7 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
     if (out_kind) *out_kind = POS_DEADLOCK_PICK_NONE;
     if (!pos || !pos->cur_sensor) return 0;
 
-    pos_route_fill_deadlock_origins(pos, origins);
+    pos_route_fill_origins(pos, origins);
     if (!origins[0] && !origins[1]) return 0;
 
     current_target = pos_route_current_goal(pos);
@@ -209,7 +208,7 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
         if (pos_deadlock_same_physical_sensor(cand, current_target)) continue;
         if (pos_deadlock_candidate_is_occupied(pos, cand)) continue;
 
-        if (pos_evaluate_target_ready_now_deadlock(
+        if (pos_evaluate_target_ready_now(
                 pos, cand, &g_pos_try_eval_candidate) != POS_ROUTE_EVAL_READY) {
             continue;
         }
