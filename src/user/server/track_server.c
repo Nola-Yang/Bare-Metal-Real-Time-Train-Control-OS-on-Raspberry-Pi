@@ -200,6 +200,13 @@ void track_server_task(void) {
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
 
+            case TRACK_REQ_RESET_STARTUP:
+                track_local_reset_state();
+                track_local_bootstrap_defaults();
+                ui_mark_sensors_dirty();
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                break;
+
             default:
                 reply.status = -1;
                 Reply(tid, (const char *)&reply, sizeof(reply));

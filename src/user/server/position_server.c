@@ -18,6 +18,7 @@ typedef enum {
     POS_REQ_START_FIND_POS = 8,
     POS_REQ_MARK_ROUTES_DIRTY = 9,
     POS_REQ_RELEASE_TRAIN = 10,
+    POS_REQ_RESET_ALL = 11,
 } position_request_type_t;
 
 typedef struct {
@@ -113,6 +114,11 @@ void position_server_task(void) {
 
             case POS_REQ_RELEASE_TRAIN:
                 traffic_release_train(req.train);
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                break;
+
+            case POS_REQ_RESET_ALL:
+                pos_init();
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
 
@@ -226,5 +232,13 @@ int PositionServerReleaseTrain(int tid, int train_num) {
 
     req.type = POS_REQ_RELEASE_TRAIN;
     req.train = train_num;
+    return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
+}
+
+int PositionServerResetAll(int tid) {
+    PositionRequest_t req;
+    PositionReply_t reply;
+
+    req.type = POS_REQ_RESET_ALL;
     return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
 }

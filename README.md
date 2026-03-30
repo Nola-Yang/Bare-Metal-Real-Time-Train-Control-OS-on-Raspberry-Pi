@@ -89,7 +89,7 @@ Enter commands at the prompt:
 | `findpos <train1> [train2] [train3] [train4]` | Find positions for one or more trains |
 | `demo <speed> <train1> [train2] [train3] [train4] [seed]` | Start demo: trains roam randomly at the given speed level |
 | `demo stop` | Stop demo gracefully (no new missions assigned) |
-| `demo stop force` | Stop demo immediately and reset all trains |
+| `demo stop force` | Stop demo immediately and reset runtime state back to startup defaults |
 | `demo seed <u32>` | Set the RNG seed used for random route selection |
 | `demo tune trip <mm>` | Set minimum trip distance (mm) for random route selection |
 | `game` | Enter interactive game setup; each setup input is a bare train number and triggers one `findpos` before the next prompt |

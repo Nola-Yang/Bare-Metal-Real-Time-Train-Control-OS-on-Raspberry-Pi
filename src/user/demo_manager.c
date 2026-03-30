@@ -141,6 +141,41 @@ static void demo_reset_slots(void) {
     }
 }
 
+static int demo_train_seen(const int *trains, int count, int train_num) {
+    for (int i = 0; i < count; i++) {
+        if (trains[i] == train_num) return 1;
+    }
+    return 0;
+}
+
+static int demo_collect_force_stop_trains(int *out, int cap) {
+    int count = 0;
+
+    if (!out || cap <= 0) return 0;
+
+    for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
+        int train_num = g_slots[i].train_num;
+
+        if (!g_slots[i].enabled) continue;
+        if (!track_is_valid_train(train_num)) continue;
+        if (demo_train_seen(out, count, train_num)) continue;
+        if (count < cap) out[count++] = train_num;
+    }
+
+    for (int i = 0; i < MAX_POS_TRAINS; i++) {
+        train_pos_t *pos = pos_get_by_index(i);
+        int train_num;
+
+        if (!pos) continue;
+        train_num = pos->train_num;
+        if (!track_is_valid_train(train_num)) continue;
+        if (demo_train_seen(out, count, train_num)) continue;
+        if (count < cap) out[count++] = train_num;
+    }
+
+    return count;
+}
+
 static demo_train_slot_t *demo_alloc_slot(int train_num, int speed_level) {
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         if (!g_slots[i].enabled) {
@@ -358,23 +393,23 @@ static int demo_start_next_unstarted(void) {
 }
 
 static void demo_force_stop(void) {
+    int trains[DEMO_MAX_TRAINS + MAX_POS_TRAINS];
+    int train_count = demo_collect_force_stop_trains(trains,
+                                                     DEMO_MAX_TRAINS + MAX_POS_TRAINS);
     int pos_tid = demo_position_server_tid();
 
-    for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
-        if (!g_slots[i].enabled) continue;
-        if (!track_is_valid_train(g_slots[i].train_num)) continue;
+    for (int i = 0; i < train_count; i++) {
         if (pos_tid >= 0) {
-            (void)PositionServerSpeedChange(pos_tid, g_slots[i].train_num, 0);
+            (void)PositionServerSpeedChange(pos_tid, trains[i], 0);
         }
-        track_set_speed(g_slots[i].train_num, 0);
-        pos_reset_dead_train(g_slots[i].train_num);
+        track_set_speed(trains[i], 0);
     }
-    g_demo_mode = DEMO_MODE_OFF;
-    g_demo_state = DEMO_RUN_IDLE;
-    g_demo_start_us = 0;
-    g_demo_stop_request_us = 0;
-    demo_reset_slots();
-    g_demo_last_ui_uptime_sec = UINT32_MAX;
+
+    if (pos_tid >= 0) {
+        (void)PositionServerResetAll(pos_tid);
+    }
+    track_reset_to_startup();
+    demo_init();
     ui_mark_position_dirty();
 }
 
@@ -575,13 +610,13 @@ int demo_handle_command(int argc, char *argv[]) {
     }
 
     if (str_eq(argv[1], "stop")) {
-        if (g_demo_mode == DEMO_MODE_OFF) {
-            ui_cmd_puts("demo: already stopped\r\n");
-            return 2;
-        }
         if (argc >= 3 && str_eq(argv[2], "force")) {
             demo_force_stop();
-            ui_cmd_puts("demo: force-stopped\r\n");
+            ui_cmd_puts("demo: force reset to startup state\r\n");
+            return 2;
+        }
+        if (g_demo_mode == DEMO_MODE_OFF) {
+            ui_cmd_puts("demo: already stopped\r\n");
             return 2;
         }
         if (g_demo_state == DEMO_RUN_STOPPING) {

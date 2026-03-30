@@ -478,6 +478,18 @@ void track_set_light(int train, int on) {
     KASSERT(track_send_request(tid, &req, &reply) >= 0);
 }
 
+void track_reset_to_startup(void) {
+    TrackRequest_t req;
+    TrackReply_t reply;
+    int tid = track_ensure_server_tid();
+
+    KASSERT(tid >= 0);
+
+    req.type = TRACK_REQ_RESET_STARTUP;
+
+    KASSERT(track_send_request(tid, &req, &reply) >= 0);
+}
+
 void track_complete_reverse(int train_num) {
     TrackRequest_t req;
     TrackReply_t reply;

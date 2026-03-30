@@ -16,6 +16,7 @@ typedef enum {
     TRACK_REQ_LOG_SENSOR = 8,
     TRACK_REQ_UPDATE_SWITCH = 9,
     TRACK_REQ_CAN_FRAME = 10,
+    TRACK_REQ_RESET_STARTUP = 11,
 } track_request_type_t;
 
 typedef struct {

@@ -17,5 +17,6 @@ int PositionServerGoto(int tid, int train_num, int target_idx, int speed_level, 
 int PositionServerStartFindPos(int tid, int train_num);
 int PositionServerMarkRoutesDirty(int tid);
 int PositionServerReleaseTrain(int tid, int train_num);
+int PositionServerResetAll(int tid);
 
 #endif /* _position_server_h_ */
