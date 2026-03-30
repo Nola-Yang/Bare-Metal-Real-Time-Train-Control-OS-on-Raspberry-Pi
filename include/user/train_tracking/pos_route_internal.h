@@ -21,7 +21,6 @@ typedef enum {
     POS_DEADLOCK_PICK_NONE = 0,
     POS_DEADLOCK_PICK_READY_UNLOCK = 1,
     POS_DEADLOCK_PICK_READY_RELOCATE = 2,
-    POS_DEADLOCK_PICK_FORCE_MOVE = 3,
 } pos_deadlock_pick_kind_t;
 
 track_node *pos_route_current_goal(train_pos_t *pos);

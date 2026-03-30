@@ -92,6 +92,10 @@ int pos_try_direct_goto(train_pos_t *pos);
  * into WAIT_RESOURCE. */
 int pos_try_direct_goto_strict(train_pos_t *pos);
 
+/* Deadlock-timeout variant: only requires planner reachability and launches
+ * immediately without entering WAIT_RESOURCE on reservation/switch conflicts. */
+int pos_try_direct_goto_force_reachable(train_pos_t *pos);
+
 /* Retry launching the already committed route for WAIT_RESOURCE resumes. */
 int pos_try_resume_committed_route(train_pos_t *pos, uint64_t now_us);
 
@@ -114,10 +118,14 @@ void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us);
 /* Pick the nearest safe deadlock-yield sensor target for the current stopped train.
  * Returns 1 and stores the chosen sensor in *out_target, 0 if none is available. */
 int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
-                                   int allow_force_move,
                                    track_node **out_target,
                                    uint8_t *out_unblocked_mask,
                                    pos_deadlock_pick_kind_t *out_kind);
+
+/* Pick a timeout-fallback target that is planner-reachable, preferring farther
+ * deadlock sensor candidates over nearer ones. */
+int pos_pick_deadlock_timeout_fallback_target(train_pos_t *pos,
+                                              track_node **out_target);
 
 /* Compute authority-window parameters from the train's braking model. */
 int32_t pos_route_authority_stop_dist_mm(const train_pos_t *pos);
@@ -219,6 +227,7 @@ void pos_clear_deadlock_recover(train_pos_t *pos);
 
 /* Try to resume a yielded deadlock victim once the blocked peers have moved. */
 int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos, uint64_t now_us);
+void pos_deadlock_on_tick(uint64_t now_us);
 void pos_deadlock_refresh_notice_state(uint64_t now_us);
 int pos_deadlock_maybe_reroute_waiter(train_pos_t *pos, uint64_t now_us);
 

@@ -8,8 +8,6 @@
 #include <stdint.h>
 
 static pos_route_eval_t g_pos_try_eval_candidate;
-static pos_route_eval_t g_pos_try_eval_force_move;
-static route_plan_t g_pos_try_launch_prefix;
 static int g_pos_try_snapshot[TRACK_MAX];
 static uint16_t g_pos_try_sorted_from_origin0[TRACK_MAX];
 static uint16_t g_pos_try_sorted_from_origin1[TRACK_MAX];
@@ -153,25 +151,7 @@ static uint8_t pos_simulate_deadlock_unblocked_mask(train_pos_t *victim,
     return ready_mask;
 }
 
-static int pos_deadlock_candidate_can_force_move(train_pos_t *pos,
-                                                 track_node *target) {
-    pos_route_eval_result_t result;
-    int reserved_end_cursor = -1;
-
-    if (!pos || !target) return 0;
-
-    result = pos_evaluate_target_plan(pos, target, &g_pos_try_eval_force_move);
-    if (result != POS_ROUTE_EVAL_READY) return 0;
-
-    return pos_route_authority_prepare_launch(
-        pos, &g_pos_try_eval_force_move.plan,
-        &g_pos_try_launch_prefix,
-        &reserved_end_cursor,
-        NULL, NULL);
-}
-
 int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
-                                   int allow_force_move,
                                    track_node **out_target,
                                    uint8_t *out_unblocked_mask,
                                    pos_deadlock_pick_kind_t *out_kind) {
@@ -236,21 +216,35 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
         return 1;
     }
 
-    if (!allow_force_move) return 0;
+    return 0;
+}
+
+int pos_pick_deadlock_timeout_fallback_target(train_pos_t *pos,
+                                              track_node **out_target) {
+    track_node *origins[2];
+    track_node *current_target;
+    int merged_count;
+
+    if (out_target) *out_target = NULL;
+    if (!pos || !pos->cur_sensor) return 0;
+
+    pos_route_fill_origins(pos, origins);
+    if (!origins[0] && !origins[1]) return 0;
+
+    current_target = pos_route_current_goal(pos);
+    merged_count = pos_deadlock_merge_sorted_candidates(origins);
 
     for (int i = merged_count - 1; i >= 0; i--) {
         track_node *cand = &g_track[g_pos_try_merged_candidates[i]];
-        int32_t sort_dist = pos_deadlock_candidate_sort_dist(origins, cand);
 
-        if (sort_dist < 0 || sort_dist < min_dist_mm) continue;
         if (pos_deadlock_same_physical_sensor(cand, pos->cur_sensor)) continue;
         if (pos_deadlock_same_physical_sensor(cand, current_target)) continue;
-        if (pos_deadlock_candidate_is_occupied(pos, cand)) continue;
-        if (!pos_deadlock_candidate_can_force_move(pos, cand)) continue;
+        if (pos_evaluate_target_plan(pos, cand, &g_pos_try_eval_candidate) !=
+            POS_ROUTE_EVAL_READY) {
+            continue;
+        }
 
         if (out_target) *out_target = cand;
-        if (out_unblocked_mask) *out_unblocked_mask = fallback_wait_mask;
-        if (out_kind) *out_kind = POS_DEADLOCK_PICK_FORCE_MOVE;
         return 1;
     }
 
