@@ -131,16 +131,11 @@ static int pos_sensor_name_is(const track_node *node, const char *name) {
            str_eq(node->name, name);
 }
 
-static int pos_should_block_initial_reverse_restart(track_node *entry_sensor,
-                                                    track_node *target_sensor) {
-    return (pos_sensor_name_is(entry_sensor, "E15") &&
-            pos_sensor_name_is(target_sensor, "C12")) ||
-           (pos_sensor_name_is(entry_sensor, "E4") &&
-            pos_sensor_name_is(target_sensor, "E5")) ||
-           (pos_sensor_name_is(entry_sensor, "D16") &&
-            pos_sensor_name_is(target_sensor, "E14")) ||
-           (pos_sensor_name_is(entry_sensor, "B4") &&
-            pos_sensor_name_is(target_sensor, "C9"));
+static int pos_should_block_initial_reverse_restart(track_node *stopped_target) {
+    return pos_sensor_name_is(stopped_target, "C12") ||
+           pos_sensor_name_is(stopped_target, "E5") ||
+           pos_sensor_name_is(stopped_target, "E14") ||
+           pos_sensor_name_is(stopped_target, "C9");
 }
 
 static track_node *pos_dead_track_resume_target(const train_pos_t *pos,
@@ -206,7 +201,7 @@ static void handle_normal_stop(train_pos_t *pos, uint64_t now_us) {
     stopped_target = pos->target_sensor;
     pos->parked_restart_block_initial_reverse =
         (stopped_target != NULL &&
-         pos_should_block_initial_reverse_restart(pos->cur_sensor, stopped_target))
+         pos_should_block_initial_reverse_restart(stopped_target))
             ? 1
             : 0;
     if (stopped_target != NULL) {
