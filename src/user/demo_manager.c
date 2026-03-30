@@ -59,6 +59,31 @@ static demo_train_slot_t g_slots[DEMO_MAX_TRAINS];
 static track_node *g_sensor_pool[TRACK_MAX];
 static int g_sensor_pool_count = 0;
 
+static int demo_sensor_name_is(const track_node *node, const char *name) {
+    return node != NULL &&
+           node->type == NODE_SENSOR &&
+           node->name != NULL &&
+           str_eq(node->name, name);
+}
+
+static int demo_target_is_excluded(const track_node *node) {
+    const track_node *rev;
+
+    if (!node || node->type != NODE_SENSOR) return 0;
+    rev = (node->reverse && node->reverse->type == NODE_SENSOR)
+              ? node->reverse
+              : NULL;
+
+    return demo_sensor_name_is(node, "C12") ||
+           demo_sensor_name_is(node, "E5") ||
+           demo_sensor_name_is(node, "E14") ||
+           demo_sensor_name_is(node, "C9") ||
+           demo_sensor_name_is(rev, "C12") ||
+           demo_sensor_name_is(rev, "E5") ||
+           demo_sensor_name_is(rev, "E14") ||
+           demo_sensor_name_is(rev, "C9");
+}
+
 static int demo_position_server_tid(void) {
     if (g_position_server_tid < 0) {
         g_position_server_tid = WhoIs(POSITION_SERVER_NAME);
@@ -177,6 +202,7 @@ static void demo_build_sensor_pool(void) {
     for (int i = 0; i < TRACK_MAX; i++) {
         if (g_track[i].type != NODE_SENSOR) continue;
         if (!g_track[i].name) continue;
+        if (demo_target_is_excluded(&g_track[i])) continue;
         if (g_sensor_pool_count < TRACK_MAX) {
             g_sensor_pool[g_sensor_pool_count++] = &g_track[i];
         }

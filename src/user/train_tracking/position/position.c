@@ -46,6 +46,7 @@ static void pos_begin_pos_find(train_pos_t *pos, uint64_t now_us) {
     pos->dead_track_recover.orig_target = NULL;
     pos->dead_track_recover.orig_offset_mm = 0;
     pos->dead_track_retry_due_us = 0;
+    pos->stopping_target_sensor = NULL;
     pos->stopped_on_target_hit = 0;
     pos->parked_restart_block_initial_reverse = 0;
     pos_clear_deadlock_recover(pos);
@@ -121,6 +122,7 @@ void pos_launch_at_goto_speed(train_pos_t *pos, uint64_t now_us) {
     pos->dead_track_warn_active = 0;
     pos->dead_track_recover.valid = 0;
     pos->dead_track_retry_due_us = 0;
+    pos->stopping_target_sensor = NULL;
     pos->stopped_on_target_hit = 0;
     pos->parked_restart_block_initial_reverse = 0;
 }
@@ -160,6 +162,7 @@ void pos_on_reverse(int train_num) {
 
     pos->prev_going_forward = pos->going_forward;
     pos->going_forward = !pos->going_forward;
+    pos->stopping_target_sensor = NULL;
     pos->parked_restart_block_initial_reverse = 0;
 
     if (pos->cur_sensor && pos->cur_sensor->reverse)
@@ -198,6 +201,7 @@ void pos_on_speed_change(int train_num, int user_speed) {
             (pos->route_state == TRAIN_STATE_STOPPED  ||
              pos->route_state == TRAIN_STATE_STOPPING_TR)) {
             pos->route_state = TRAIN_STATE_KNOWN;
+            pos->stopping_target_sensor = NULL;
             pos->parked_restart_block_initial_reverse = 0;
         }
     } else {
@@ -207,6 +211,7 @@ void pos_on_speed_change(int train_num, int user_speed) {
             (pos->route_state == TRAIN_STATE_UNKNOWN &&
              pos->cur_sensor != NULL)) {
             pos->stopping_since_us = read_timer();
+            pos->stopping_target_sensor = NULL;
             pos->route_state       = TRAIN_STATE_STOPPING_TR;
         } else {
             pos->effective_v = 0;
