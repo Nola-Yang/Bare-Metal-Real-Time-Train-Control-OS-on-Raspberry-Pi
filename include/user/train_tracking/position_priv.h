@@ -23,9 +23,8 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
  * from the predicted next sensor (off-route / skip detection). */
 #define OFF_ROUTE_PATH_MAX_HOPS 120
 
-/* Dead-track timeout is prediction-relative, with a per-speed floor. */
+/* Dead-track timeout is prediction-relative, with a fixed floor. */
 #define DEAD_TRACK_TIMEOUT_MIN_US 5000000ULL
-#define DEAD_TRACK_TIMEOUT_SPEED10_MIN_US 4000000ULL
 #define DEAD_TRACK_TIMEOUT_MULTIPLIER 3ULL
 #define DEAD_TRACK_RETRY_DELAY_US 5000000ULL
 /* Fixed user speed used for all goto operations. */

@@ -74,21 +74,9 @@ static track_node *predict_next_sensor_preserve_pred(train_pos_t *pos,
     return next;
 }
 
-static uint64_t dead_track_timeout_floor_us(const train_pos_t *pos) {
-    int speed_level = 0;
-
-    if (pos != NULL) {
-        speed_level = (pos->user_speed > 0) ? pos->user_speed : pos->goto_speed;
-    }
-
-    return (speed_level == 10) ? DEAD_TRACK_TIMEOUT_SPEED10_MIN_US
-                               : DEAD_TRACK_TIMEOUT_MIN_US;
-}
-
 uint64_t pos_dead_track_deadline_from_interval(uint64_t now_us, uint64_t interval_us,
                                                const train_pos_t *pos) {
     uint64_t timeout_us;
-    uint64_t timeout_floor_us;
 
     if (interval_us == 0) return 0;
 
@@ -98,9 +86,9 @@ uint64_t pos_dead_track_deadline_from_interval(uint64_t now_us, uint64_t interva
         timeout_us = interval_us * DEAD_TRACK_TIMEOUT_MULTIPLIER;
     }
 
-    timeout_floor_us = dead_track_timeout_floor_us(pos);
-    if (timeout_us < timeout_floor_us) {
-        timeout_us = timeout_floor_us;
+    (void)pos;
+    if (timeout_us < DEAD_TRACK_TIMEOUT_MIN_US) {
+        timeout_us = DEAD_TRACK_TIMEOUT_MIN_US;
     }
 
     if (timeout_us > UINT64_MAX - now_us) return UINT64_MAX;

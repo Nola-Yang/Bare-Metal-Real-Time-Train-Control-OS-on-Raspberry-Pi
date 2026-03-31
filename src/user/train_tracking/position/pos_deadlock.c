@@ -706,6 +706,20 @@ static int deadlock_apply_timeout_fallback(uint8_t cycle_mask,
     if (!parts) return 0;
 
     pos_get_deadlock_notice(&notice);
+    if (demo_is_auto_dispatching_targets()) {
+        victim_train = notice.victim_train;
+        if (victim_train < 0) {
+            victim_train = deadlock_choose_victim(parts, cycle_mask,
+                                                  DEADLOCK_KIND_WAIT_CYCLE);
+        }
+        if (!demo_reassign_all_random_targets()) return 0;
+        deadlock_write_notice(parts, cycle_mask, victim_train,
+                              NULL, NULL, NULL, 0, 0, 1,
+                              now_us + DEADLOCK_NOTICE_RESOLVED_US, 0);
+        if (out_victim_train) *out_victim_train = victim_train;
+        return 1;
+    }
+
     victim_order_count = deadlock_build_timeout_victim_order(parts, cycle_mask,
                                                              notice.victim_train,
                                                              victim_order);

@@ -1,6 +1,6 @@
 #include "demo_manager.h"
 #include "server/position_server.h"
-#include "train_tracking/position.h"
+#include "train_tracking/position_priv.h"
 #include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
 #include "server/nameserver.h"
@@ -255,7 +255,15 @@ static int is_valid_target(track_node *cand, track_node *start, int min_trip_mm)
     return 1;
 }
 
-static track_node *gold_pick_target(int train_num, int min_trip_mm, int *out_idx) {
+static int demo_target_ready_now(train_pos_t *pos, track_node *target) {
+    if (!pos || !pos->cur_sensor || !target) return 0;
+    return pos_evaluate_target_ready_now(pos, target, NULL) == POS_ROUTE_EVAL_READY;
+}
+
+static track_node *gold_pick_target_internal(int train_num,
+                                             int min_trip_mm,
+                                             int require_ready_now,
+                                             int *out_idx) {
     if (g_sensor_pool_count <= 0) return NULL;
     train_pos_t *pos = pos_get(train_num);
     track_node *start = (pos && pos->cur_sensor) ? pos->cur_sensor : NULL;
@@ -265,6 +273,7 @@ static track_node *gold_pick_target(int train_num, int min_trip_mm, int *out_idx
         int idx = (int)(demo_rand_u32() % (uint32_t)g_sensor_pool_count);
         track_node *cand = g_sensor_pool[idx];
         if (!is_valid_target(cand, start, min_trip_mm)) continue;
+        if (require_ready_now && !demo_target_ready_now(pos, cand)) continue;
         if (out_idx) *out_idx = (int)(cand - g_track);
         return cand;
     }
@@ -272,11 +281,20 @@ static track_node *gold_pick_target(int train_num, int min_trip_mm, int *out_idx
     for (int idx = 0; idx < g_sensor_pool_count; idx++) {
         track_node *cand = g_sensor_pool[idx];
         if (!is_valid_target(cand, start, min_trip_mm)) continue;
+        if (require_ready_now && !demo_target_ready_now(pos, cand)) continue;
         if (out_idx) *out_idx = (int)(cand - g_track);
         return cand;
     }
 
     return NULL;
+}
+
+static track_node *gold_pick_target(int train_num, int min_trip_mm, int *out_idx) {
+    return gold_pick_target_internal(train_num, min_trip_mm, 0, out_idx);
+}
+
+static track_node *gold_pick_ready_target(int train_num, int min_trip_mm, int *out_idx) {
+    return gold_pick_target_internal(train_num, min_trip_mm, 1, out_idx);
 }
 
 static int gold_dispatch_next(demo_train_slot_t *slot) {
@@ -298,6 +316,77 @@ int demo_retry_train_by_ind(int demo_train_ind) {
     if (!g_slots[demo_train_ind].enabled) return 0;
     if (g_demo_mode != DEMO_MODE_GOLD) return 0;
     return gold_dispatch_next(&g_slots[demo_train_ind]);
+}
+
+static void demo_clear_pending_queue(train_pos_t *pos) {
+    if (!pos) return;
+    pos->queued_target = NULL;
+    pos->queued_offset_mm = 0;
+    pos->queued_valid = 0;
+}
+
+static int demo_reassign_slot_random_target(demo_train_slot_t *slot) {
+    train_pos_t *pos;
+    track_node *target = NULL;
+    int target_idx = -1;
+    uint64_t now_us;
+
+    if (!slot || !slot->enabled) return 0;
+    if (!track_is_valid_train(slot->train_num)) return 0;
+
+    pos = pos_get(slot->train_num);
+    if (!pos || !pos->cur_sensor) return 0;
+    if (pos->route_state == TRAIN_STATE_UNKNOWN ||
+        pos->route_state == TRAIN_STATE_FIND_POS ||
+        pos->route_state == TRAIN_STATE_DEAD_TRACK) {
+        return 0;
+    }
+
+    pos_clear_deadlock_recover(pos);
+    demo_clear_pending_queue(pos);
+
+    if (pos->route_state == TRAIN_STATE_STOPPED ||
+        pos->route_state == TRAIN_STATE_WAIT_RESOURCE) {
+        if (pos->route_state == TRAIN_STATE_WAIT_RESOURCE) {
+            pos->route_state = TRAIN_STATE_STOPPED;
+            pos->stopping_since_us = 0;
+        }
+        target = gold_pick_ready_target(slot->train_num, g_gold_min_trip_mm, &target_idx);
+        if (!target) {
+            target = gold_pick_target(slot->train_num, g_gold_min_trip_mm, &target_idx);
+        }
+        if (!target) return 0;
+
+        pos_prepare_goto_request(pos, target, slot->speed_level, 0);
+        if (!pos_try_direct_goto(pos)) {
+            now_us = read_timer();
+            pos_enter_wait_resource(pos, now_us, 0, POS_WAIT_NONE);
+        }
+    } else {
+        target = gold_pick_target(slot->train_num, g_gold_min_trip_mm, &target_idx);
+        if (!target) return 0;
+        if (!pos_queue_goto(slot->train_num, target, slot->speed_level, 0)) {
+            return 0;
+        }
+    }
+
+    slot->started = 1;
+    slot->last_target_idx = target_idx;
+    slot->next_dispatch_us = 0;
+    return 1;
+}
+
+int demo_reassign_all_random_targets(void) {
+    int reassigned = 0;
+
+    if (!demo_is_auto_dispatching_targets()) return 0;
+
+    demo_build_sensor_pool();
+    for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
+        reassigned += demo_reassign_slot_random_target(&g_slots[i]);
+    }
+    if (reassigned > 0) ui_mark_position_dirty();
+    return reassigned > 0;
 }
 
 static void demo_update_state_counters(uint64_t now_us) {
