@@ -191,8 +191,7 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
                                             &reserved_end_cursor,
                                             &switch_blocker_owner,
                                             &authority_blocker_mask)) {
-        if (wait_mode == POS_WAIT_RESUME_ROUTE &&
-            switch_blocker_owner == pos->train_num) {
+        if (switch_blocker_owner == pos->train_num) {
             return pos_replan_from_current_stop(pos);
         }
         uint8_t blocker_mask =
@@ -208,6 +207,12 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
                                        g_pos_try_authority_plan.sw_dirs,
                                        g_pos_try_authority_plan.sw_count,
                                        pos->train_num)) {
+        if (pos_route_switch_blocker(g_pos_try_authority_plan.sw_nums,
+                                     g_pos_try_authority_plan.sw_dirs,
+                                     g_pos_try_authority_plan.sw_count,
+                                     pos->train_num) == pos->train_num) {
+            return pos_replan_from_current_stop(pos);
+        }
         uint8_t blocker_mask =
             pos_route_blocker_mask_from_switches(g_pos_try_authority_plan.sw_nums,
                                                  g_pos_try_authority_plan.sw_dirs,

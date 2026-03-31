@@ -170,7 +170,7 @@ void pos_route_build_constraints_for_train(int requester_train,
 static int pos_select_best_route_for_origins(track_node *origins[2],
                                              track_node *user_target,
                                              int32_t d_stop,
-                                             int min_dist_factor,
+                                             int32_t min_dist_mm,
                                              int32_t threshold,
                                              const uint8_t *blocked,
                                              const char *fixed_sw_dirs,
@@ -191,7 +191,7 @@ static int pos_select_best_route_for_origins(track_node *origins[2],
         if (!origins[o]) continue;
 
         if (bfs_find_route_optimal_constrained(origins[o], user_target, d_stop,
-                                               min_dist_factor,
+                                               min_dist_mm,
                                                blocked, fixed_sw_dirs, rp_temp) &&
             route_plan_long_enough(rp_temp, threshold)) {
             pos_note_best_plan(rp_temp, origins[o], o == 1,
@@ -202,7 +202,7 @@ static int pos_select_best_route_for_origins(track_node *origins[2],
 
     if (!have_best_plan && origins[1] &&
         bfs_find_bootstrap_midrev(origins[1], user_target, d_stop,
-                                  min_dist_factor,
+                                  min_dist_mm,
                                   blocked, fixed_sw_dirs, rp_temp) &&
         route_plan_long_enough(rp_temp, threshold)) {
         pos_note_best_plan(rp_temp, origins[1], 1,
@@ -232,8 +232,8 @@ static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *po
     int best_blocked_need_initial_reverse = 0;
     int need_initial_reverse = 0;
     int32_t d_stop;
+    int32_t min_dist_mm;
     int32_t threshold;
-    int min_dist_factor;
 
     if (out) {
         out->plan = (route_plan_t){0};
@@ -246,14 +246,16 @@ static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *po
     pos_route_fill_origins(pos, origins);
 
     d_stop    = pos_route_authority_stop_dist_mm(pos);
+    min_dist_mm = route_goto_min_dist_mm(pos->goto_speed, d_stop);
     threshold = pos_route_authority_min_mm(pos);
-    min_dist_factor = route_goto_min_dist_factor(pos->goto_speed);
-    if (d_stop <= 0 || threshold <= 0) return POS_ROUTE_EVAL_UNREACHABLE;
+    if (d_stop <= 0 || min_dist_mm <= 0 || threshold <= 0) {
+        return POS_ROUTE_EVAL_UNREACHABLE;
+    }
 
     pos_route_build_constraints_for_train(pos->train_num, blocked, fixed_sw_dirs);
 
     if (pos_select_best_route_for_origins(origins, user_target, d_stop,
-                                          min_dist_factor, threshold,
+                                          min_dist_mm, threshold,
                                           blocked, fixed_sw_dirs, rp,
                                           &chosen_origin, &need_initial_reverse)) {
         if (out) {
@@ -266,7 +268,7 @@ static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *po
     }
 
     if (!pos_select_best_route_for_origins(origins, user_target, d_stop,
-                                           min_dist_factor, threshold,
+                                           min_dist_mm, threshold,
                                            NULL, fixed_sw_dirs, best_blocked_plan,
                                            &best_blocked_origin,
                                            &best_blocked_need_initial_reverse)) {

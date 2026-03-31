@@ -292,12 +292,12 @@ static int route_build_reversal_candidates(track_node *start, track_node *target
 int bfs_find_route_optimal(track_node *start, track_node *target,
                            int32_t d_brake, route_plan_t *plan) {
     return bfs_find_route_optimal_constrained(start, target, d_brake,
-                                              GOTO_MIN_DIST_FACTOR_DEFAULT,
+                                              route_goto_min_dist_mm(0, d_brake),
                                               NULL, NULL, plan);
 }
 
 int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
-                                       int32_t d_brake, int min_dist_factor,
+                                       int32_t d_brake, int32_t min_dist_mm,
                                        const uint8_t *blocked,
                                        const char *fixed_sw_dirs,
                                        route_plan_t *plan) {
@@ -311,7 +311,7 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
 
     if (!start || !target || !plan) return 0;
 
-    threshold = (int32_t)min_dist_factor * d_brake;
+    threshold = min_dist_mm;
     tgts[0] = target;
     tgts[1] = target->reverse;
     route_pack_blocked_bits(blocked, g_route_blocked_bits);
@@ -416,7 +416,7 @@ int bfs_find_route_optimal_constrained(track_node *start, track_node *target,
 }
 
 int bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
-                              int32_t d_brake, int min_dist_factor,
+                              int32_t d_brake, int32_t min_dist_mm,
                               const uint8_t *blocked,
                               const char *fixed_sw_dirs,
                               route_plan_t *plan) {
@@ -430,7 +430,8 @@ int bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
 
     if (!start_rev || !target || !plan) return 0;
 
-    threshold = (int32_t)min_dist_factor * d_brake;
+    (void)d_brake;
+    threshold = min_dist_mm;
     tgts[0] = target;
     tgts[1] = target->reverse;
     route_pack_blocked_bits(blocked, g_route_blocked_bits);

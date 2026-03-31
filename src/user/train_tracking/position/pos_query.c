@@ -189,11 +189,6 @@ void pos_get_wait_info(int train_num, pos_wait_info_t *out) {
                                                 &reserved_end_cursor,
                                                 &switch_blocker_owner,
                                                 &blocker_mask)) {
-            if ((pos_wait_mode_t)pos->replan.wait_mode == POS_WAIT_RESUME_ROUTE &&
-                switch_blocker_owner == pos->train_num) {
-                return;
-            }
-
             node = pos_query_find_authority_blocking_node(pos, &plan,
                                                           &blocker_train,
                                                           &switch_num);

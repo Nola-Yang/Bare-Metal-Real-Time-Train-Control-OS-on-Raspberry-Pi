@@ -37,13 +37,30 @@ track_node *predict_next_sensor(train_pos_t *pos, track_node *cur,
 
 /* ===== Route planning constants ===== */
 
-#define GOTO_MIN_DIST_FACTOR_DEFAULT 3
-#define GOTO_MIN_DIST_FACTOR_SPEED_10 2
+#define GOTO_MIN_DIST_FACTOR_DEFAULT_NUM 3
+#define GOTO_MIN_DIST_FACTOR_DEFAULT_DEN 1
+#define GOTO_MIN_DIST_FACTOR_SPEED_10_NUM 3
+#define GOTO_MIN_DIST_FACTOR_SPEED_10_DEN 2
 #define MIDREV_STOP_TOLERANCE_MM 50
 
-static inline int route_goto_min_dist_factor(int goto_speed) {
-    return (goto_speed == 10) ? GOTO_MIN_DIST_FACTOR_SPEED_10
-                              : GOTO_MIN_DIST_FACTOR_DEFAULT;
+static inline int32_t route_scale_dist_ceil(int32_t dist_mm,
+                                            int factor_num,
+                                            int factor_den) {
+    int64_t scaled_mm;
+
+    if (dist_mm <= 0) return 0;
+    scaled_mm = (int64_t)dist_mm * factor_num + factor_den - 1;
+    return (int32_t)(scaled_mm / factor_den);
+}
+
+static inline int32_t route_goto_min_dist_mm(int goto_speed, int32_t base_mm) {
+    return (goto_speed == 10)
+               ? route_scale_dist_ceil(base_mm,
+                                       GOTO_MIN_DIST_FACTOR_SPEED_10_NUM,
+                                       GOTO_MIN_DIST_FACTOR_SPEED_10_DEN)
+               : route_scale_dist_ceil(base_mm,
+                                       GOTO_MIN_DIST_FACTOR_DEFAULT_NUM,
+                                       GOTO_MIN_DIST_FACTOR_DEFAULT_DEN);
 }
 
 /* ===== Route planning ===== */
@@ -60,18 +77,18 @@ int  bfs_find_route_optimal(track_node *start, track_node *target,
 
 /* Constrained optimal route (direct + one reversal) under blocked-node map. */
 int  bfs_find_route_optimal_constrained(track_node *start, track_node *target,
-                                        int32_t d_brake, int min_dist_factor,
+                                        int32_t d_brake, int32_t min_dist_mm,
                                         const uint8_t *blocked,
                                         const char *fixed_sw_dirs,
                                         route_plan_t *plan);
 
 /* Bootstrap mid-route reversal for when no long-enough direct route exists.
  * Drives from start_rev to a far sensor F
- * (dist >= min_dist_factor * d_brake),
+ * (dist >= min_dist_mm),
  * stops, reverses, then plans from F->reverse to target (dist >= d_brake).
  * Returns 1 and populates plan on success, 0 on failure. */
 int  bfs_find_bootstrap_midrev(track_node *start_rev, track_node *target,
-                                int32_t d_brake, int min_dist_factor,
+                                int32_t d_brake, int32_t min_dist_mm,
                                 const uint8_t *blocked,
                                 const char *fixed_sw_dirs,
                                 route_plan_t *plan);
