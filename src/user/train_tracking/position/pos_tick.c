@@ -124,6 +124,26 @@ static int pos_targets_same_sensor(track_node *a, track_node *b) {
     return a == b || a->reverse == b || b->reverse == a;
 }
 
+static int pos_sensor_name_is(const track_node *node, const char *name) {
+    return node != NULL &&
+           node->type == NODE_SENSOR &&
+           node->name != NULL &&
+           str_eq(node->name, name);
+}
+
+static int pos_should_block_initial_reverse_restart(track_node *stopped_target) {
+    return pos_sensor_name_is(stopped_target, "C12") ||
+           pos_sensor_name_is(stopped_target, "E5") ||
+           pos_sensor_name_is(stopped_target, "E14") ||
+           pos_sensor_name_is(stopped_target, "C9");
+}
+
+static track_node *pos_frozen_stop_target(const train_pos_t *pos) {
+    if (!pos) return NULL;
+    return pos->stopping_target_sensor ? pos->stopping_target_sensor
+                                       : pos->target_sensor;
+}
+
 static track_node *pos_dead_track_resume_target(const train_pos_t *pos,
                                                 int32_t *out_offset_mm) {
     track_node *target = NULL;
@@ -177,12 +197,20 @@ static void handle_normal_stop(train_pos_t *pos, uint64_t now_us) {
     int stopped_at_leg_goal;
 
     pos->route_state = TRAIN_STATE_STOPPED;
-    stopped_target = pos->target_sensor;
+    stopped_target = pos_frozen_stop_target(pos);
+    pos->stopping_target_sensor = NULL;
     pos->stopped_on_target_hit =
         pos_route_authority_is_leg_goal_stop(pos) &&
         pos->cur_sensor != NULL &&
         pos_targets_same_sensor(pos->cur_sensor, stopped_target);
     stopped_at_leg_goal = pos_route_authority_is_leg_goal_stop(pos);
+    /* Use the stop target frozen when braking began so later authority/UI
+     * updates cannot change the logical parked direction for this stop. */
+    pos->parked_restart_block_initial_reverse =
+        (stopped_target != NULL &&
+         pos_should_block_initial_reverse_restart(stopped_target))
+            ? 1
+            : 0;
     if (stopped_target != NULL) {
         pos->parked_target_col =
             stopped_at_leg_goal ? POS_TARGET_COL_FINAL : POS_TARGET_COL_STAGE;
@@ -228,12 +256,14 @@ static void handle_midrev_stop(train_pos_t *pos, uint64_t now_us) {
     if (!pos) return;
 
     pos->route_state = TRAIN_STATE_STOPPED;
+    pos->stopping_target_sensor = NULL;
     hit_stage_target =
         pos->cur_sensor != NULL &&
         pos_targets_same_sensor(pos->cur_sensor, pos->target_sensor);
     pos->stopped_on_target_hit =
         pos_route_authority_is_leg_goal_stop(pos) && hit_stage_target;
     pos->parked_target_col = POS_TARGET_COL_STAGE;
+    pos->parked_restart_block_initial_reverse = 0;
 
     pos_refresh_stop_reservation(pos);
     pos_clear_prediction(pos);
@@ -296,6 +326,7 @@ static int tick_handle_stopping_tr(train_pos_t *pos, uint64_t now_us) {
     if (!brake_elapsed(pos, now_us)) return 0;
 
     pos->route_state = TRAIN_STATE_STOPPED;
+    pos->stopping_target_sensor = NULL;
     pos->stopped_on_target_hit = 0;
     pos->parked_target_col = POS_TARGET_COL_NONE;
     pos->effective_v = 0;
@@ -407,6 +438,7 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
             if (waiting_for_first_hit) {
                 if (!stop_cmd_sent) {
                     pos->stopping_since_us = now_us;
+                    pos->stopping_target_sensor = pos->target_sensor;
                     track_set_speed(pos->train_num, 0);
                 }
                 ui_mark_position_dirty();
@@ -417,6 +449,7 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
             pos->dead_track_deadline_us = 0;
             if (!stop_cmd_sent) {
                 pos->stopping_since_us = now_us;
+                pos->stopping_target_sensor = pos->target_sensor;
                 track_set_speed(pos->train_num, 0);
             }
             ui_mark_position_dirty();

@@ -73,6 +73,7 @@ static void pos_reset_target_fields(train_pos_t *pos) {
     pos->offroute_valid = 0;
     pos->offroute_expected_sensor = NULL;
     pos->parked_target_col = POS_TARGET_COL_NONE;
+    pos->stopping_target_sensor = NULL;
     pos_route_authority_reset(pos);
 }
 
@@ -163,8 +164,10 @@ static void pos_init_slot(train_pos_t *slot, int train_num, int train_ind, int s
     slot->position_known = 1;
     track_send_direction(train_num, 0x01);
     slot->stopping_since_us = 0;
+    slot->stopping_target_sensor = NULL;
     slot->stopped_on_target_hit = 0;
     slot->parked_target_col = POS_TARGET_COL_NONE;
+    slot->parked_restart_block_initial_reverse = 0;
     slot->switch_settle_due_us = 0;
     slot->switch_settle_mode = POS_SWITCH_SETTLE_NONE;
     slot->replan.next_us = 0;
@@ -256,11 +259,13 @@ void pos_reset_dead_train(int train_num) {
     pos->user_speed = 0;
     pos->effective_v = 0;
     pos->stopping_since_us = 0;
+    pos->stopping_target_sensor = NULL;
     pos->is_accelerating = 0;
     pos->accel_start_us = 0;
     pos->route_state = TRAIN_STATE_STOPPED;
     pos->stopped_on_target_hit = 0;
     pos->parked_target_col = POS_TARGET_COL_NONE;
+    pos->parked_restart_block_initial_reverse = 0;
     pos->switch_settle_due_us = 0;
     pos->switch_settle_mode = POS_SWITCH_SETTLE_NONE;
     pos->awaiting_post_launch_sensor = 0;

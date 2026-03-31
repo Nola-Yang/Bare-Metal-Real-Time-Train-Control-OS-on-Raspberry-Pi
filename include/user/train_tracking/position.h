@@ -170,6 +170,7 @@ typedef struct {
     /* Timestamp (us) when route_state entered TRAIN_STATE_STOPPING.
      * Used by pos_on_tick() to fire the STOPPING → STOPPED transition. */
     uint64_t    stopping_since_us;
+    track_node *stopping_target_sensor; /* exact stop target frozen when braking starts */
 
     /* 1 when the last STOPPED state was reached after physically hitting the
      * route target sensor; reverse replans should anchor at cur_sensor->reverse. */
@@ -178,6 +179,7 @@ typedef struct {
     /* UI latch for the last logical stop target: keep the reached target
      * column highlighted until a new destination overrides it. */
     uint8_t     parked_target_col;
+    uint8_t     parked_restart_block_initial_reverse;
 
     /* Deferred launch after issuing switch commands. */
     uint64_t    switch_settle_due_us;

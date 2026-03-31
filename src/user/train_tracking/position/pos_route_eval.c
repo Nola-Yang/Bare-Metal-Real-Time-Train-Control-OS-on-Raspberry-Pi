@@ -4,7 +4,6 @@
 #include "train_tracking/traffic_manager.h"
 #include "track.h"
 #include "train_tracking/track_data.h"
-#include "util.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -106,17 +105,6 @@ static int pos_route_use_cur_reverse_start(const train_pos_t *pos) {
            pos->stopped_on_target_hit;
 }
 
-static int pos_route_plan_start_blocks_reverse(const track_node *plan_start) {
-    if (!plan_start || plan_start->type != NODE_SENSOR || !plan_start->name) {
-        return 0;
-    }
-
-    return str_eq(plan_start->name, "C12") ||
-           str_eq(plan_start->name, "E5") ||
-           str_eq(plan_start->name, "E14") ||
-           str_eq(plan_start->name, "C9");
-}
-
 static void pos_route_fill_origins_internal(const train_pos_t *pos,
                                             track_node *origins[2]) {
     track_node *cur_sensor_orig;
@@ -140,7 +128,7 @@ static void pos_route_fill_origins_internal(const train_pos_t *pos,
                          : (plan_start ? plan_start->reverse
                                        : cur_sensor_orig->reverse);
     origins[0] = plan_start;
-    origins[1] = pos_route_plan_start_blocks_reverse(plan_start)
+    origins[1] = pos->parked_restart_block_initial_reverse
                      ? NULL
                      : reverse_plan_start;
 }
