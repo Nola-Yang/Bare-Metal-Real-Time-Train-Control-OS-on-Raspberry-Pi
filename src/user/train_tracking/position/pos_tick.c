@@ -14,11 +14,11 @@
 #include <stdint.h>
 
 
-/* Offsets at end of train with undershoot of 2 cm. */
-static uint32_t Train_Forward_Stop_Offset = 64;
-static uint32_t Train_Reverse_Stop_Offset = 176;
-static uint32_t Train_Forward_to_Rev_Stop_Offset = 180;
-static uint32_t Train_Rev_to_Forward_Stop_Offset = 180;
+/* Offsets at end of train with undershoot of 1.5 cm. */
+static uint32_t Train_Forward_Stop_Offset = 34;
+static uint32_t Train_Reverse_Stop_Offset = 146;
+static uint32_t Train_Forward_to_Rev_Stop_Offset = 146;
+static uint32_t Train_Rev_to_Forward_Stop_Offset = 34;
 
 void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us) {
     if (!pos || !pos->is_accelerating) return;
@@ -43,7 +43,7 @@ void pos_update_accel_velocity(train_pos_t *pos, uint64_t now_us) {
 
 /* Estimate time (us) for a braking train to reach a full stop. */
 static uint64_t calc_brake_us(train_pos_t *pos) {
-    int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed);
+    int32_t decel = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
     if (pos->effective_v > 0 && decel > 0) {
         return pos_target_early_stop_us(pos) +
                (uint64_t)pos->effective_v * 1500000ULL / (uint64_t)decel;
@@ -412,7 +412,7 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
         return 1;
     }
 
-    int32_t a = speed_table_get_decel(pos->train_ind, pos->user_speed);
+    int32_t a = speed_table_get_decel(pos->train_ind, pos->user_speed, pos->target_sensor);
     if (a > 0) {
         uint64_t early_stop_us = pos_target_early_stop_us(pos);
         int32_t d_brake = (int32_t)((int64_t)pos->effective_v * pos->effective_v / (2LL * a));
