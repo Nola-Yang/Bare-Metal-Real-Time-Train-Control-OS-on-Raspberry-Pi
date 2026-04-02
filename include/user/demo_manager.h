@@ -34,11 +34,6 @@ void demo_get_ui_summary(demo_ui_summary_t *out, uint64_t now_us);
 int demo_is_auto_dispatching_targets(void);
 int demo_is_active(void);
 
-/* Deadlock-timeout fallback for demo gold: reassign every demo train a fresh
- * random destination, launching stopped/waiting trains immediately when
- * possible and queueing the rest. */
-int demo_reassign_all_random_targets(void);
-
 // get_demo_train_ind: Retrieves the index based on the train number
 int get_demo_train_ind(int train_num);
 

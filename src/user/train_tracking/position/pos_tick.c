@@ -639,8 +639,6 @@ static int tick_advance_prediction(train_pos_t *pos, uint64_t now_us) {
 }
 
 void pos_on_tick(uint64_t now_us) {
-    pos_deadlock_on_tick(now_us);
-
     for (int i = 0; i < MAX_POS_TRAINS; i++) {
         train_pos_t *pos = &g_pos[i];
         if (pos->train_num < 0) continue;

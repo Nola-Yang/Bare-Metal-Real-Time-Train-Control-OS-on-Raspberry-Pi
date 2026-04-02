@@ -107,7 +107,6 @@ typedef struct {
 typedef struct {
     uint8_t    active;
     uint8_t    unresolved;
-    uint8_t    fallback_used;
     int        victim_train;
     int        cycle_trains[DEADLOCK_MAX_TRAINS];
     int        cycle_count;
@@ -115,7 +114,6 @@ typedef struct {
     track_node *yield_target;
     track_node *resume_target;
     uint64_t   detect_us;
-    uint64_t   fallback_due_us;
     uint64_t   expire_us;
 } pos_deadlock_notice_t;
 

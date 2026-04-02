@@ -21,7 +21,6 @@ void pos_set_deadlock_notice(const pos_deadlock_notice_t *notice) {
 void pos_clear_deadlock_notice(void) {
     g_deadlock_notice.active = 0;
     g_deadlock_notice.unresolved = 0;
-    g_deadlock_notice.fallback_used = 0;
     g_deadlock_notice.victim_train = -1;
     g_deadlock_notice.cycle_count = 0;
     for (int i = 0; i < DEADLOCK_MAX_TRAINS; i++) {
@@ -31,7 +30,6 @@ void pos_clear_deadlock_notice(void) {
     g_deadlock_notice.yield_target = NULL;
     g_deadlock_notice.resume_target = NULL;
     g_deadlock_notice.detect_us = 0;
-    g_deadlock_notice.fallback_due_us = 0;
     g_deadlock_notice.expire_us = 0;
     ui_mark_position_dirty();
 }

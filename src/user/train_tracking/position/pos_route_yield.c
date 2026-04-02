@@ -218,35 +218,3 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
 
     return 0;
 }
-
-int pos_pick_deadlock_timeout_fallback_target(train_pos_t *pos,
-                                              track_node **out_target) {
-    track_node *origins[2];
-    track_node *current_target;
-    int merged_count;
-
-    if (out_target) *out_target = NULL;
-    if (!pos || !pos->cur_sensor) return 0;
-
-    pos_route_fill_origins(pos, origins);
-    if (!origins[0] && !origins[1]) return 0;
-
-    current_target = pos_route_current_goal(pos);
-    merged_count = pos_deadlock_merge_sorted_candidates(origins);
-
-    for (int i = merged_count - 1; i >= 0; i--) {
-        track_node *cand = &g_track[g_pos_try_merged_candidates[i]];
-
-        if (pos_deadlock_same_physical_sensor(cand, pos->cur_sensor)) continue;
-        if (pos_deadlock_same_physical_sensor(cand, current_target)) continue;
-        if (pos_evaluate_target_ready_now(pos, cand, &g_pos_try_eval_candidate) !=
-            POS_ROUTE_EVAL_READY) {
-            continue;
-        }
-
-        if (out_target) *out_target = cand;
-        return 1;
-    }
-
-    return 0;
-}

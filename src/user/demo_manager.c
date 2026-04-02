@@ -404,19 +404,6 @@ static int demo_reassign_waiting_slots_without_blocker(void) {
     return reassigned;
 }
 
-int demo_reassign_all_random_targets(void) {
-    int reassigned = 0;
-
-    if (!demo_is_auto_dispatching_targets()) return 0;
-
-    demo_build_sensor_pool();
-    for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
-        reassigned += demo_reassign_slot_random_target(&g_slots[i]);
-    }
-    if (reassigned > 0) ui_mark_position_dirty();
-    return reassigned > 0;
-}
-
 static void demo_update_state_counters(uint64_t now_us) {
     for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
         demo_train_slot_t *slot = &g_slots[i];

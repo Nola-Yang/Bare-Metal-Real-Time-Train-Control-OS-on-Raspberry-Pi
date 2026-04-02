@@ -38,8 +38,6 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
 
 /* Keep resolved deadlock notices visible in the UI briefly after reroute. */
 #define DEADLOCK_NOTICE_RESOLVED_US 8000000ULL
-/* Wait up to this long for a strict deadlock reroute before forcing fallback. */
-#define DEADLOCK_FALLBACK_TIMEOUT_US 7000000ULL
 /* After a deadlock-yield stop, wait briefly before resuming the original target. */
 #define DEADLOCK_RESUME_DELAY_US 1000000ULL
 
@@ -121,12 +119,6 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
                                    track_node **out_target,
                                    uint8_t *out_unblocked_mask,
                                    pos_deadlock_pick_kind_t *out_kind);
-
-/* Pick a timeout-fallback target that is ready now, preferring farther
- * deadlock sensor candidates over nearer ones. The chosen target must be
- * immediately launchable without depending on other trains' reservations. */
-int pos_pick_deadlock_timeout_fallback_target(train_pos_t *pos,
-                                              track_node **out_target);
 
 /* Compute authority-window parameters from the train's braking model. */
 int32_t pos_route_authority_stop_dist_mm(const train_pos_t *pos);
@@ -229,7 +221,6 @@ void pos_clear_deadlock_recover(train_pos_t *pos);
 
 /* Try to resume a yielded deadlock victim once the blocked peers have moved. */
 int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos, uint64_t now_us);
-void pos_deadlock_on_tick(uint64_t now_us);
 void pos_deadlock_refresh_notice_state(uint64_t now_us);
 int pos_deadlock_maybe_reroute_waiter(train_pos_t *pos, uint64_t now_us);
 
