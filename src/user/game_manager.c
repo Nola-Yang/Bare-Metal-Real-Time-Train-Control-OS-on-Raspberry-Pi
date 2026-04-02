@@ -1,4 +1,5 @@
 #include "game_manager_internal.h"
+#include "train_tracking/position_priv.h"
 
 game_context_t g_game = {
     .seed = 1,
@@ -6,6 +7,22 @@ game_context_t g_game = {
     .hint_text = "-",
     .result_text = "-",
 };
+
+static int game_handle_deadlock_timeout(game_context_t *ctx, uint64_t now_us) {
+    pos_deadlock_notice_t notice;
+
+    if (!ctx || ctx->state != GAME_STATE_ROUND_RUNNING) return 0;
+
+    pos_get_deadlock_notice(&notice);
+    if (!notice.active || !notice.unresolved) return 0;
+    if (notice.fallback_due_us == 0 || now_us < notice.fallback_due_us) return 0;
+
+    pos_clear_deadlock_notice();
+    game_set_hint(ctx, "Round ended by deadlock timeout");
+    game_log_line("game: deadlock timeout, round forced complete");
+    game_advance_round_or_finish(ctx);
+    return 1;
+}
 
 int game_position_server_tid(game_context_t *ctx) {
     if (ctx->position_server_tid < 0) {
@@ -265,8 +282,6 @@ int game_handle_command(const train_command_t *cmd) {
 void game_on_tick(uint64_t now_us) {
     game_context_t *ctx = &g_game;
 
-    (void)now_us;
-
     if (ctx->state == GAME_STATE_OFF) return;
 
     if (ctx->state == GAME_STATE_SETUP) {
@@ -335,6 +350,8 @@ void game_on_tick(uint64_t now_us) {
     }
 
     if (ctx->state != GAME_STATE_ROUND_RUNNING) return;
+
+    if (game_handle_deadlock_timeout(ctx, now_us)) return;
 
     game_sync_slot_completion_from_position(ctx, GAME_ROLE_HUMAN);
     game_sync_slot_completion_from_position(ctx, GAME_ROLE_AI);

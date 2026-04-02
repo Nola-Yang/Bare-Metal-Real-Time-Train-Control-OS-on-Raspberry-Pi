@@ -1,6 +1,7 @@
 #include "train_tracking/position_priv.h"
 #include "train_tracking/traffic_manager.h"
 #include "demo_manager.h"
+#include "game_manager.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -939,6 +940,8 @@ void pos_deadlock_on_tick(uint64_t now_us) {
     pos_deadlock_notice_t notice;
     deadlock_participants_t parts;
     uint8_t cycle_mask = 0;
+
+    if (game_is_active()) return;
 
     pos_get_deadlock_notice(&notice);
     if (!notice.active || !notice.unresolved) return;

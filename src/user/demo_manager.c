@@ -325,6 +325,20 @@ static void demo_clear_pending_queue(train_pos_t *pos) {
     pos->queued_valid = 0;
 }
 
+static int demo_slot_waiting_without_blocker(demo_train_slot_t *slot) {
+    train_pos_t *pos;
+    pos_wait_info_t wait_info;
+
+    if (!slot || !slot->enabled) return 0;
+
+    pos = pos_get(slot->train_num);
+    if (!pos || pos->route_state != TRAIN_STATE_WAIT_RESOURCE) return 0;
+    if (pos->deadlock_recover.valid) return 0;
+
+    pos_get_wait_info(slot->train_num, &wait_info);
+    return !wait_info.active;
+}
+
 static int demo_reassign_slot_random_target(demo_train_slot_t *slot) {
     train_pos_t *pos;
     track_node *target = NULL;
@@ -374,6 +388,18 @@ static int demo_reassign_slot_random_target(demo_train_slot_t *slot) {
     slot->last_target_idx = target_idx;
     slot->next_dispatch_us = 0;
     return 1;
+}
+
+static int demo_reassign_waiting_slots_without_blocker(void) {
+    int reassigned = 0;
+
+    demo_build_sensor_pool();
+    for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
+        if (!demo_slot_waiting_without_blocker(&g_slots[i])) continue;
+        reassigned += demo_reassign_slot_random_target(&g_slots[i]);
+    }
+    if (reassigned > 0) ui_mark_position_dirty();
+    return reassigned;
 }
 
 int demo_reassign_all_random_targets(void) {
@@ -781,6 +807,12 @@ void demo_on_tick(uint64_t now_us) {
 
     demo_update_state_counters(now_us);
     demo_try_finish_stop(now_us);
+
+    if (g_demo_mode == DEMO_MODE_GOLD &&
+        (g_demo_state == DEMO_RUN_STARTING ||
+         g_demo_state == DEMO_RUN_RUNNING)) {
+        (void)demo_reassign_waiting_slots_without_blocker();
+    }
 
     /* STARTING: bootstrap trains one at a time.
      *
