@@ -442,6 +442,75 @@ static int pos_try_launch_committed_route_force(train_pos_t *pos,
     return 1;
 }
 
+static int pos_try_launch_committed_route_short(train_pos_t *pos,
+                                                uint64_t now_us) {
+    int start_cursor = 0;
+    int did_initial_reverse;
+    track_node *cur_sensor_orig;
+
+    if (!pos || !pos->cur_sensor) return 0;
+    if ((pos_wait_mode_t)pos->replan.wait_mode != POS_WAIT_PRELAUNCH_ROUTE &&
+        (pos_wait_mode_t)pos->replan.wait_mode != POS_WAIT_RESUME_ROUTE) {
+        return 0;
+    }
+    if (!pos_build_wait_plan(pos, &g_pos_try_reserve_plan, &start_cursor)) return 0;
+    if (g_pos_try_reserve_plan.path_count <= 0) return 0;
+
+    if (!pos_apply_route_switches_safe(g_pos_try_reserve_plan.sw_nums,
+                                       g_pos_try_reserve_plan.sw_dirs,
+                                       g_pos_try_reserve_plan.sw_count,
+                                       pos->train_num)) {
+        return 0;
+    }
+    if (!traffic_reserve_plan(pos->train_num,
+                              pos->replan.launch_origin ? pos->replan.launch_origin
+                                                        : pos->cur_sensor,
+                              &g_pos_try_reserve_plan)) {
+        return 0;
+    }
+    if (g_pos_try_reserve_plan.sw_count > 0) ui_mark_switches_dirty();
+
+    cur_sensor_orig = pos->cur_sensor;
+    did_initial_reverse =
+        (pos_wait_mode_t)pos->replan.wait_mode == POS_WAIT_PRELAUNCH_ROUTE &&
+        pos->replan.need_initial_reverse;
+    if (did_initial_reverse) {
+        track_reverse(pos->train_num);
+        pos->cur_sensor = cur_sensor_orig->reverse;
+        pos->going_forward = !pos->going_forward;
+        pos->pred.next_sensor = cur_sensor_orig->reverse;
+        pos->pred.alt_sensor = NULL;
+        pos->pred.branch_node = NULL;
+        pos->pred.trigger_time = 0;
+        pos->pred.skipped_sensor_count = 0;
+        pos->dead_track_deadline_us = 0;
+    }
+    pos->offroute_valid = 0;
+    pos->offroute_expected_sensor = NULL;
+
+    pos->route_reserved_end_cursor =
+        start_cursor + g_pos_try_reserve_plan.path_count - 1;
+    pos_route_authority_sync_target(pos);
+
+    pos->pending_target = NULL;
+    pos->pending_offset_mm = 0;
+    pos->replan.next_us = 0;
+    pos->replan.seen_generation = traffic_get_change_generation();
+    pos->replan.blocker_mask = 0;
+    pos->replan.wait_mode = POS_WAIT_NONE;
+    pos->replan.need_initial_reverse = 0;
+    pos->replan.launch_origin = NULL;
+    pos->authority_seen_generation = traffic_get_change_generation();
+    pos->authority_next_us = 0;
+
+    pos_arm_switch_settle(pos, g_pos_try_reserve_plan.sw_count,
+                          did_initial_reverse ? POS_SWITCH_SETTLE_REVERSED
+                                              : POS_SWITCH_SETTLE_NORMAL,
+                          now_us);
+    ui_mark_position_dirty();
+    return 1;
+}
+
 int pos_try_direct_goto(train_pos_t *pos) {
     return pos_try_direct_goto_impl(pos, 1);
 }
@@ -476,6 +545,34 @@ int pos_try_direct_goto_force_reachable(train_pos_t *pos) {
     pos_commit_route_plan(pos, rp, chosen_origin, need_initial_reverse, offset_mm);
     pos->replan.wait_mode = POS_WAIT_PRELAUNCH_ROUTE;
     return pos_try_launch_committed_route_force(pos, now_us);
+}
+
+int pos_try_deadlock_short_move(train_pos_t *pos) {
+    track_node *user_target;
+    int32_t offset_mm;
+    route_plan_t *rp;
+    track_node *chosen_origin;
+    int need_initial_reverse;
+    uint64_t now_us;
+
+    if (!pos || !pos->cur_sensor) return 0;
+
+    user_target = pos->pending_target;
+    offset_mm = pos->pending_offset_mm;
+    if (!user_target) return 0;
+    if (pos_evaluate_target_short_ready_now(pos, user_target, &g_pos_try_eval_main) !=
+        POS_ROUTE_EVAL_READY) {
+        return 0;
+    }
+
+    rp = &g_pos_try_eval_main.plan;
+    chosen_origin = g_pos_try_eval_main.chosen_origin;
+    need_initial_reverse = g_pos_try_eval_main.need_initial_reverse;
+    now_us = read_timer();
+
+    pos_commit_route_plan(pos, rp, chosen_origin, need_initial_reverse, offset_mm);
+    pos->replan.wait_mode = POS_WAIT_PRELAUNCH_ROUTE;
+    return pos_try_launch_committed_route_short(pos, now_us);
 }
 
 int pos_try_resume_committed_route(train_pos_t *pos, uint64_t now_us) {

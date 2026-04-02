@@ -271,10 +271,14 @@ static int pos_select_best_route_for_origins(track_node *origins[2],
     return 1;
 }
 
-static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *pos,
-                                                                 track_node *user_target,
-                                                                 int allow_blocked_fallback,
-                                                                 pos_route_eval_t *out) {
+static pos_route_eval_result_t pos_evaluate_target_plan_with_limits(
+    train_pos_t *pos,
+    track_node *user_target,
+    int allow_blocked_fallback,
+    int32_t d_stop,
+    int32_t min_dist_mm,
+    int32_t threshold,
+    pos_route_eval_t *out) {
     route_plan_t *rp = &g_pos_try_rp;
     route_plan_t *best_blocked_plan = &g_pos_try_best_blocked_plan;
     track_node *origins[2];
@@ -284,9 +288,6 @@ static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *po
     track_node *best_blocked_origin = NULL;
     int best_blocked_need_initial_reverse = 0;
     int need_initial_reverse = 0;
-    int32_t d_stop;
-    int32_t min_dist_mm;
-    int32_t threshold;
 
     if (out) {
         out->plan = (route_plan_t){0};
@@ -297,11 +298,7 @@ static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *po
     if (!pos || !pos->cur_sensor || !user_target) return POS_ROUTE_EVAL_UNREACHABLE;
 
     pos_route_fill_origins(pos, origins);
-
-    d_stop    = pos_route_authority_stop_dist_mm(pos);
-    min_dist_mm = route_goto_min_dist_mm(pos->goto_speed, d_stop);
-    threshold = pos_route_authority_min_mm(pos);
-    if (d_stop <= 0 || min_dist_mm <= 0 || threshold <= 0) {
+    if (d_stop <= 0 || min_dist_mm < 0 || threshold < 0) {
         return POS_ROUTE_EVAL_UNREACHABLE;
     }
 
@@ -352,6 +349,33 @@ static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *po
     return POS_ROUTE_EVAL_BLOCKED;
 }
 
+static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *pos,
+                                                                 track_node *user_target,
+                                                                 int allow_blocked_fallback,
+                                                                 pos_route_eval_t *out) {
+    int32_t d_stop;
+    int32_t min_dist_mm;
+    int32_t threshold;
+
+    d_stop = pos_route_authority_stop_dist_mm(pos);
+    min_dist_mm = route_goto_min_dist_mm(pos ? pos->goto_speed : 0, d_stop);
+    threshold = pos_route_authority_min_mm(pos);
+    if (d_stop <= 0 || min_dist_mm <= 0 || threshold <= 0) {
+        if (out) {
+            out->plan = (route_plan_t){0};
+            out->chosen_origin = NULL;
+            out->need_initial_reverse = 0;
+            out->blocker_mask = 0;
+        }
+        return POS_ROUTE_EVAL_UNREACHABLE;
+    }
+
+    return pos_evaluate_target_plan_with_limits(pos, user_target,
+                                                allow_blocked_fallback,
+                                                d_stop, min_dist_mm,
+                                                threshold, out);
+}
+
 pos_route_eval_result_t pos_evaluate_target_plan(train_pos_t *pos,
                                                  track_node *user_target,
                                                  pos_route_eval_t *out) {
@@ -366,6 +390,53 @@ pos_route_eval_result_t pos_evaluate_target_ready_now(train_pos_t *pos,
     pos_route_eval_result_t result =
         pos_evaluate_target_plan_internal(pos, user_target, 0, eval);
 
+    if (result != POS_ROUTE_EVAL_READY) return result;
+
+    reserve_plan = eval->plan;
+    if (reserve_plan.has_reversal) {
+        reserve_plan.path_count2 = 0;
+    }
+
+    if (!traffic_can_reserve_plan(pos->train_num, &reserve_plan)) {
+        eval->blocker_mask = pos_route_blocker_mask_from_plan(pos->train_num,
+                                                              &reserve_plan);
+        return POS_ROUTE_EVAL_BLOCKED;
+    }
+
+    if (pos_route_switch_blocker(eval->plan.sw_nums, eval->plan.sw_dirs,
+                                 eval->plan.sw_count, pos->train_num) >= 0) {
+        eval->blocker_mask = pos_route_blocker_mask_from_switches(eval->plan.sw_nums,
+                                                                  eval->plan.sw_dirs,
+                                                                  eval->plan.sw_count,
+                                                                  pos->train_num);
+        return POS_ROUTE_EVAL_BLOCKED;
+    }
+
+    eval->blocker_mask = 0;
+    return POS_ROUTE_EVAL_READY;
+}
+
+pos_route_eval_result_t pos_evaluate_target_short_ready_now(train_pos_t *pos,
+                                                            track_node *user_target,
+                                                            pos_route_eval_t *out) {
+    pos_route_eval_t *eval = out ? out : &g_pos_try_eval_ready;
+    route_plan_t reserve_plan;
+    pos_route_eval_result_t result;
+    int32_t d_stop;
+
+    d_stop = pos_route_authority_stop_dist_mm(pos);
+    if (d_stop <= 0) {
+        if (eval) {
+            eval->plan = (route_plan_t){0};
+            eval->chosen_origin = NULL;
+            eval->need_initial_reverse = 0;
+            eval->blocker_mask = 0;
+        }
+        return POS_ROUTE_EVAL_UNREACHABLE;
+    }
+
+    result = pos_evaluate_target_plan_with_limits(pos, user_target, 0,
+                                                  d_stop, 0, 0, eval);
     if (result != POS_ROUTE_EVAL_READY) return result;
 
     reserve_plan = eval->plan;

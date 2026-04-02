@@ -176,6 +176,94 @@ int game_any_active_goto(game_context_t *ctx) {
     return 0;
 }
 
+static int game_role_index_from_train_num(game_context_t *ctx, int train_num) {
+    if (!ctx) return -1;
+    for (int i = 0; i < GAME_ROLES; i++) {
+        if (ctx->slots[i].train_num == train_num) return i;
+    }
+    return -1;
+}
+
+static int game_current_sensor_num_internal(int train_num) {
+    train_pos_t *pos = pos_get(train_num);
+    if (!pos || !pos->cur_sensor) return -1;
+    return pos->cur_sensor->num;
+}
+
+static track_node *game_find_neutral_standby_target(game_context_t *ctx) {
+    game_role_slot_t *slot;
+    pos_target_query_t *query;
+    track_node *best = NULL;
+    int best_dist = 0x7fffffff;
+
+    if (!ctx) return NULL;
+
+    slot = &ctx->slots[GAME_ROLE_NEUTRAL];
+    query = &ctx->game_query_primary;
+    if (slot->train_num < 0) return NULL;
+
+    for (int i = 0; i < ctx->sensor_pool_count; i++) {
+        track_node *cand = ctx->sensor_pool[i];
+
+        if (!cand) continue;
+        if (game_current_sensor_num_internal(slot->train_num) == cand->num) continue;
+        if (slot->target && slot->target->num == cand->num) continue;
+        if (pos_query_target(slot->train_num, cand, query) != POS_TARGET_READY) continue;
+        if (query->plan.total_dist_mm < best_dist) {
+            best = cand;
+            best_dist = query->plan.total_dist_mm;
+        }
+    }
+
+    return best;
+}
+
+int game_deadlock_mode_active(void) {
+    return g_game.state == GAME_STATE_ROUND_RUNNING;
+}
+
+int game_deadlock_victim_rank(int train_num) {
+    game_context_t *ctx = &g_game;
+    int role;
+
+    if (!game_deadlock_mode_active()) return -1;
+
+    role = game_role_index_from_train_num(ctx, train_num);
+    if (role < 0) return -1;
+    if (role == GAME_ROLE_NEUTRAL) return 0;
+    if (ctx->round_priority != GAME_ROLE_HUMAN &&
+        ctx->round_priority != GAME_ROLE_AI) {
+        return 1;
+    }
+    return (role == (int)ctx->round_priority) ? 2 : 1;
+}
+
+track_node *game_deadlock_preferred_yield_target(int train_num) {
+    game_context_t *ctx = &g_game;
+    game_role_slot_t *slot;
+
+    if (!game_deadlock_mode_active()) return NULL;
+    if (game_role_index_from_train_num(ctx, train_num) != GAME_ROLE_NEUTRAL) {
+        return NULL;
+    }
+
+    slot = &ctx->slots[GAME_ROLE_NEUTRAL];
+    if (slot->standby_target != NULL && !slot->standby_completed) {
+        return slot->standby_target;
+    }
+
+    return game_find_neutral_standby_target(ctx);
+}
+
+int game_deadlock_handle_no_solution(const int *cycle_trains, int cycle_count,
+                                     int victim_train, track_node *blocked_target) {
+    (void)cycle_trains;
+    (void)cycle_count;
+    (void)victim_train;
+    (void)blocked_target;
+    return 0;
+}
+
 void game_init(void) {
     game_reset_all(&g_game);
 }

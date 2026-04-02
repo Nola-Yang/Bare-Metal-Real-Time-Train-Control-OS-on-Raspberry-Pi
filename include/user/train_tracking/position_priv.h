@@ -120,6 +120,23 @@ int pos_pick_deadlock_yield_target(train_pos_t *pos, uint8_t cycle_mask,
                                    uint8_t *out_unblocked_mask,
                                    pos_deadlock_pick_kind_t *out_kind);
 
+/* Deadlock-only planner variant: allow routes shorter than the normal
+ * authority minimum while keeping switch and reservation safety checks. */
+pos_route_eval_result_t pos_evaluate_target_short_ready_now(train_pos_t *pos,
+                                                            track_node *user_target,
+                                                            pos_route_eval_t *out);
+
+/* Launch a deadlock-only short move to pos->pending_target. */
+int pos_try_deadlock_short_move(train_pos_t *pos);
+
+/* Game-only deadlock selector for ROUND_RUNNING three-train cycles. */
+int pos_game_deadlock_try_resolve(const int *cycle_trains, int cycle_count,
+                                  uint64_t now_us,
+                                  int *out_victim_train,
+                                  track_node **out_target,
+                                  uint8_t *out_wait_mask,
+                                  int *out_use_short_move);
+
 /* Compute authority-window parameters from the train's braking model. */
 int32_t pos_route_authority_stop_dist_mm(const train_pos_t *pos);
 int32_t pos_route_authority_min_mm(const train_pos_t *pos);

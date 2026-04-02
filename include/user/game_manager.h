@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "runtime_protocol.h"
+#include "train_tracking/track_node.h"
 
 #define GAME_ROUNDS 2
 
@@ -31,5 +32,10 @@ void game_on_tick(uint64_t now_us);
 int game_is_active(void);
 int game_is_setup_active(void);
 void game_get_ui_summary(game_ui_summary_t *out, uint64_t now_us);
+int game_deadlock_mode_active(void);
+int game_deadlock_victim_rank(int train_num);
+track_node *game_deadlock_preferred_yield_target(int train_num);
+int game_deadlock_handle_no_solution(const int *cycle_trains, int cycle_count,
+                                     int victim_train, track_node *blocked_target);
 
 #endif /* _game_manager_h_ */
