@@ -429,6 +429,8 @@ static int tick_check_brake_point(train_pos_t *pos, uint64_t now_us) {
             d_early += Train_Forward_to_Rev_Stop_Offset;
         }
 
+        d_early += node_get_override_offset(pos->target_sensor);
+
         if (rem <= d_early) {
             if (!stop_cmd_sent && pos_route_authority_try_top_up(pos, now_us, 1)) {
                 pos->route_rem_tick_us = now_us;

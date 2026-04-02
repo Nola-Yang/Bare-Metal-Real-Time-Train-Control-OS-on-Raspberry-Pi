@@ -2,16 +2,13 @@
 #include "train_tracking/speed_table.h"
 #include <stdint.h>
 
-#define MAX_SENSORS 80
-#define NUM_OF_SPEED_LEVELS 2
-
 #ifdef TRACK_D
     static const int32_t GOTO_SPEED_MM_S[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
         {{227, 232, 242, 229, 230},
          {365, 365, 365, 365, 365}};
 
     static const int32_t GOTO_DECEL_MM_S2[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
-        {{144, 144, 144, 144, 144},
+        {{150, 150, 150, 150, 150},
          {174, 174, 174, 174, 174 }};
 
     static const int32_t GOTO_DECEL_OVERRIDE[NUM_OF_SPEED_LEVELS][MAX_SENSORS] = 
@@ -27,12 +24,20 @@
       -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
 
     static const int32_t GOTO_ACCEL_MM_S2[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
-        {{37, 37, 38, 38, 38},
+        {{46, 46, 46, 46, 46},
          {90, 90, 90, 90, 90}};
 
     uint64_t STOP_EARLY_US[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
         {{930000ULL, 930000ULL, 930000ULL, 930000ULL, 930000ULL},
          {800000ULL, 800000ULL, 800000ULL, 800000ULL, 800000ULL}};
+
+    static const int32_t NODE_OFFSET_OVERRIDE[MAX_SENSORS] = {
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -200, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    };
 #else
     static const int32_t GOTO_SPEED_MM_S[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
         {{227, 232, 242, 229, 230},
@@ -61,6 +66,14 @@
     uint64_t STOP_EARLY_US[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
         {{800000ULL, 800000ULL, 800000ULL, 800000ULL, 800000ULL},
          {800000ULL, 800000ULL, 800000ULL, 800000ULL, 800000ULL}};
+
+    static const int32_t NODE_OFFSET_OVERRIDE[MAX_SENSORS] = {
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    };
 #endif
 
 
@@ -118,4 +131,9 @@ uint64_t speed_table_get_early_stop(int32_t train_ind, int user_speed) {
     if (speed_ind == -1) return 0;
 
     return STOP_EARLY_US[speed_ind][train_ind];
+}
+
+int32_t node_get_override_offset(track_node *target) {
+    if (target->type != NODE_SENSOR) return 0;
+    return NODE_OFFSET_OVERRIDE[target->num];
 }
