@@ -197,6 +197,7 @@ static int route_build_midrev_plan(route_plan_t *cand, track_node *target,
     int target_idx;
 
     if (!cand || !target || !reversal_sensor) return 0;
+    if (!route_midrev_reversal_allowed(reversal_sensor)) return 0;
 
     reversal_idx = (int)(reversal_sensor - g_track);
     target_idx = (int)(target - g_track);
@@ -258,6 +259,7 @@ static int route_build_reversal_candidates(track_node *start, track_node *target
         int32_t dist_after_rev;
 
         if (sensor->type != NODE_SENSOR || !sensor->reverse) continue;
+        if (!route_midrev_reversal_allowed(sensor)) continue;
 
         rev_idx = (int)(sensor->reverse - g_track);
         dist_to_sensor = route_free_track_dist_idx(start_idx, i);

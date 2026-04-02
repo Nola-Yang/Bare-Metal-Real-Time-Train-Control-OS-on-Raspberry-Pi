@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "track_node.h"
 #include "position.h"
+#include "util.h"
 
 /* Build the branch-node index cache. */
 void route_init(void);
@@ -61,6 +62,32 @@ static inline int32_t route_goto_min_dist_mm(int goto_speed, int32_t base_mm) {
                : route_scale_dist_ceil(base_mm,
                                        GOTO_MIN_DIST_FACTOR_DEFAULT_NUM,
                                        GOTO_MIN_DIST_FACTOR_DEFAULT_DEN);
+}
+
+static inline int route_sensor_name_is(const track_node *node,
+                                       const char *name) {
+    return node != NULL &&
+           node->type == NODE_SENSOR &&
+           node->name != NULL &&
+           str_eq(node->name, name);
+}
+
+static inline int route_initial_reverse_start_allowed(const track_node *node) {
+    return !route_sensor_name_is(node, "E12") &&
+           !route_sensor_name_is(node, "E6");
+}
+
+static inline int route_initial_reverse_restart_allowed(const track_node *node) {
+    return !route_sensor_name_is(node, "C12") &&
+           !route_sensor_name_is(node, "E5") &&
+           !route_sensor_name_is(node, "E14") &&
+           !route_sensor_name_is(node, "C9");
+}
+
+static inline int route_midrev_reversal_allowed(const track_node *sensor) {
+    return sensor != NULL &&
+           route_initial_reverse_restart_allowed(sensor) &&
+           route_initial_reverse_start_allowed(sensor->reverse);
 }
 
 /* ===== Route planning ===== */

@@ -116,11 +116,9 @@ static int32_t pos_route_first_branch_dist(const route_plan_t *plan) {
 }
 
 static int pos_initial_reverse_has_branch_clearance(const route_plan_t *plan) {
-    int32_t first_branch_dist = pos_route_first_branch_dist(plan);
-
-    if (first_branch_dist < 0) return 0;
-    if (first_branch_dist == POS_ROUTE_BRANCH_DIST_NONE) return 1;
-    return first_branch_dist > INITIAL_REVERSE_BRANCH_CLEARANCE_MM;
+    (void)plan;
+    /* Allow initial reverse routes even when the first branch is nearby. */
+    return 1;
 }
 
 static void pos_note_best_plan(const route_plan_t *cand,
@@ -178,6 +176,9 @@ static void pos_route_fill_origins_internal(const train_pos_t *pos,
                          ? cur_sensor_orig->reverse
                          : (plan_start ? plan_start->reverse
                                        : cur_sensor_orig->reverse);
+    if (!route_initial_reverse_start_allowed(reverse_plan_start)) {
+        reverse_plan_start = NULL;
+    }
     origins[0] = plan_start;
     origins[1] = pos->parked_restart_block_initial_reverse
                      ? NULL

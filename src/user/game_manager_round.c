@@ -1,4 +1,33 @@
 #include "game_manager_internal.h"
+#include "train_tracking/pos_route_internal.h"
+#include "train_tracking/traffic_manager.h"
+
+#define GAME_SENSOR_BIT_WORDS ((GAME_SENSOR_KEYS + 31) / 32)
+#define GAME_TRACK_BIT_WORDS ((TRACK_MAX + 31) / 32)
+#define GAME_AI_EVAL_CACHE_SIZE 256
+
+typedef struct {
+    pos_target_query_status_t status;
+    int32_t total_dist_mm;
+    uint8_t blocker_mask;
+    uint32_t sensor_bits[GAME_SENSOR_BIT_WORDS];
+    uint32_t node_bits[GAME_TRACK_BIT_WORDS];
+} game_ai_target_eval_t;
+
+typedef struct {
+    uint8_t valid;
+    int train_num;
+    int target_idx;
+    int cur_sensor_idx;
+    int origin_idx[2];
+    int goto_speed;
+    /* Reservation/switch snapshot hash: reuse only when route inputs match. */
+    uint64_t traffic_hash;
+    game_ai_target_eval_t eval;
+} game_ai_eval_cache_entry_t;
+
+static game_ai_eval_cache_entry_t g_game_ai_eval_cache[GAME_AI_EVAL_CACHE_SIZE];
+static int g_game_ai_eval_cache_next = 0;
 
 static int game_train_bit(int train_num) {
     switch (train_num) {
@@ -10,6 +39,256 @@ static int game_train_bit(int train_num) {
     case 55: return 1 << 5;
     default: return 0;
     }
+}
+
+static int game_node_index(track_node *node) {
+    if (!node) return -1;
+    return (int)(node - g_track);
+}
+
+static void game_bits_clear(uint32_t *bits, int words) {
+    if (!bits || words <= 0) return;
+    for (int i = 0; i < words; i++) bits[i] = 0;
+}
+
+static void game_bits_set(uint32_t *bits, int words, int idx) {
+    int bit_count = words * 32;
+
+    if (!bits || words <= 0) return;
+    if (idx < 0 || idx >= bit_count) return;
+    bits[idx / 32] |= (uint32_t)1u << (idx % 32);
+}
+
+static int game_bits_test(const uint32_t *bits, int words, int idx) {
+    int bit_count = words * 32;
+
+    if (!bits || words <= 0) return 0;
+    if (idx < 0 || idx >= bit_count) return 0;
+    return (bits[idx / 32] & ((uint32_t)1u << (idx % 32))) != 0;
+}
+
+static int game_bits_overlap_count(const uint32_t *lhs, const uint32_t *rhs, int words) {
+    int count = 0;
+
+    if (!lhs || !rhs || words <= 0) return 0;
+
+    for (int i = 0; i < words; i++) {
+        uint32_t overlap = lhs[i] & rhs[i];
+        while (overlap) {
+            count += (int)(overlap & 1u);
+            overlap >>= 1;
+        }
+    }
+
+    return count;
+}
+
+static void game_sensor_bits_clear(uint32_t bits[GAME_SENSOR_BIT_WORDS]) {
+    game_bits_clear(bits, GAME_SENSOR_BIT_WORDS);
+}
+
+static void game_sensor_bits_set(uint32_t bits[GAME_SENSOR_BIT_WORDS], int sensor_num) {
+    game_bits_set(bits, GAME_SENSOR_BIT_WORDS, sensor_num);
+}
+
+static int game_sensor_bits_test(const uint32_t bits[GAME_SENSOR_BIT_WORDS], int sensor_num) {
+    return game_bits_test(bits, GAME_SENSOR_BIT_WORDS, sensor_num);
+}
+
+static void game_track_bits_clear(uint32_t bits[GAME_TRACK_BIT_WORDS]) {
+    game_bits_clear(bits, GAME_TRACK_BIT_WORDS);
+}
+
+static void game_track_bits_set(uint32_t bits[GAME_TRACK_BIT_WORDS], int node_idx) {
+    game_bits_set(bits, GAME_TRACK_BIT_WORDS, node_idx);
+}
+
+static void game_ai_target_eval_reset(game_ai_target_eval_t *eval) {
+    if (!eval) return;
+    eval->status = POS_TARGET_UNREACHABLE;
+    eval->total_dist_mm = 0;
+    eval->blocker_mask = 0;
+    game_sensor_bits_clear(eval->sensor_bits);
+    game_track_bits_clear(eval->node_bits);
+}
+
+static uint64_t game_hash_u32(uint64_t hash, uint32_t value) {
+    for (int shift = 0; shift < 32; shift += 8) {
+        hash ^= (uint64_t)((value >> shift) & 0xffu);
+        hash *= 1099511628211ull;
+    }
+    return hash;
+}
+
+static uint64_t game_ai_eval_traffic_hash(void) {
+    int owners[TRACK_MAX];
+    const switch_entry_t *switches = track_get_switch_state();
+    uint64_t hash = 1469598103934665603ull;
+
+    traffic_snapshot_reservations(owners);
+    for (int i = 0; i < TRACK_MAX; i++) {
+        hash = game_hash_u32(hash, (uint32_t)(owners[i] + 2));
+    }
+    for (int i = 0; i < MAX_SWITCHES; i++) {
+        hash = game_hash_u32(hash, (uint32_t)(uint8_t)switches[i].state);
+    }
+
+    return hash;
+}
+
+static void game_build_route_sensor_bits(const pos_target_query_t *query,
+                                         track_node *requested_target,
+                                         uint32_t out_bits[GAME_SENSOR_BIT_WORDS]) {
+    uint16_t exclude_num = requested_target ? (uint16_t)(requested_target->num + 1) : 0;
+    uint16_t exclude_chosen = (query && query->plan.chosen_target)
+                              ? (uint16_t)(query->plan.chosen_target->num + 1)
+                              : 0;
+
+    game_sensor_bits_clear(out_bits);
+    if (!query) return;
+
+    for (int pass = 0; pass < 2; pass++) {
+        const uint16_t *path = (pass == 0) ? query->plan.path_nodes : query->plan.path_nodes2;
+        int path_count = (pass == 0) ? query->plan.path_count : query->plan.path_count2;
+
+        for (int i = 0; i < path_count; i++) {
+            int idx = (int)path[i];
+            int sensor_num;
+
+            if (idx < 0 || idx >= TRACK_MAX) continue;
+            if (g_track[idx].type != NODE_SENSOR) continue;
+            sensor_num = g_track[idx].num;
+            if (sensor_num < 0 || sensor_num >= GAME_SENSOR_KEYS) continue;
+            if ((uint16_t)(sensor_num + 1) == exclude_num ||
+                (uint16_t)(sensor_num + 1) == exclude_chosen) {
+                continue;
+            }
+            game_sensor_bits_set(out_bits, sensor_num);
+        }
+    }
+}
+
+static void game_build_route_node_bits(const pos_target_query_t *query,
+                                       uint32_t out_bits[GAME_TRACK_BIT_WORDS]) {
+    game_track_bits_clear(out_bits);
+    if (!query) return;
+
+    for (int pass = 0; pass < 2; pass++) {
+        const uint16_t *path = (pass == 0) ? query->plan.path_nodes : query->plan.path_nodes2;
+        int path_count = (pass == 0) ? query->plan.path_count : query->plan.path_count2;
+
+        for (int i = 0; i < path_count; i++) {
+            int idx = (int)path[i];
+            if (idx < 0 || idx >= TRACK_MAX) continue;
+            game_track_bits_set(out_bits, idx);
+        }
+    }
+
+    for (int i = 0; i < query->plan.extra_reserve_count; i++) {
+        int idx = (int)query->plan.extra_reserve_nodes[i];
+        if (idx < 0 || idx >= TRACK_MAX) continue;
+        game_track_bits_set(out_bits, idx);
+    }
+}
+
+static int game_collect_route_value_from_bits(game_context_t *ctx,
+                                              const uint32_t bits[GAME_SENSOR_BIT_WORDS],
+                                              game_role_t role) {
+    uint8_t role_bit = (role == GAME_ROLE_HUMAN) ? 1u : 2u;
+    uint8_t other_bit = (role == GAME_ROLE_HUMAN) ? 2u : 1u;
+    int score = 0;
+
+    if (!ctx || !bits) return 0;
+
+    for (int sensor_num = 0; sensor_num < GAME_SENSOR_KEYS; sensor_num++) {
+        if (!game_sensor_bits_test(bits, sensor_num)) continue;
+        if (ctx->claim_mask[sensor_num] & role_bit) continue;
+        score += (ctx->claim_mask[sensor_num] & other_bit) ? 2 : 3;
+    }
+
+    return score;
+}
+
+static int game_lookup_ai_target_eval(train_pos_t *pos, track_node *target,
+                                      track_node *origins[2],
+                                      uint64_t traffic_hash,
+                                      game_ai_target_eval_t *out) {
+    int target_idx;
+    int cur_sensor_idx;
+    int origin0_idx;
+    int origin1_idx;
+
+    if (out) game_ai_target_eval_reset(out);
+    if (!pos || !target || !out) return 0;
+
+    target_idx = game_node_index(target);
+    cur_sensor_idx = game_node_index(pos->cur_sensor);
+    origin0_idx = game_node_index((track_node *)origins[0]);
+    origin1_idx = game_node_index((track_node *)origins[1]);
+
+    for (int i = 0; i < GAME_AI_EVAL_CACHE_SIZE; i++) {
+        const game_ai_eval_cache_entry_t *entry = &g_game_ai_eval_cache[i];
+
+        if (!entry->valid) continue;
+        if (entry->train_num != pos->train_num) continue;
+        if (entry->target_idx != target_idx) continue;
+        if (entry->cur_sensor_idx != cur_sensor_idx) continue;
+        if (entry->origin_idx[0] != origin0_idx || entry->origin_idx[1] != origin1_idx) continue;
+        if (entry->goto_speed != pos->goto_speed) continue;
+        if (entry->traffic_hash != traffic_hash) continue;
+
+        *out = entry->eval;
+        return 1;
+    }
+
+    return 0;
+}
+
+static void game_store_ai_target_eval(train_pos_t *pos, track_node *target,
+                                      track_node *origins[2],
+                                      uint64_t traffic_hash,
+                                      const game_ai_target_eval_t *eval) {
+    game_ai_eval_cache_entry_t *entry;
+
+    if (!pos || !target || !eval) return;
+
+    entry = &g_game_ai_eval_cache[g_game_ai_eval_cache_next];
+    g_game_ai_eval_cache_next++;
+    if (g_game_ai_eval_cache_next >= GAME_AI_EVAL_CACHE_SIZE) {
+        g_game_ai_eval_cache_next = 0;
+    }
+
+    entry->valid = 1;
+    entry->train_num = pos->train_num;
+    entry->target_idx = game_node_index(target);
+    entry->cur_sensor_idx = game_node_index(pos->cur_sensor);
+    entry->origin_idx[0] = game_node_index((track_node *)origins[0]);
+    entry->origin_idx[1] = game_node_index((track_node *)origins[1]);
+    entry->goto_speed = pos->goto_speed;
+    entry->traffic_hash = traffic_hash;
+    entry->eval = *eval;
+}
+
+static void game_get_ai_target_eval(train_pos_t *pos, track_node *target,
+                                    track_node *origins[2],
+                                    uint64_t traffic_hash,
+                                    game_ai_target_eval_t *out) {
+    pos_target_query_t query;
+
+    game_ai_target_eval_reset(out);
+    if (!pos || !target || !out) return;
+
+    if (game_lookup_ai_target_eval(pos, target, origins, traffic_hash, out)) return;
+
+    out->status = pos_query_target(pos->train_num, target, &query);
+    if (out->status != POS_TARGET_UNREACHABLE) {
+        out->total_dist_mm = query.plan.total_dist_mm;
+        out->blocker_mask = query.blocker_mask;
+        game_build_route_sensor_bits(&query, target, out->sensor_bits);
+        game_build_route_node_bits(&query, out->node_bits);
+    }
+
+    game_store_ai_target_eval(pos, target, origins, traffic_hash, out);
 }
 
 static int game_role_index_from_train(game_context_t *ctx, int train_num) {
@@ -190,53 +469,20 @@ void game_reset_round_state(game_context_t *ctx) {
     }
 }
 
-static int game_collect_route_value(game_context_t *ctx, const pos_target_query_t *query,
-                                    track_node *requested_target, game_role_t role) {
-    uint8_t seen[GAME_SENSOR_KEYS];
-    int score = 0;
-    uint16_t exclude_num = requested_target ? (uint16_t)(requested_target->num + 1) : 0;
-    uint16_t exclude_chosen = (query && query->plan.chosen_target)
-                              ? (uint16_t)(query->plan.chosen_target->num + 1)
-                              : 0;
-
-    for (int i = 0; i < GAME_SENSOR_KEYS; i++) seen[i] = 0;
-    if (!query) return 0;
-
-    for (int pass = 0; pass < 2; pass++) {
-        const uint16_t *path = (pass == 0) ? query->plan.path_nodes : query->plan.path_nodes2;
-        int path_count = (pass == 0) ? query->plan.path_count : query->plan.path_count2;
-        for (int i = 0; i < path_count; i++) {
-            int idx = (int)path[i];
-            int sensor_num;
-            uint8_t role_bit;
-            uint8_t other_bit;
-
-            if (idx < 0 || idx >= TRACK_MAX) continue;
-            if (g_track[idx].type != NODE_SENSOR) continue;
-            sensor_num = g_track[idx].num;
-            if (sensor_num < 0 || sensor_num >= GAME_SENSOR_KEYS) continue;
-            if ((uint16_t)(sensor_num + 1) == exclude_num ||
-                (uint16_t)(sensor_num + 1) == exclude_chosen) {
-                continue;
-            }
-            if (seen[sensor_num]) continue;
-            seen[sensor_num] = 1;
-            role_bit = (role == GAME_ROLE_HUMAN) ? 1u : 2u;
-            other_bit = (role == GAME_ROLE_HUMAN) ? 2u : 1u;
-            if (ctx->claim_mask[sensor_num] & role_bit) continue;
-            score += (ctx->claim_mask[sensor_num] & other_bit) ? 2 : 3;
-        }
-    }
-
-    return score;
-}
-
 static track_node *game_pick_best_ai_target(game_context_t *ctx) {
     game_role_slot_t *slot = &ctx->slots[GAME_ROLE_AI];
+    train_pos_t *pos = pos_get(slot->train_num);
+    track_node *origins[2];
     track_node *best = NULL;
-    pos_target_query_t *query = &ctx->game_query_primary;
+    game_ai_target_eval_t eval;
+    uint64_t traffic_hash;
     int best_score = -0x7fffffff;
     int best_dist = 0x7fffffff;
+
+    if (!pos || !pos->cur_sensor) return NULL;
+
+    pos_route_fill_origins(pos, origins);
+    traffic_hash = game_ai_eval_traffic_hash();
 
     for (int pass = 0; pass < 2; pass++) {
         for (int i = 0; i < ctx->sensor_pool_count; i++) {
@@ -247,16 +493,17 @@ static track_node *game_pick_best_ai_target(game_context_t *ctx) {
             if (!cand) continue;
             if (game_current_sensor_num(slot->train_num) == cand->num) continue;
             if (pass == 0 && cand->name == NULL) continue;
-            if (pos_query_target(slot->train_num, cand, query) == POS_TARGET_UNREACHABLE) {
+            game_get_ai_target_eval(pos, cand, origins, traffic_hash, &eval);
+            if (eval.status == POS_TARGET_UNREACHABLE) {
                 continue;
             }
-            dist = query->plan.total_dist_mm;
+            dist = eval.total_dist_mm;
             if (pass == 0 && dist < GAME_MIN_TRIP_MM) continue;
 
-            score = game_collect_route_value(ctx, query, cand, GAME_ROLE_AI);
+            score = game_collect_route_value_from_bits(ctx, eval.sensor_bits, GAME_ROLE_AI);
             score -= dist / 400;
-            if (query->status == POS_TARGET_BLOCKED) {
-                score -= 2 + game_bit_count(query->blocker_mask);
+            if (eval.status == POS_TARGET_BLOCKED) {
+                score -= 2 + game_bit_count(eval.blocker_mask);
             }
 
             if (!best ||
@@ -276,28 +523,103 @@ static track_node *game_pick_best_ai_target(game_context_t *ctx) {
 
 static track_node *game_draw_neutral_target(game_context_t *ctx) {
     game_role_slot_t *slot = &ctx->slots[GAME_ROLE_NEUTRAL];
+    game_role_slot_t *ai_slot = &ctx->slots[GAME_ROLE_AI];
     pos_target_query_t *query = &ctx->game_query_primary;
-    track_node **eligible = ctx->game_eligible_targets;
-    int eligible_count = 0;
+    train_pos_t *ai_pos = pos_get(ai_slot->train_num);
+    track_node *ai_origins[2];
+    game_ai_target_eval_t ai_eval;
+    uint32_t cand_sensor_bits[GAME_SENSOR_BIT_WORDS];
+    uint32_t cand_node_bits[GAME_TRACK_BIT_WORDS];
+    uint64_t traffic_hash = 0;
+    int have_ai_eval = 0;
 
-    for (int pass = 0; pass < 2; pass++) {
-        eligible_count = 0;
-        for (int i = 0; i < ctx->sensor_pool_count; i++) {
-            track_node *cand = ctx->sensor_pool[i];
+    game_ai_target_eval_reset(&ai_eval);
+    if (ai_pos && ai_pos->cur_sensor && ai_slot->target) {
+        pos_route_fill_origins(ai_pos, ai_origins);
+        traffic_hash = game_ai_eval_traffic_hash();
+        game_get_ai_target_eval(ai_pos, ai_slot->target, ai_origins, traffic_hash, &ai_eval);
+        have_ai_eval = (ai_eval.status != POS_TARGET_UNREACHABLE);
+    }
 
-            if (!cand) continue;
-            if (cand->num < 0 || cand->num >= GAME_SENSOR_KEYS) continue;
-            if (ctx->neutral_used[cand->num]) continue;
-            if (game_is_sensor_currently_occupied(ctx, cand->num)) continue;
-            if (pos_query_target(slot->train_num, cand, query) == POS_TARGET_UNREACHABLE) continue;
-            if (pass == 0 && query->plan.total_dist_mm < GAME_MIN_TRIP_MM) continue;
-            eligible[eligible_count++] = cand;
-        }
+    for (int ready_only = 1; ready_only >= 0; ready_only--) {
+        for (int pass = 0; pass < 2; pass++) {
+            track_node *best = NULL;
+            int best_score = -0x7fffffff;
+            int best_dist = 0x7fffffff;
+            int best_node_overlap = 0x7fffffff;
+            int best_sensor_overlap = 0x7fffffff;
 
-        if (eligible_count > 0) {
-            int pick = (int)(game_rand_u32(ctx) % (uint32_t)eligible_count);
-            ctx->neutral_used[eligible[pick]->num] = 1;
-            return eligible[pick];
+            for (int i = 0; i < ctx->sensor_pool_count; i++) {
+                track_node *cand = ctx->sensor_pool[i];
+                pos_target_query_status_t status;
+                int score;
+                int dist;
+                int node_overlap = 0;
+                int sensor_overlap = 0;
+
+                if (!cand) continue;
+                if (cand->num < 0 || cand->num >= GAME_SENSOR_KEYS) continue;
+                if (ctx->neutral_used[cand->num]) continue;
+                if (game_is_sensor_currently_occupied(ctx, cand->num)) continue;
+
+                status = pos_query_target(slot->train_num, cand, query);
+                if (status == POS_TARGET_UNREACHABLE) continue;
+                if (ready_only && status != POS_TARGET_READY) continue;
+
+                dist = query->plan.total_dist_mm;
+                if (pass == 0 && dist < GAME_MIN_TRIP_MM) continue;
+
+                game_build_route_sensor_bits(query, cand, cand_sensor_bits);
+                game_build_route_node_bits(query, cand_node_bits);
+
+                if (have_ai_eval) {
+                    node_overlap = game_bits_overlap_count(cand_node_bits, ai_eval.node_bits,
+                                                           GAME_TRACK_BIT_WORDS);
+                    sensor_overlap = game_bits_overlap_count(cand_sensor_bits, ai_eval.sensor_bits,
+                                                             GAME_SENSOR_BIT_WORDS);
+                }
+
+                score = 0;
+                if (ai_slot->target && game_targets_same_sensor(cand, ai_slot->target)) {
+                    score -= 1000;
+                }
+                score -= node_overlap * 12;
+                score -= sensor_overlap * 48;
+                score -= (dist / 40);
+
+                if (query->blocker_mask) {
+                    score -= 150 * game_bit_count(query->blocker_mask);
+                    if (query->blocker_mask & game_train_bit(ai_slot->train_num)) {
+                        score -= 300;
+                    }
+                    if (query->blocker_mask &
+                        game_train_bit(ctx->slots[GAME_ROLE_HUMAN].train_num)) {
+                        score -= 180;
+                    }
+                }
+
+                if (!best ||
+                    score > best_score ||
+                    (score == best_score && node_overlap < best_node_overlap) ||
+                    (score == best_score && node_overlap == best_node_overlap &&
+                     sensor_overlap < best_sensor_overlap) ||
+                    (score == best_score && node_overlap == best_node_overlap &&
+                     sensor_overlap == best_sensor_overlap && dist < best_dist) ||
+                    (score == best_score && node_overlap == best_node_overlap &&
+                     sensor_overlap == best_sensor_overlap && dist == best_dist &&
+                     cand->num < best->num)) {
+                    best = cand;
+                    best_score = score;
+                    best_dist = dist;
+                    best_node_overlap = node_overlap;
+                    best_sensor_overlap = sensor_overlap;
+                }
+            }
+
+            if (best) {
+                ctx->neutral_used[best->num] = 1;
+                return best;
+            }
         }
     }
 

@@ -9,7 +9,6 @@
 #include "syscall.h"
 #include "kassert.h"
 #include "ui.h"
-#include "util.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -124,18 +123,8 @@ static int pos_targets_same_sensor(track_node *a, track_node *b) {
     return a == b || a->reverse == b || b->reverse == a;
 }
 
-static int pos_sensor_name_is(const track_node *node, const char *name) {
-    return node != NULL &&
-           node->type == NODE_SENSOR &&
-           node->name != NULL &&
-           str_eq(node->name, name);
-}
-
 static int pos_should_block_initial_reverse_restart(track_node *stopped_target) {
-    return pos_sensor_name_is(stopped_target, "C12") ||
-           pos_sensor_name_is(stopped_target, "E5") ||
-           pos_sensor_name_is(stopped_target, "E14") ||
-           pos_sensor_name_is(stopped_target, "C9");
+    return !route_initial_reverse_restart_allowed(stopped_target);
 }
 
 static track_node *pos_frozen_stop_target(const train_pos_t *pos) {

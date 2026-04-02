@@ -21,6 +21,8 @@ static pos_route_eval_t g_pos_wait_eval;
 
 static int pos_build_midrev_second_leg_plan(const train_pos_t *pos,
                                             route_plan_t *out_plan);
+static int pos_try_launch_committed_route_short(train_pos_t *pos,
+                                                uint64_t now_us);
 static int route_switch_needs_change(int sw_num, char desired_dir);
 
 static uint8_t pos_blocker_mask_from_plan_and_switches(int requester_train,
@@ -55,6 +57,22 @@ static int pos_replan_from_current_stop(train_pos_t *pos) {
 
     pos_prepare_goto_request(pos, goal, pos->goto_speed, offset_mm);
     return pos_try_direct_goto(pos);
+}
+
+static int pos_deadlock_preserve_committed_route(train_pos_t *pos,
+                                                 const route_plan_t *plan,
+                                                 pos_wait_mode_t wait_mode,
+                                                 uint64_t now_us) {
+    uint8_t blocker_mask;
+
+    if (!pos || wait_mode != POS_WAIT_RESUME_ROUTE) return 0;
+    if (!pos_deadlock_should_preserve_committed_route(pos->train_num)) return 0;
+
+    if (pos_try_launch_committed_route_short(pos, now_us)) return 1;
+
+    blocker_mask = pos_blocker_mask_from_plan_and_switches(pos->train_num, plan);
+    pos_enter_wait_resource(pos, now_us, blocker_mask, wait_mode);
+    return 1;
 }
 
 static int pos_build_wait_plan(const train_pos_t *pos, route_plan_t *out_plan,
@@ -183,6 +201,10 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
 
     if (wait_mode == POS_WAIT_RESUME_ROUTE &&
         g_pos_try_reserve_plan.total_dist_mm < pos_route_authority_min_mm(pos)) {
+        if (pos_deadlock_preserve_committed_route(pos, &g_pos_try_reserve_plan,
+                                                  wait_mode, now_us)) {
+            return 1;
+        }
         return pos_replan_from_current_stop(pos);
     }
 
@@ -192,6 +214,10 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
                                             &switch_blocker_owner,
                                             &authority_blocker_mask)) {
         if (switch_blocker_owner == pos->train_num) {
+            if (pos_deadlock_preserve_committed_route(pos, &g_pos_try_reserve_plan,
+                                                      wait_mode, now_us)) {
+                return 1;
+            }
             return pos_replan_from_current_stop(pos);
         }
         uint8_t blocker_mask =
@@ -211,6 +237,10 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
                                      g_pos_try_authority_plan.sw_dirs,
                                      g_pos_try_authority_plan.sw_count,
                                      pos->train_num) == pos->train_num) {
+            if (pos_deadlock_preserve_committed_route(pos, &g_pos_try_reserve_plan,
+                                                      wait_mode, now_us)) {
+                return 1;
+            }
             return pos_replan_from_current_stop(pos);
         }
         uint8_t blocker_mask =

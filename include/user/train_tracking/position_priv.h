@@ -38,6 +38,9 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
 
 /* Keep resolved deadlock notices visible in the UI briefly after reroute. */
 #define DEADLOCK_NOTICE_RESOLVED_US 8000000ULL
+/* Throttle repeated reroute searches for the same unresolved cycle while the
+ * reservation graph is unchanged. */
+#define DEADLOCK_NO_SOLUTION_RETRY_US 1000000ULL
 /* After a deadlock-yield stop, wait briefly before resuming the original target. */
 #define DEADLOCK_RESUME_DELAY_US 1000000ULL
 
@@ -240,6 +243,8 @@ void pos_clear_deadlock_recover(train_pos_t *pos);
 int pos_deadlock_maybe_resume_after_yield(train_pos_t *pos, uint64_t now_us);
 void pos_deadlock_refresh_notice_state(uint64_t now_us);
 int pos_deadlock_maybe_reroute_waiter(train_pos_t *pos, uint64_t now_us);
+void pos_deadlock_clear_no_solution_cache(void);
+int pos_deadlock_should_preserve_committed_route(int train_num);
 
 /* Resume the stored second leg of a mid-route reversal after the stop completes. */
 int pos_handle_midrev_resume(train_pos_t *pos, uint64_t now_us);

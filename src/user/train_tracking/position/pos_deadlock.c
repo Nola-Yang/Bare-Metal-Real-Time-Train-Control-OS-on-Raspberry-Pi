@@ -19,6 +19,16 @@ typedef struct {
     uint8_t stopped_mask;
 } deadlock_participants_t;
 
+typedef struct {
+    uint8_t active;
+    uint8_t cycle_global_mask;
+    uint8_t kind;
+    uint32_t generation;
+    uint64_t retry_after_us;
+} deadlock_no_solution_cache_t;
+
+static deadlock_no_solution_cache_t g_deadlock_no_solution_cache;
+
 static int deadlock_bit_count(uint8_t mask) {
     int count = 0;
     while (mask) {
@@ -120,6 +130,59 @@ static uint8_t deadlock_global_mask_from_local(const deadlock_participants_t *pa
         }
     }
     return global_mask;
+}
+
+static void deadlock_clear_no_solution_cache(void) {
+    g_deadlock_no_solution_cache.active = 0;
+    g_deadlock_no_solution_cache.cycle_global_mask = 0;
+    g_deadlock_no_solution_cache.kind = DEADLOCK_KIND_NONE;
+    g_deadlock_no_solution_cache.generation = 0;
+    g_deadlock_no_solution_cache.retry_after_us = 0;
+}
+
+void pos_deadlock_clear_no_solution_cache(void) {
+    deadlock_clear_no_solution_cache();
+}
+
+static void deadlock_cache_no_solution(const deadlock_participants_t *parts,
+                                       uint8_t cycle_mask,
+                                       deadlock_kind_t kind,
+                                       uint64_t now_us) {
+    uint64_t retry_after_us = UINT64_MAX;
+
+    if (!parts || deadlock_bit_count(cycle_mask) < 2) {
+        deadlock_clear_no_solution_cache();
+        return;
+    }
+
+    if (now_us <= UINT64_MAX - DEADLOCK_NO_SOLUTION_RETRY_US) {
+        retry_after_us = now_us + DEADLOCK_NO_SOLUTION_RETRY_US;
+    }
+
+    g_deadlock_no_solution_cache.active = 1;
+    g_deadlock_no_solution_cache.cycle_global_mask =
+        deadlock_global_mask_from_local(parts, cycle_mask);
+    g_deadlock_no_solution_cache.kind = (uint8_t)kind;
+    g_deadlock_no_solution_cache.generation = traffic_get_change_generation();
+    g_deadlock_no_solution_cache.retry_after_us = retry_after_us;
+}
+
+static int deadlock_no_solution_retry_pending(const deadlock_participants_t *parts,
+                                              uint8_t cycle_mask,
+                                              deadlock_kind_t kind,
+                                              uint64_t now_us) {
+    uint8_t cycle_global_mask;
+
+    if (!parts || deadlock_bit_count(cycle_mask) < 2) return 0;
+    if (!g_deadlock_no_solution_cache.active) return 0;
+    if (g_deadlock_no_solution_cache.kind != (uint8_t)kind) return 0;
+    if (traffic_get_change_generation() != g_deadlock_no_solution_cache.generation) {
+        return 0;
+    }
+    if (now_us >= g_deadlock_no_solution_cache.retry_after_us) return 0;
+
+    cycle_global_mask = deadlock_global_mask_from_local(parts, cycle_mask);
+    return cycle_global_mask == g_deadlock_no_solution_cache.cycle_global_mask;
 }
 
 static void deadlock_build_graph(const deadlock_participants_t *parts,
@@ -511,6 +574,16 @@ static void deadlock_note_detected(const deadlock_participants_t *parts,
                           detect_us, 0, 1);
 }
 
+static void deadlock_note_no_solution(const deadlock_participants_t *parts,
+                                      uint8_t cycle_mask,
+                                      deadlock_kind_t kind,
+                                      int preferred_victim_train,
+                                      uint64_t now_us) {
+    deadlock_cache_no_solution(parts, cycle_mask, kind, now_us);
+    deadlock_note_detected(parts, cycle_mask, kind, preferred_victim_train,
+                           now_us);
+}
+
 static int deadlock_apply_wait_cycle_reroute(
     uint8_t cycle_mask, const deadlock_participants_t *parts, uint64_t now_us,
     int *out_victim_train) {
@@ -549,8 +622,9 @@ static int deadlock_apply_wait_cycle_reroute(
         }
 
         if (last_attempted_train >= 0) {
-            deadlock_note_detected(parts, cycle_mask, DEADLOCK_KIND_WAIT_CYCLE,
-                                   last_attempted_train, now_us);
+            deadlock_note_no_solution(parts, cycle_mask,
+                                      DEADLOCK_KIND_WAIT_CYCLE,
+                                      last_attempted_train, now_us);
         }
         return 0;
     }
@@ -575,8 +649,9 @@ static int deadlock_apply_wait_cycle_reroute(
     }
 
     if (last_attempted_train >= 0) {
-        deadlock_note_detected(parts, cycle_mask, DEADLOCK_KIND_WAIT_CYCLE,
-                               last_attempted_train, now_us);
+        deadlock_note_no_solution(parts, cycle_mask,
+                                  DEADLOCK_KIND_WAIT_CYCLE,
+                                  last_attempted_train, now_us);
     }
     return 0;
 }
@@ -688,6 +763,7 @@ static int deadlock_apply_selected_reroute(train_pos_t *victim,
         victim->deadlock_recover.yield_target = yield_target;
     }
 
+    deadlock_clear_no_solution_cache();
     deadlock_write_notice(parts, cycle_mask, victim->train_num, blocked_target,
                           yield_target, resume_after_yield ? resume_target : NULL,
                           0,
@@ -800,11 +876,18 @@ int pos_deadlock_maybe_reroute_waiter(train_pos_t *pos, uint64_t now_us) {
 
     cycle_mask = deadlock_find_mask_for_train(pos->train_num, &deadlock_kind, &parts);
     if (!cycle_mask) return 0;
+    if (deadlock_no_solution_retry_pending(&parts, cycle_mask, deadlock_kind,
+                                           now_us)) {
+        return 0;
+    }
 
     if (deadlock_kind == DEADLOCK_KIND_STOPPED_BLOCKER) {
-        deadlock_note_detected(&parts, cycle_mask, deadlock_kind, -1, now_us);
-        return deadlock_apply_stopped_blocker_reroute(cycle_mask, &parts, now_us,
-                                                      &victim_train);
+        if (deadlock_apply_stopped_blocker_reroute(cycle_mask, &parts, now_us,
+                                                   &victim_train)) {
+            return 1;
+        }
+        deadlock_note_no_solution(&parts, cycle_mask, deadlock_kind, -1, now_us);
+        return 0;
     }
 
     return deadlock_apply_wait_cycle_reroute(cycle_mask, &parts, now_us,
