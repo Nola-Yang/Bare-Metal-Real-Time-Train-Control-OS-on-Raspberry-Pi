@@ -460,7 +460,7 @@ static void demo_try_finish_stop(uint64_t now_us) {
     demo_reset_slots();
     g_demo_last_ui_uptime_sec = UINT32_MAX;
     ui_mark_position_dirty();
-    ui_cmd_puts("demo: stopped\r\n");
+    ui_cmd_log_line("demo: stopped");
 }
 
 static void demo_finish_locate(void) {

@@ -96,6 +96,25 @@ void ui_cmd_newprompt(void) {
                            ui_strlen(ui_cmd_prompt_label));
 }
 
+void ui_cmd_clear_line(void) {
+    if (ui_server_tid < 0) {
+        return;
+    }
+
+    UIServerCmdPuts(ui_server_tid, "\r\033[2K", 5);
+}
+
+void ui_cmd_log_line(const char *str) {
+    if (ui_server_tid < 0 || str == NULL) {
+        return;
+    }
+
+    ui_cmd_clear_line();
+    ui_cmd_puts(str);
+    ui_cmd_puts("\r\n");
+    ui_cmd_newprompt();
+}
+
 void ui_cmd_backspace(void) {
     if (ui_server_tid < 0) {
         return;

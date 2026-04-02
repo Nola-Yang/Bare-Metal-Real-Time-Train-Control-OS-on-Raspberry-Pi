@@ -15,6 +15,7 @@ static int game_build_sensor_pool(game_context_t *ctx) {
 void game_setup_print_prompt(game_context_t *ctx) {
     static const char *labels[GAME_ROLES] = {"Human", "AI", "Neutral"};
     if (ctx->setup_step < GAME_ROLES) {
+        ui_cmd_clear_line();
         ui_cmd_puts("Game setup: enter ");
         ui_cmd_puts(labels[ctx->setup_step]);
         ui_cmd_puts(" train number (valid: 13 14 15 17 18 55):\r\n");

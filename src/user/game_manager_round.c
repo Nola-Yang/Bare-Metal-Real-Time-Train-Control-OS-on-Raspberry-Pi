@@ -417,6 +417,8 @@ void game_force_stop_now(game_context_t *ctx) {
 }
 
 static void game_finish_match(game_context_t *ctx) {
+    ui_set_cmd_prompt_label("cmd> ");
+
     if (ctx->score_half[GAME_ROLE_HUMAN] > ctx->score_half[GAME_ROLE_AI]) {
         game_set_result(ctx, "Human wins");
         game_log_line("game: match over, Human wins");
@@ -428,7 +430,6 @@ static void game_finish_match(game_context_t *ctx) {
         game_log_line("game: match over, draw");
     }
     ctx->state = GAME_STATE_MATCH_OVER;
-    ui_set_cmd_prompt_label("cmd> ");
     ui_mark_position_dirty();
 }
 

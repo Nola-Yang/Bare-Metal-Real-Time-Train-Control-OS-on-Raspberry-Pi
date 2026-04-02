@@ -94,8 +94,7 @@ static void runtime_switch_settle_tick_task(void) {
 
 static void runtime_deadlock_print_line(const char *text) {
     if (!text || !text[0]) return;
-    ui_cmd_puts(text);
-    ui_cmd_puts("\r\n");
+    ui_cmd_log_line(text);
 }
 
 static void runtime_deadlock_print_usage(void) {
@@ -125,6 +124,8 @@ static int runtime_deadlock_notice_unresolved(void) {
 }
 
 static void runtime_deadlock_prompt_activate(int redraw_prompt) {
+    (void)redraw_prompt;
+
     if (g_deadlock_prompt.active) return;
 
     ui_get_cmd_prompt_label(g_deadlock_prompt.saved_prompt_label,
@@ -137,10 +138,8 @@ static void runtime_deadlock_prompt_activate(int redraw_prompt) {
 
     g_deadlock_prompt.active = 1;
     ui_set_cmd_prompt_label(DEADLOCK_PROMPT_LABEL);
-    if (redraw_prompt) ui_scroll_cmd();
     runtime_deadlock_print_line(
         "deadlock: enter one or more reservation nodes separated by spaces (e.g. A5 B6 C13*)");
-    if (redraw_prompt) ui_cmd_newprompt();
 }
 
 static void runtime_deadlock_prompt_deactivate(int redraw_prompt) {

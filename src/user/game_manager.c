@@ -59,8 +59,7 @@ void game_set_result(game_context_t *ctx, const char *text) {
 
 void game_log_line(const char *text) {
     if (!text) return;
-    ui_cmd_puts(text);
-    ui_cmd_puts("\r\n");
+    ui_cmd_log_line(text);
 }
 
 static int game_stop_force_arg(const char *arg) {
