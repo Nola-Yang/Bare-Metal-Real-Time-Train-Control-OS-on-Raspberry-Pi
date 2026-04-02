@@ -22,7 +22,7 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
 /* Maximum path hops allowed when checking whether a sensor is reachable
  * from the predicted next sensor (off-route / skip detection). */
 #define OFF_ROUTE_PATH_MAX_HOPS 120
-
+ 
 /* Dead-track timeout is prediction-relative, with a fixed floor. */
 #define DEAD_TRACK_TIMEOUT_MIN_US 5000000ULL
 #define DEAD_TRACK_TIMEOUT_MULTIPLIER 3ULL
