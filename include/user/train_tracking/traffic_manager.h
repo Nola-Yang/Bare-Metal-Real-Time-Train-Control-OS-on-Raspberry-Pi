@@ -34,6 +34,10 @@ int traffic_can_reserve_plan(int train_num, const route_plan_t *plan);
 /* Release all reservations owned by train_num. */
 void traffic_release_train(int train_num);
 
+/* Release the reservation on `node` and its reverse-direction twin only.
+ * Returns 1 if any reservation entry changed, 0 otherwise. */
+int traffic_release_physical_node(track_node *node);
+
 /* Release all reservations except the current travel window:
  * keep `body_mm` behind `last_hit`, the track from `last_hit` to `next_hit`
  * (if reachable), and `body_mm` ahead of `next_hit`, all relative to the

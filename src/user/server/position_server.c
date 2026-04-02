@@ -19,6 +19,7 @@ typedef enum {
     POS_REQ_MARK_ROUTES_DIRTY = 9,
     POS_REQ_RELEASE_TRAIN = 10,
     POS_REQ_RESET_ALL = 11,
+    POS_REQ_RELEASE_NODE = 12,
 } position_request_type_t;
 
 typedef struct {
@@ -114,6 +115,15 @@ void position_server_task(void) {
 
             case POS_REQ_RELEASE_TRAIN:
                 traffic_release_train(req.train);
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                break;
+
+            case POS_REQ_RELEASE_NODE:
+                if (req.target_idx < 0 || req.target_idx >= TRACK_MAX) {
+                    reply.status = 0;
+                } else {
+                    reply.status = traffic_release_physical_node(&g_track[req.target_idx]);
+                }
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
 
@@ -232,6 +242,15 @@ int PositionServerReleaseTrain(int tid, int train_num) {
 
     req.type = POS_REQ_RELEASE_TRAIN;
     req.train = train_num;
+    return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
+}
+
+int PositionServerReleaseNode(int tid, int target_idx) {
+    PositionRequest_t req;
+    PositionReply_t reply;
+
+    req.type = POS_REQ_RELEASE_NODE;
+    req.target_idx = target_idx;
     return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
 }
 

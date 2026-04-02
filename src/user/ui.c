@@ -126,6 +126,18 @@ void ui_set_cmd_prompt_label(const char *label) {
     ui_cmd_prompt_label[i] = '\0';
 }
 
+void ui_get_cmd_prompt_label(char *out, int cap) {
+    int i = 0;
+
+    if (!out || cap <= 0) return;
+
+    while (ui_cmd_prompt_label[i] && i + 1 < cap) {
+        out[i] = ui_cmd_prompt_label[i];
+        i++;
+    }
+    out[i] = '\0';
+}
+
 void ui_update_clock(uint64_t start_us, uint64_t now) {
     uint64_t elapsed = now - start_us;
     char clock_buf[8];

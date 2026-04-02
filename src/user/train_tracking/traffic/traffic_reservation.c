@@ -330,6 +330,27 @@ void traffic_release_train(int train_num) {
     if (changed) traffic_note_change(1);
 }
 
+int traffic_release_physical_node(track_node *node) {
+    int idx = traffic_node_index(node);
+    int ridx;
+    int changed = 0;
+
+    if (idx < 0 || idx >= TRACK_MAX) return 0;
+
+    ridx = traffic_reverse_index(idx);
+    if (node_owner[idx] >= 0) {
+        node_owner[idx] = -1;
+        changed = 1;
+    }
+    if (ridx >= 0 && node_owner[ridx] >= 0) {
+        node_owner[ridx] = -1;
+        changed = 1;
+    }
+
+    if (changed) traffic_note_change(1);
+    return changed ? 1 : 0;
+}
+
 void traffic_release_train_keep_body(int train_num, track_node *last_hit,
                                      int32_t body_mm, track_node *next_hit) {
     uint8_t keep[TRACK_MAX];

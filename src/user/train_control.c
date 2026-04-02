@@ -11,6 +11,7 @@
 #include "timer.h"
 #include "task_manager.h"
 #include "ring_buffer.h"
+#include "util.h"
 #include "kassert.h"
 
 #define KEYBOARD_QUEUE_SIZE 1024
@@ -230,15 +231,27 @@ void command_input_task(void) {
     runtime_event_t event;
     runtime_reply_t reply;
     char cmdline[TRAIN_CMD_MAX_LEN];
+    char prompt_label[16];
+    char last_prompt_label[16];
     int cmdlen = 0;
 
     KASSERT(keyboard_buffer_tid >= 0);
 
     event.type = RUNTIME_EVENT_COMMAND;
+    ui_get_cmd_prompt_label(last_prompt_label, sizeof(last_prompt_label));
 
     for (;;) {
         int c = keyboard_buffer_getc(keyboard_buffer_tid);
         if (c < 0) continue;
+
+        ui_get_cmd_prompt_label(prompt_label, sizeof(prompt_label));
+        if (!str_eq(prompt_label, last_prompt_label)) {
+            cmdlen = 0;
+            for (int i = 0; i < (int)sizeof(last_prompt_label); i++) {
+                last_prompt_label[i] = prompt_label[i];
+                if (prompt_label[i] == '\0') break;
+            }
+        }
 
         if (c == '\r' || c == '\n') {
             cmdline[cmdlen] = '\0';
