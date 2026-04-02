@@ -336,7 +336,7 @@ static void runtime_print_parse_error(const train_command_t *cmd) {
             ui_cmd_puts("Usage: findpos <t1> [t2] [t3] [t4]\r\n");
             break;
         case TRAIN_CMD_ERR_USAGE_GAME:
-            ui_cmd_puts("Usage: game  (interactive) | game stop | game status\r\n");
+            ui_cmd_puts("Usage: game  (interactive) | game stop [force] | game status\r\n");
             break;
         case TRAIN_CMD_ERR_USAGE_PICK:
             ui_cmd_puts("Usage: pick <sensor>\r\n");

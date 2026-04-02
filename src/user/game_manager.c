@@ -63,6 +63,10 @@ void game_log_line(const char *text) {
     ui_cmd_puts("\r\n");
 }
 
+static int game_stop_force_arg(const char *arg) {
+    return arg != NULL && (str_eq(arg, "force") || str_eq(arg, "foce"));
+}
+
 void game_log_targets(game_context_t *ctx) {
     char buf[96];
     char *p = buf;
@@ -322,18 +326,22 @@ int game_handle_command(const train_command_t *cmd) {
     }
 
     if (cmd->argc < 2) {
-        game_log_line("Usage: game [stop | status]");
+        game_log_line("Usage: game [stop [force] | status]");
         return 2;
     }
 
     if (str_eq(cmd->argv[1], "stop")) {
-        if (ctx->state == GAME_STATE_OFF) {
-            game_log_line("game: already stopped");
+        if (cmd->argc >= 3 && game_stop_force_arg(cmd->argv[2])) {
+            if (ctx->state == GAME_STATE_OFF) {
+                game_log_line("game: already stopped");
+                return 2;
+            }
+            game_force_stop_now(ctx);
+            game_log_line("game: force reset to startup state");
             return 2;
         }
-        if (cmd->argc >= 3 && str_eq(cmd->argv[2], "force")) {
-            game_force_stop_now(ctx);
-            game_log_line("game: force-stopped");
+        if (ctx->state == GAME_STATE_OFF) {
+            game_log_line("game: already stopped");
             return 2;
         }
         ctx->state = GAME_STATE_STOPPING;
