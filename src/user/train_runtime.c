@@ -395,12 +395,18 @@ static int runtime_handle_command(const train_command_t *cmd,
     if (!cmd) return 2;
 
     if (g_deadlock_prompt.active) {
+        if (cmd->type == TRAIN_CMD_GAME &&
+            cmd->argc >= 2 &&
+            str_eq(cmd->argv[1], "stop")) {
+            return GameServerHandleCommand(game_tid, cmd);
+        }
         return runtime_handle_deadlock_prompt_command(cmd, position_tid);
     }
 
     if (game_is_setup_active()) {
         switch (cmd->type) {
         case TRAIN_CMD_QUIT:
+        case TRAIN_CMD_GAME:
         case TRAIN_CMD_UNKNOWN:
             break;
         default:

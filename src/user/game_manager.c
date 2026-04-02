@@ -222,11 +222,10 @@ int game_handle_command(const train_command_t *cmd) {
         return game_handle_pick(ctx, &pick_cmd);
     }
 
-    if (ctx->state == GAME_STATE_SETUP) {
-        return game_handle_setup_input(ctx, cmd);
-    }
-
     if (cmd->type != TRAIN_CMD_GAME) {
+        if (ctx->state == GAME_STATE_SETUP) {
+            return game_handle_setup_input(ctx, cmd);
+        }
         return 2;
     }
 
