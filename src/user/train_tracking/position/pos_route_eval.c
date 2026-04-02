@@ -14,6 +14,9 @@ static route_plan_t g_pos_try_rp_temp;
 static route_plan_t g_pos_try_best_blocked_plan;
 static pos_route_eval_t g_pos_try_eval_ready;
 
+#define INITIAL_REVERSE_BRANCH_CLEARANCE_MM 250
+#define POS_ROUTE_BRANCH_DIST_NONE INT32_MAX
+
 static int route_switch_needs_change(int sw_num, char desired_dir) {
     int sw_idx = track_switch_to_index(sw_num);
     if (sw_idx < 0) return 1;
@@ -70,6 +73,54 @@ static int route_plan_long_enough(const route_plan_t *plan, int32_t threshold) {
                   ? plan->dist_to_reversal_mm + plan->dist_after_reversal_mm
                   : plan->total_dist_mm;
     return effective_d > threshold;
+}
+
+static int32_t pos_route_path_edge_dist(uint16_t from_idx, uint16_t to_idx) {
+    track_node *from;
+    track_node *to;
+
+    if (from_idx >= TRACK_MAX || to_idx >= TRACK_MAX) return -1;
+
+    from = &g_track[from_idx];
+    to = &g_track[to_idx];
+
+    if (from->type == NODE_BRANCH) {
+        if (from->edge[DIR_STRAIGHT].dest == to) {
+            return (int32_t)from->edge[DIR_STRAIGHT].dist;
+        }
+        if (from->edge[DIR_CURVED].dest == to) {
+            return (int32_t)from->edge[DIR_CURVED].dist;
+        }
+        return -1;
+    }
+
+    if (from->edge[DIR_AHEAD].dest != to) return -1;
+    return (int32_t)from->edge[DIR_AHEAD].dist;
+}
+
+static int32_t pos_route_first_branch_dist(const route_plan_t *plan) {
+    int32_t total = 0;
+
+    if (!plan || plan->path_count <= 1) return POS_ROUTE_BRANCH_DIST_NONE;
+
+    for (int i = 0; i < plan->path_count - 1; i++) {
+        int32_t edge_dist =
+            pos_route_path_edge_dist(plan->path_nodes[i], plan->path_nodes[i + 1]);
+
+        if (edge_dist < 0) return -1;
+        total += edge_dist;
+        if (g_track[plan->path_nodes[i + 1]].type == NODE_BRANCH) return total;
+    }
+
+    return POS_ROUTE_BRANCH_DIST_NONE;
+}
+
+static int pos_initial_reverse_has_branch_clearance(const route_plan_t *plan) {
+    int32_t first_branch_dist = pos_route_first_branch_dist(plan);
+
+    if (first_branch_dist < 0) return 0;
+    if (first_branch_dist == POS_ROUTE_BRANCH_DIST_NONE) return 1;
+    return first_branch_dist > INITIAL_REVERSE_BRANCH_CLEARANCE_MM;
 }
 
 static void pos_note_best_plan(const route_plan_t *cand,
@@ -193,6 +244,7 @@ static int pos_select_best_route_for_origins(track_node *origins[2],
         if (bfs_find_route_optimal_constrained(origins[o], user_target, d_stop,
                                                min_dist_mm,
                                                blocked, fixed_sw_dirs, rp_temp) &&
+            (!o || pos_initial_reverse_has_branch_clearance(rp_temp)) &&
             route_plan_long_enough(rp_temp, threshold)) {
             pos_note_best_plan(rp_temp, origins[o], o == 1,
                                best_plan, &best_origin,
@@ -204,6 +256,7 @@ static int pos_select_best_route_for_origins(track_node *origins[2],
         bfs_find_bootstrap_midrev(origins[1], user_target, d_stop,
                                   min_dist_mm,
                                   blocked, fixed_sw_dirs, rp_temp) &&
+        pos_initial_reverse_has_branch_clearance(rp_temp) &&
         route_plan_long_enough(rp_temp, threshold)) {
         pos_note_best_plan(rp_temp, origins[1], 1,
                            best_plan, &best_origin,
