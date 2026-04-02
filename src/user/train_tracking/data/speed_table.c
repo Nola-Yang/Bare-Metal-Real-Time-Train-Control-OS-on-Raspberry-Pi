@@ -8,7 +8,7 @@
          {365, 365, 365, 365, 365}};
 
     static const int32_t GOTO_DECEL_MM_S2[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
-        {{150, 150, 150, 150, 150},
+        {{144, 144, 144, 144, 144},
          {174, 174, 174, 174, 174 }};
 
     static const int32_t GOTO_DECEL_OVERRIDE[NUM_OF_SPEED_LEVELS][MAX_SENSORS] = 
@@ -24,7 +24,7 @@
       -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}};
 
     static const int32_t GOTO_ACCEL_MM_S2[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
-        {{46, 46, 46, 46, 46},
+        {{37, 37, 38, 38, 38},
          {90, 90, 90, 90, 90}};
 
     uint64_t STOP_EARLY_US[NUM_OF_SPEED_LEVELS][MAX_PHYSICAL_TRAINS] =
