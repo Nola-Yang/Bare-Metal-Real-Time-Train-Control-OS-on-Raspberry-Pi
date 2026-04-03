@@ -63,11 +63,10 @@ static void authority_sync_target_internal(train_pos_t *pos) {
     pos->dist_to_target_mm = (dist >= 0) ? dist + pos->target_offset_mm : 0;
     if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
 
-    /* Deadlock-yield recovery parks on the current staged stop target. Keep
+    /* Deadlock-yield handling parks on the current staged stop target. Keep
      * that target synchronized as rolling authority extends, otherwise the
      * final stop can no longer match the stale initial yield target. */
     if (pos->deadlock_recover.valid &&
-        pos->deadlock_recover.resume_target != NULL &&
         !pos->deadlock_recover.parked_at_yield) {
         if (pos->midrev.active && pos->midrev.final_target != NULL) {
             pos->deadlock_recover.yield_target = pos->midrev.final_target;

@@ -219,12 +219,30 @@ static void handle_normal_stop(train_pos_t *pos, uint64_t now_us) {
     }
 
     if (pos->deadlock_recover.valid &&
-        pos->deadlock_recover.resume_target != NULL &&
         pos_targets_same_sensor(stopped_target, pos->deadlock_recover.yield_target)) {
-        /* Keep the train logically parked here until
-         * the deadlock recovery logic explicitly decides to resume. */
-        pos->deadlock_recover.parked_at_yield = 1;
-        pos->deadlock_recover.parked_since_us = now_us;
+        if (pos->deadlock_recover.resume_target != NULL) {
+            /* Keep the train logically parked here until
+             * the deadlock recovery logic explicitly decides to resume. */
+            pos->deadlock_recover.parked_at_yield = 1;
+            pos->deadlock_recover.parked_since_us = now_us;
+            return;
+        }
+
+        /* No-resume deadlock reroutes should park at the staged yield stop
+         * instead of resuming the remaining committed route on the next
+         * WAIT_RESOURCE retry. */
+        pos_clear_committed_route(pos);
+        pos->pending_target = NULL;
+        pos->pending_offset_mm = 0;
+        pos->target_sensor = stopped_target;
+        pos->target_offset_mm = 0;
+        pos->dist_to_target_mm = 0;
+        pos->orig_user_target = stopped_target;
+        pos->orig_target_offset = 0;
+        pos->parked_target_col = POS_TARGET_COL_FINAL;
+        pos->replan.blocker_mask = 0;
+        pos->replan.next_us = 0;
+        pos_clear_deadlock_recover(pos);
         return;
     }
 

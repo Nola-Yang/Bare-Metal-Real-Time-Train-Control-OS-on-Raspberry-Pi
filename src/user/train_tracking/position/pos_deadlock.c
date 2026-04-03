@@ -765,6 +765,16 @@ static int deadlock_apply_selected_reroute(train_pos_t *victim,
     yield_target = deadlock_actual_yield_target(victim, yield_target);
     if (resume_after_yield) {
         victim->deadlock_recover.yield_target = yield_target;
+    } else {
+        /* Mark the staged yield stop so STOPPING->STOPPED can park there
+         * permanently instead of resuming the remaining committed route. */
+        victim->deadlock_recover.valid = 1;
+        victim->deadlock_recover.resume_target = NULL;
+        victim->deadlock_recover.resume_offset_mm = 0;
+        victim->deadlock_recover.yield_target = yield_target;
+        victim->deadlock_recover.wait_start_mask = 0;
+        victim->deadlock_recover.parked_at_yield = 0;
+        victim->deadlock_recover.parked_since_us = 0;
     }
 
     deadlock_clear_no_solution_cache();
