@@ -50,6 +50,9 @@ uint8_t pos_route_blocker_mask_from_switches(const int *sw_nums,
         int count;
 
         if (!route_switch_needs_change(sw_nums[i], sw_dirs[i])) continue;
+        if (traffic_can_set_switch_for_plan(sw_nums[i], requester_train) < 0) {
+            continue;
+        }
         count = traffic_collect_switch_envelope_blockers(sw_nums[i], blockers, 6);
         mask |= blocker_mask_from_trains(requester_train, blockers, count);
     }
@@ -206,7 +209,8 @@ static void pos_build_fixed_switch_dirs(int requester_train,
         current_dir = track_get_switch_state()[sw_idx].state;
         if (current_dir != 'S' && current_dir != 'C') continue;
 
-        if (traffic_can_set_switch(n->num, requester_train) == requester_train) {
+        if (traffic_can_set_switch_for_plan(n->num, requester_train) ==
+            requester_train) {
             fixed_sw_dirs[i] = current_dir;
         }
     }

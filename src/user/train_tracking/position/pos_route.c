@@ -323,7 +323,7 @@ int pos_route_switch_blocker(const int *sw_nums, const char *sw_dirs,
                              int sw_count, int requester_train) {
     for (int i = sw_count - 1; i >= 0; i--) {
         if (!route_switch_needs_change(sw_nums[i], sw_dirs[i])) continue;
-        int owner = traffic_can_set_switch(sw_nums[i], requester_train);
+        int owner = traffic_can_set_switch_for_plan(sw_nums[i], requester_train);
         if (owner >= 0) return owner;
     }
     return -1;

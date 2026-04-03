@@ -20,6 +20,8 @@ typedef enum {
     POS_REQ_RELEASE_TRAIN = 10,
     POS_REQ_RESET_ALL = 11,
     POS_REQ_RELEASE_NODE = 12,
+    POS_REQ_DEADLOCK_ALLOW_SWITCH_OVERRIDE = 13,
+    POS_REQ_DEADLOCK_CLEAR_SWITCH_OVERRIDES = 14,
 } position_request_type_t;
 
 typedef struct {
@@ -124,6 +126,16 @@ void position_server_task(void) {
                 } else {
                     reply.status = traffic_release_physical_node(&g_track[req.target_idx]);
                 }
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                break;
+
+            case POS_REQ_DEADLOCK_ALLOW_SWITCH_OVERRIDE:
+                traffic_deadlock_allow_switch_override(req.value);
+                Reply(tid, (const char *)&reply, sizeof(reply));
+                break;
+
+            case POS_REQ_DEADLOCK_CLEAR_SWITCH_OVERRIDES:
+                traffic_deadlock_clear_switch_overrides();
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
 
@@ -251,6 +263,23 @@ int PositionServerReleaseNode(int tid, int target_idx) {
 
     req.type = POS_REQ_RELEASE_NODE;
     req.target_idx = target_idx;
+    return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
+}
+
+int PositionServerDeadlockAllowSwitchOverride(int tid, int sw_num) {
+    PositionRequest_t req;
+    PositionReply_t reply;
+
+    req.type = POS_REQ_DEADLOCK_ALLOW_SWITCH_OVERRIDE;
+    req.value = sw_num;
+    return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
+}
+
+int PositionServerDeadlockClearSwitchOverrides(int tid) {
+    PositionRequest_t req;
+    PositionReply_t reply;
+
+    req.type = POS_REQ_DEADLOCK_CLEAR_SWITCH_OVERRIDES;
     return (position_send_request(tid, &req, &reply) < 0) ? -1 : reply.status;
 }
 

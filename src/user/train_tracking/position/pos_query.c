@@ -70,7 +70,7 @@ static int pos_query_first_blocking_switch(const int *sw_nums, const char *sw_di
     for (int i = sw_count - 1; i >= 0; i--) {
         int owner;
         if (!route_switch_needs_change(sw_nums[i], sw_dirs[i])) continue;
-        owner = traffic_can_set_switch(sw_nums[i], requester_train);
+        owner = traffic_can_set_switch_for_plan(sw_nums[i], requester_train);
         if (owner < 0) continue;
         if (out_owner) *out_owner = owner;
         return sw_nums[i];

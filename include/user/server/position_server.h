@@ -18,6 +18,8 @@ int PositionServerStartFindPos(int tid, int train_num);
 int PositionServerMarkRoutesDirty(int tid);
 int PositionServerReleaseTrain(int tid, int train_num);
 int PositionServerReleaseNode(int tid, int target_idx);
+int PositionServerDeadlockAllowSwitchOverride(int tid, int sw_num);
+int PositionServerDeadlockClearSwitchOverrides(int tid);
 int PositionServerResetAll(int tid);
 
 #endif /* _position_server_h_ */

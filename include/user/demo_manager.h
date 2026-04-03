@@ -39,5 +39,6 @@ int get_demo_train_ind(int train_num);
 
 int gold_dispatch_next_by_ind(int demo_train_ind);
 int demo_retry_train_by_ind(int demo_train_ind);
+int demo_try_resolve_unresolved_deadlock_ready_target(void);
 
 #endif /* _demo_manager_h_ */

@@ -65,6 +65,15 @@ void traffic_refresh_sensor_prediction_reservation(int train_num,
  * reservations. Returns -1 when safe; otherwise returns the blocking train number. */
 int traffic_can_set_switch(int sw_num, int requester_train);
 
+/* Record or clear deadlock-only planning overrides for user-selected switches. */
+void traffic_deadlock_allow_switch_override(int sw_num);
+void traffic_deadlock_clear_switch_overrides(void);
+
+/* Planning-only switch safety check.
+ * Deadlock overrides temporarily treat matching switches as changeable even when
+ * their envelopes are occupied. Returns -1 when safe; otherwise the blocker. */
+int traffic_can_set_switch_for_plan(int sw_num, int requester_train);
+
 /* Collect unique train numbers that currently block reserving `plan`.
  * Returns total unique blocker count and fills up to max_trains entries. */
 int traffic_collect_plan_blockers(int requester_train, const route_plan_t *plan,

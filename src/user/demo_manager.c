@@ -392,6 +392,46 @@ static int demo_reassign_slot_random_target(demo_train_slot_t *slot) {
     return 1;
 }
 
+static int demo_reassign_slot_random_ready_target(demo_train_slot_t *slot) {
+    train_pos_t *pos;
+    track_node *target = NULL;
+    int target_idx = -1;
+
+    if (!slot || !slot->enabled) return 0;
+    if (!track_is_valid_train(slot->train_num)) return 0;
+
+    pos = pos_get(slot->train_num);
+    if (!pos || !pos->cur_sensor) return 0;
+    if (pos->route_state != TRAIN_STATE_STOPPED &&
+        pos->route_state != TRAIN_STATE_WAIT_RESOURCE) {
+        return 0;
+    }
+    if (pos->route_state == TRAIN_STATE_UNKNOWN ||
+        pos->route_state == TRAIN_STATE_FIND_POS ||
+        pos->route_state == TRAIN_STATE_DEAD_TRACK) {
+        return 0;
+    }
+
+    pos_clear_deadlock_recover(pos);
+    demo_clear_pending_queue(pos);
+
+    if (pos->route_state == TRAIN_STATE_WAIT_RESOURCE) {
+        pos->route_state = TRAIN_STATE_STOPPED;
+        pos->stopping_since_us = 0;
+    }
+
+    target = gold_pick_ready_target(slot->train_num, g_gold_min_trip_mm, &target_idx);
+    if (!target) return 0;
+
+    pos_prepare_goto_request(pos, target, slot->speed_level, 0);
+    if (!pos_try_direct_goto(pos)) return 0;
+
+    slot->started = 1;
+    slot->last_target_idx = target_idx;
+    slot->next_dispatch_us = 0;
+    return 1;
+}
+
 static int demo_reassign_waiting_slots_without_blocker(void) {
     int reassigned = 0;
 
@@ -402,6 +442,61 @@ static int demo_reassign_waiting_slots_without_blocker(void) {
     }
     if (reassigned > 0) ui_mark_position_dirty();
     return reassigned;
+}
+
+static demo_train_slot_t *demo_find_slot_by_train(int train_num) {
+    for (int i = 0; i < DEMO_MAX_TRAINS; i++) {
+        if (!g_slots[i].enabled) continue;
+        if (g_slots[i].train_num == train_num) return &g_slots[i];
+    }
+    return NULL;
+}
+
+int demo_try_resolve_unresolved_deadlock_ready_target(void) {
+    pos_deadlock_notice_t notice;
+    int candidates[DEADLOCK_MAX_TRAINS];
+    int candidate_count = 0;
+
+    if (g_demo_mode != DEMO_MODE_GOLD) return 0;
+    if (g_demo_state != DEMO_RUN_STARTING &&
+        g_demo_state != DEMO_RUN_RUNNING) {
+        return 0;
+    }
+
+    pos_get_deadlock_notice(&notice);
+    if (!notice.active || !notice.unresolved) return 0;
+
+    if (notice.victim_train >= 0) {
+        candidates[candidate_count++] = notice.victim_train;
+    }
+    for (int i = 0; i < notice.cycle_count && i < DEADLOCK_MAX_TRAINS; i++) {
+        int train_num = notice.cycle_trains[i];
+        int seen = 0;
+
+        if (train_num < 0) continue;
+        for (int j = 0; j < candidate_count; j++) {
+            if (candidates[j] == train_num) {
+                seen = 1;
+                break;
+            }
+        }
+        if (seen) continue;
+        candidates[candidate_count++] = train_num;
+    }
+
+    demo_build_sensor_pool();
+    for (int i = 0; i < candidate_count; i++) {
+        demo_train_slot_t *slot = demo_find_slot_by_train(candidates[i]);
+        if (!slot) continue;
+        if (demo_slot_is_dead_track(slot)) continue;
+        if (!demo_reassign_slot_random_ready_target(slot)) continue;
+
+        pos_clear_deadlock_notice();
+        ui_mark_position_dirty();
+        return 1;
+    }
+
+    return 0;
 }
 
 static void demo_update_state_counters(uint64_t now_us) {

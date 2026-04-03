@@ -1,6 +1,7 @@
 #include "train_tracking/traffic_manager.h"
 #include "train_tracking/route_priv.h"
 #include "traffic_manager_internal.h"
+#include "track.h"
 #include "ui.h"
 #include <stdint.h>
 
@@ -9,6 +10,7 @@
 
 static int node_owner[TRACK_MAX];
 static uint32_t g_change_generation = 0;
+static uint8_t g_deadlock_switch_override[MAX_SWITCHES];
 
 /* Crossing + merge safety envelopes are modeled as mutex zones. */
 static int g_zone_nodes[MAX_MUTEX_ZONES][MAX_ZONE_NODES];
@@ -20,6 +22,16 @@ static void traffic_note_change(int routes_dirty) {
     g_change_generation++;
     if (routes_dirty) pos_mark_routes_dirty();
     ui_mark_position_dirty();
+}
+
+static int traffic_switch_override_idx(int sw_num) {
+    int idx = track_switch_to_index(sw_num);
+    return (idx >= 0 && idx < MAX_SWITCHES) ? idx : -1;
+}
+
+static int traffic_deadlock_switch_override_enabled(int sw_num) {
+    int idx = traffic_switch_override_idx(sw_num);
+    return idx >= 0 && g_deadlock_switch_override[idx] != 0;
 }
 
 static void zone_add_idx(int zone, int idx) {
@@ -248,6 +260,7 @@ static void build_keep_body_marks(uint8_t keep[TRACK_MAX], track_node *last_hit,
 void traffic_reservation_init(void) {
     for (int i = 0; i < TRACK_MAX; i++) node_owner[i] = -1;
     g_change_generation = 0;
+    for (int i = 0; i < MAX_SWITCHES; i++) g_deadlock_switch_override[i] = 0;
 
     g_zone_count = 0;
     for (int i = 0; i < TRACK_MAX; i++) g_node_zone_mask[i] = 0;
@@ -533,6 +546,31 @@ int traffic_can_set_switch(int sw_num, int requester_train) {
         }
     }
     return -1;
+}
+
+void traffic_deadlock_allow_switch_override(int sw_num) {
+    int idx = traffic_switch_override_idx(sw_num);
+    if (idx < 0 || g_deadlock_switch_override[idx]) return;
+
+    g_deadlock_switch_override[idx] = 1;
+    traffic_note_change(1);
+}
+
+void traffic_deadlock_clear_switch_overrides(void) {
+    int changed = 0;
+
+    for (int i = 0; i < MAX_SWITCHES; i++) {
+        if (!g_deadlock_switch_override[i]) continue;
+        g_deadlock_switch_override[i] = 0;
+        changed = 1;
+    }
+
+    if (changed) traffic_note_change(1);
+}
+
+int traffic_can_set_switch_for_plan(int sw_num, int requester_train) {
+    if (traffic_deadlock_switch_override_enabled(sw_num)) return -1;
+    return traffic_can_set_switch(sw_num, requester_train);
 }
 
 int traffic_collect_plan_blockers(int requester_train, const route_plan_t *plan,

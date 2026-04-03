@@ -142,9 +142,12 @@ static void runtime_deadlock_prompt_activate(int redraw_prompt) {
         "deadlock: enter one or more reservation nodes separated by spaces (e.g. A5 B6 C13*)");
 }
 
-static void runtime_deadlock_prompt_deactivate(int redraw_prompt) {
+static void runtime_deadlock_prompt_deactivate(int redraw_prompt, int position_tid) {
     if (!g_deadlock_prompt.active) return;
 
+    if (position_tid >= 0) {
+        (void)PositionServerDeadlockClearSwitchOverrides(position_tid);
+    }
     ui_set_cmd_prompt_label(g_deadlock_prompt.saved_prompt_label[0]
                                 ? g_deadlock_prompt.saved_prompt_label
                                 : "cmd> ");
@@ -153,11 +156,11 @@ static void runtime_deadlock_prompt_deactivate(int redraw_prompt) {
     if (redraw_prompt) ui_cmd_newprompt();
 }
 
-static void runtime_deadlock_prompt_refresh(int redraw_prompt) {
+static void runtime_deadlock_prompt_refresh(int redraw_prompt, int position_tid) {
     if (runtime_deadlock_notice_unresolved()) {
         runtime_deadlock_prompt_activate(redraw_prompt);
     } else {
-        runtime_deadlock_prompt_deactivate(redraw_prompt);
+        runtime_deadlock_prompt_deactivate(redraw_prompt, position_tid);
     }
 }
 
@@ -235,6 +238,12 @@ static int runtime_deadlock_node_reserved(track_node *node) {
     return node->reverse != NULL && traffic_get_node_owner(node->reverse) >= 0;
 }
 
+static int runtime_deadlock_switch_num(track_node *node) {
+    if (!node) return -1;
+    if (node->type != NODE_BRANCH && node->type != NODE_MERGE) return -1;
+    return track_is_valid_switch(node->num) ? node->num : -1;
+}
+
 static int runtime_handle_deadlock_prompt_command(const train_command_t *cmd,
                                                   int position_tid) {
     char raw_buf[TRAIN_CMD_MAX_LEN];
@@ -243,7 +252,7 @@ static int runtime_handle_deadlock_prompt_command(const train_command_t *cmd,
     int overflow = 0;
     int argc;
     int seen_count = 0;
-    int released_any = 0;
+    int changed_any = 0;
 
     if (!cmd) return 2;
     if (cmd->type == TRAIN_CMD_QUIT) return 0;
@@ -260,6 +269,7 @@ static int runtime_handle_deadlock_prompt_command(const train_command_t *cmd,
         char typed_token[24];
         track_node *node;
         int key;
+        int sw_num = -1;
 
         runtime_copy_small_token(typed_token, sizeof(typed_token), argv[i]);
         runtime_deadlock_strip_trailing_star(argv[i]);
@@ -276,6 +286,8 @@ static int runtime_handle_deadlock_prompt_command(const train_command_t *cmd,
             continue;
         }
 
+        sw_num = runtime_deadlock_switch_num(node);
+
         key = runtime_deadlock_physical_key(node);
         if (key < 0 || runtime_deadlock_key_seen(seen_keys, seen_count, key)) {
             continue;
@@ -284,29 +296,61 @@ static int runtime_handle_deadlock_prompt_command(const train_command_t *cmd,
             seen_keys[seen_count++] = key;
         }
 
+        if (sw_num > 0) {
+            (void)PositionServerDeadlockAllowSwitchOverride(position_tid, sw_num);
+            changed_any = 1;
+        }
+
         if (!runtime_deadlock_node_reserved(node)) {
             runtime_deadlock_print_token_line("deadlock: token not reserved",
                                               typed_token);
+            if (sw_num > 0) {
+                runtime_deadlock_print_token_line("deadlock: switch override enabled",
+                                                  typed_token);
+            }
             continue;
         }
 
         if (PositionServerReleaseNode(position_tid, (int)(node - g_track)) > 0) {
             runtime_deadlock_print_token_line("deadlock: released", typed_token);
-            released_any = 1;
+            changed_any = 1;
         } else {
             runtime_deadlock_print_token_line("deadlock: token not reserved",
                                               typed_token);
+            if (sw_num > 0) {
+                runtime_deadlock_print_token_line("deadlock: switch override enabled",
+                                                  typed_token);
+            }
         }
     }
 
-    if (released_any) {
+    if (changed_any) {
         (void)PositionServerOnReplanTick(position_tid, read_timer());
         if (runtime_deadlock_notice_unresolved()) {
-            runtime_deadlock_print_line("deadlock: still unresolved");
+            if (!demo_try_resolve_unresolved_deadlock_ready_target() &&
+                runtime_deadlock_notice_unresolved()) {
+                runtime_deadlock_print_line("deadlock: still unresolved");
+            }
         }
     }
 
     return 2;
+}
+
+static int runtime_deadlock_allows_demo_command(const train_command_t *cmd) {
+    return cmd != NULL &&
+           cmd->type == TRAIN_CMD_DEMO &&
+           cmd->argc >= 3 &&
+           str_eq(cmd->argv[1], "stop") &&
+           str_eq(cmd->argv[2], "force");
+}
+
+static int runtime_deadlock_allows_game_command(const train_command_t *cmd) {
+    return cmd != NULL &&
+           cmd->type == TRAIN_CMD_GAME &&
+           cmd->argc >= 3 &&
+           str_eq(cmd->argv[1], "stop") &&
+           str_eq(cmd->argv[2], "force");
 }
 
 static void runtime_print_parse_error(const train_command_t *cmd) {
@@ -394,9 +438,10 @@ static int runtime_handle_command(const train_command_t *cmd,
     if (!cmd) return 2;
 
     if (g_deadlock_prompt.active) {
-        if (cmd->type == TRAIN_CMD_GAME &&
-            cmd->argc >= 2 &&
-            str_eq(cmd->argv[1], "stop")) {
+        if (runtime_deadlock_allows_demo_command(cmd)) {
+            return DemoServerHandleCommand(demo_tid, cmd);
+        }
+        if (runtime_deadlock_allows_game_command(cmd)) {
             return GameServerHandleCommand(game_tid, cmd);
         }
         return runtime_handle_deadlock_prompt_command(cmd, position_tid);
@@ -573,7 +618,7 @@ void runtime_core_task(void) {
                                                       demo_tid,
                                                       game_tid,
                                                       &rv_pending_count);
-                runtime_deadlock_prompt_refresh(0);
+                runtime_deadlock_prompt_refresh(0, position_tid);
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 break;
 
@@ -597,7 +642,7 @@ void runtime_core_task(void) {
             case RUNTIME_EVENT_REPLAN_TICK:
                 Reply(tid, (const char *)&reply, sizeof(reply));
                 PositionServerOnReplanTick(position_tid, event.now_us);
-                runtime_deadlock_prompt_refresh(1);
+                runtime_deadlock_prompt_refresh(1, position_tid);
                 break;
 
             case RUNTIME_EVENT_SWITCH_SETTLE_TICK:
