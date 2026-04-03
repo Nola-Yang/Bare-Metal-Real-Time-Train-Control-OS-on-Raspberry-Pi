@@ -1,4 +1,5 @@
 #include "train_tracking/position_priv.h"
+#include "game_manager.h"
 #include "ui.h"
 #include <stddef.h>
 
@@ -19,6 +20,7 @@ void pos_set_deadlock_notice(const pos_deadlock_notice_t *notice) {
 }
 
 int pos_deadlock_should_preserve_committed_route(int train_num) {
+    if (game_is_active()) return 0;
     if (!g_deadlock_notice.active || g_deadlock_notice.unresolved) return 0;
     if (train_num < 0 || g_deadlock_notice.victim_train == train_num) return 0;
 

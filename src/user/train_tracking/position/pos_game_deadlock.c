@@ -12,6 +12,14 @@ typedef struct {
     int ready_gain;
 } game_deadlock_choice_t;
 
+/* Game deadlock evaluation runs deep inside the position server's 8 KB user
+ * stack. Keep the large scratch buffers static to avoid overflowing that
+ * stack while searching reroute candidates. */
+static pos_route_eval_t g_game_deadlock_eval;
+static int g_game_deadlock_snapshot[TRACK_MAX];
+static uint8_t g_game_deadlock_seen_keys[TRACK_MAX];
+static int g_game_deadlock_victims[DEADLOCK_MAX_TRAINS];
+
 static int game_deadlock_same_physical_sensor(const track_node *a,
                                               const track_node *b) {
     if (!a || !b) return 0;
@@ -145,9 +153,8 @@ static int game_deadlock_evaluate_candidate(const int *cycle_trains,
                                             int old_total_blockers,
                                             int old_ready_count,
                                             game_deadlock_choice_t *out) {
-    pos_route_eval_t eval;
+    pos_route_eval_t *eval = &g_game_deadlock_eval;
     pos_route_eval_result_t result;
-    int snapshot[TRACK_MAX];
     int new_priority_blockers = -1;
     int new_total_blockers = 0;
     int new_ready_count = 0;
@@ -159,18 +166,18 @@ static int game_deadlock_evaluate_candidate(const int *cycle_trains,
     if (!victim || !cand || !out) return 0;
 
     result = use_short_move
-                 ? pos_evaluate_target_short_ready_now(victim, cand, &eval)
-                 : pos_evaluate_target_ready_now(victim, cand, &eval);
+                 ? pos_evaluate_target_short_ready_now(victim, cand, eval)
+                 : pos_evaluate_target_ready_now(victim, cand, eval);
     if (result != POS_ROUTE_EVAL_READY) return 0;
 
     keep_end = pos_release_keep_end(cand, NULL);
-    traffic_snapshot_reservations(snapshot);
+    traffic_snapshot_reservations(g_game_deadlock_snapshot);
     traffic_simulate_parked_train(victim->train_num, cand, TRAIN_BODY_MM, keep_end);
     (void)game_deadlock_collect_counts(cycle_trains, cycle_count, victim->train_num,
                                        &new_priority_blockers,
                                        &new_total_blockers,
                                        &new_ready_count);
-    traffic_restore_reservations(snapshot);
+    traffic_restore_reservations(g_game_deadlock_snapshot);
 
     priority_reduced =
         old_priority_blockers >= 0 &&
@@ -204,7 +211,6 @@ static int game_deadlock_search_victim_targets(const int *cycle_trains,
     int old_priority_blockers = -1;
     int old_total_blockers = 0;
     int old_ready_count = 0;
-    uint8_t seen_keys[TRACK_MAX];
     game_deadlock_choice_t best = {0};
 
     if (!victim || !out_best) return 0;
@@ -216,14 +222,14 @@ static int game_deadlock_search_victim_targets(const int *cycle_trains,
                                        &old_total_blockers,
                                        &old_ready_count);
 
-    for (int i = 0; i < TRACK_MAX; i++) seen_keys[i] = 0;
+    for (int i = 0; i < TRACK_MAX; i++) g_game_deadlock_seen_keys[i] = 0;
 
     preferred_target = game_deadlock_preferred_yield_target(victim->train_num);
     if (preferred_target) {
         int key = game_deadlock_physical_key(preferred_target);
         game_deadlock_choice_t choice = {0};
 
-        if (key >= 0 && key < TRACK_MAX) seen_keys[key] = 1;
+        if (key >= 0 && key < TRACK_MAX) g_game_deadlock_seen_keys[key] = 1;
         if (!game_deadlock_same_physical_sensor(preferred_target, victim->cur_sensor) &&
             !game_deadlock_same_physical_sensor(preferred_target, current_target) &&
             !game_deadlock_candidate_is_occupied(victim->train_num, preferred_target) &&
@@ -245,8 +251,8 @@ static int game_deadlock_search_victim_targets(const int *cycle_trains,
         if (cand->type != NODE_SENSOR) continue;
         key = game_deadlock_physical_key(cand);
         if (key < 0 || key >= TRACK_MAX) continue;
-        if (seen_keys[key]) continue;
-        seen_keys[key] = 1;
+        if (g_game_deadlock_seen_keys[key]) continue;
+        g_game_deadlock_seen_keys[key] = 1;
 
         if (game_deadlock_same_physical_sensor(cand, victim->cur_sensor)) continue;
         if (game_deadlock_same_physical_sensor(cand, current_target)) continue;
@@ -313,7 +319,6 @@ int pos_game_deadlock_try_resolve(const int *cycle_trains, int cycle_count,
                                   track_node **out_target,
                                   uint8_t *out_wait_mask,
                                   int *out_use_short_move) {
-    int victims[DEADLOCK_MAX_TRAINS];
     int victim_count;
 
     (void)now_us;
@@ -330,14 +335,15 @@ int pos_game_deadlock_try_resolve(const int *cycle_trains, int cycle_count,
         if (game_deadlock_victim_rank(cycle_trains[i]) < 0) return 0;
     }
 
-    victim_count = game_deadlock_sort_victims(cycle_trains, cycle_count, victims);
+    victim_count = game_deadlock_sort_victims(cycle_trains, cycle_count,
+                                              g_game_deadlock_victims);
     if (victim_count <= 0) return 0;
 
     for (int phase = 0; phase < 2; phase++) {
         int use_short_move = (phase == 1);
 
         for (int i = 0; i < victim_count; i++) {
-            train_pos_t *victim = pos_get(victims[i]);
+            train_pos_t *victim = pos_get(g_game_deadlock_victims[i]);
             game_deadlock_choice_t choice = {0};
 
             if (!victim || victim->route_state != TRAIN_STATE_WAIT_RESOURCE) continue;
@@ -356,10 +362,11 @@ int pos_game_deadlock_try_resolve(const int *cycle_trains, int cycle_count,
     }
 
     if (victim_count > 0) {
-        train_pos_t *victim = pos_get(victims[0]);
+        train_pos_t *victim = pos_get(g_game_deadlock_victims[0]);
         track_node *blocked_target = game_deadlock_current_target(victim, NULL);
         (void)game_deadlock_handle_no_solution(cycle_trains, cycle_count,
-                                               victims[0], blocked_target);
+                                               g_game_deadlock_victims[0],
+                                               blocked_target);
     }
 
     return 0;

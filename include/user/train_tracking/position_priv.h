@@ -48,7 +48,7 @@ train_pos_t *pos_find_or_create_slot(int train_num, int speed_level);
 #define SWITCH_SETTLE_TICKS     5
 
 /* Rolling reservation window tuning.
- * threshold    = route_goto_min_dist_mm(goto_speed, brake_dist) + early_stop_dist
+ * threshold    = pos_route_min_dist_mm(pos, brake_dist) + early_stop_dist
  * auth target  = first reachable sensor on the committed route whose
  *                distance is >= threshold
  * extend point = actual stop distance (brake + early stop) */
@@ -142,6 +142,7 @@ int pos_game_deadlock_try_resolve(const int *cycle_trains, int cycle_count,
 
 /* Compute authority-window parameters from the train's braking model. */
 int32_t pos_route_authority_stop_dist_mm(const train_pos_t *pos);
+int32_t pos_route_min_dist_mm(const train_pos_t *pos, int32_t base_mm);
 int32_t pos_route_authority_min_mm(const train_pos_t *pos);
 int32_t pos_route_authority_target_mm(const train_pos_t *pos);
 int32_t pos_route_authority_extend_trigger_mm(const train_pos_t *pos);

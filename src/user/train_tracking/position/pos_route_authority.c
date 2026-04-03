@@ -3,6 +3,7 @@
 #include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
 #include "train_tracking/speed_table.h"
+#include "game_manager.h"
 #include "../traffic/traffic_window_internal.h"
 #include "track.h"
 #include "ui.h"
@@ -154,6 +155,13 @@ int32_t pos_route_authority_stop_dist_mm(const train_pos_t *pos) {
     return d_brake + d_early;
 }
 
+int32_t pos_route_min_dist_mm(const train_pos_t *pos, int32_t base_mm) {
+    if (game_is_active()) {
+        return route_scale_dist_ceil(base_mm, 3, 2);
+    }
+    return route_goto_min_dist_mm(pos ? pos->goto_speed : 0, base_mm);
+}
+
 int32_t pos_route_authority_min_mm(const train_pos_t *pos) {
     int32_t d_brake = authority_brake_dist_mm(pos);
     int32_t d_early = authority_early_stop_mm(pos);
@@ -161,7 +169,7 @@ int32_t pos_route_authority_min_mm(const train_pos_t *pos) {
 
     if (d_brake < 0) d_brake = 0;
     if (d_early < 0) d_early = 0;
-    min_dist_mm = route_goto_min_dist_mm(pos ? pos->goto_speed : 0, d_brake);
+    min_dist_mm = pos_route_min_dist_mm(pos, d_brake);
     return min_dist_mm + d_early;
 }
 

@@ -5,6 +5,8 @@
 #define GAME_SENSOR_BIT_WORDS ((GAME_SENSOR_KEYS + 31) / 32)
 #define GAME_TRACK_BIT_WORDS ((TRACK_MAX + 31) / 32)
 #define GAME_AI_EVAL_CACHE_SIZE 256
+#define GAME_AI_FIXED_TARGET_SLOTS 6
+#define GAME_NEUTRAL_FIXED_TARGET_SLOTS 6
 
 typedef struct {
     pos_target_query_status_t status;
@@ -26,8 +28,42 @@ typedef struct {
     game_ai_target_eval_t eval;
 } game_ai_eval_cache_entry_t;
 
+typedef struct {
+    const char *start_sensor;
+    const char *targets[GAME_AI_FIXED_TARGET_SLOTS];
+} game_ai_fixed_target_plan_t;
+
+typedef struct {
+    const char *start_sensor;
+    const char *targets[GAME_NEUTRAL_FIXED_TARGET_SLOTS];
+} game_neutral_fixed_target_plan_t;
+
 static game_ai_eval_cache_entry_t g_game_ai_eval_cache[GAME_AI_EVAL_CACHE_SIZE];
 static int g_game_ai_eval_cache_next = 0;
+
+/* Deterministic AI target order for the fixed game setup:
+ * AI starts at E6, human at E7, neutral at B9.
+ * Later entries cover the most likely round-2 AI positions. */
+static const game_ai_fixed_target_plan_t g_game_ai_fixed_target_plans[] = {
+    {"E6",  {"C13", "E15", "C5",  "C9",  "B3",  "D15"}},
+    {"C13", {"B5",  "D3",  "D5",  "C11", "E15", "D1" }},
+    {"E15", {"B9",  "B11", "B7",  "A5",  "C7",  "D3" }},
+    {"C5",  {"B9",  "B11", "B1",  "E9",  "C7",  "D13"}},
+    {"C9",  {"B9",  "B11", "C15", "D11", "C3",  "A5" }},
+    {"B3",  {"B9",  "B11", "B7",  "A5",  "D13", "B1" }},
+    {"D15", {"B9",  "B11", "B7",  "A5",  "D13", "B1" }},
+};
+
+/* Deterministic neutral target order for the fixed game setup:
+ * human starts at E7, AI starts at E6, neutral starts at B9.
+ * Orders favor low overlap with the fixed AI route first, then lower
+ * global route centrality among likely round-2 neutral positions. */
+static const game_neutral_fixed_target_plan_t g_game_neutral_fixed_target_plans[] = {
+    {"B9",  {"C3",  "E11", "D9",  "D5",  "D7",  "E15"}},
+    {"C3",  {"B9",  "B11", "B7",  "A11", "E13", "D13"}},
+    {"E11", {"E15", "E1",  "E9",  "E13", "D15", "B3" }},
+    {"D9",  {"E1",  "E9",  "E13", "E15", "D15", "B3" }},
+};
 
 static int game_train_bit(int train_num) {
     switch (train_num) {
@@ -304,6 +340,36 @@ static int game_current_sensor_num(int train_num) {
     return pos->cur_sensor->num;
 }
 
+static const game_ai_fixed_target_plan_t *game_find_ai_fixed_target_plan(
+    const char *start_sensor_name) {
+    if (!start_sensor_name) return NULL;
+
+    for (int i = 0;
+         i < (int)(sizeof(g_game_ai_fixed_target_plans) /
+                   sizeof(g_game_ai_fixed_target_plans[0]));
+         i++) {
+        if (str_eq(g_game_ai_fixed_target_plans[i].start_sensor, start_sensor_name)) {
+            return &g_game_ai_fixed_target_plans[i];
+        }
+    }
+    return NULL;
+}
+
+static const game_neutral_fixed_target_plan_t *game_find_neutral_fixed_target_plan(
+    const char *start_sensor_name) {
+    if (!start_sensor_name) return NULL;
+
+    for (int i = 0;
+         i < (int)(sizeof(g_game_neutral_fixed_target_plans) /
+                   sizeof(g_game_neutral_fixed_target_plans[0]));
+         i++) {
+        if (str_eq(g_game_neutral_fixed_target_plans[i].start_sensor, start_sensor_name)) {
+            return &g_game_neutral_fixed_target_plans[i];
+        }
+    }
+    return NULL;
+}
+
 static int game_is_sensor_currently_occupied(game_context_t *ctx, int sensor_num) {
     for (int i = 0; i < GAME_ROLES; i++) {
         if (ctx->slots[i].train_num < 0) continue;
@@ -329,6 +395,36 @@ static int game_sensor_matches_target(uint16_t sensor_num, track_node *target) {
 static int game_targets_same_sensor(track_node *a, track_node *b) {
     if (!a || !b) return 0;
     return a == b || a->reverse == b || b->reverse == a;
+}
+
+static void game_set_neutral_detour_hint(game_context_t *ctx, track_node *target,
+                                         const char *verb) {
+    char buf[80];
+    char *p = buf;
+    char *end = buf + sizeof(buf) - 1;
+
+    if (!ctx || !target) return;
+    if (!verb || !verb[0]) verb = "yielding at";
+
+    p = buf_append_cap(p, end, "Neutral ");
+    p = buf_append_cap(p, end, verb);
+    p = buf_append_cap(p, end, " ");
+    p = buf_append_cap(p, end, target->name ? target->name : "-");
+    *p = '\0';
+    game_set_hint(ctx, buf);
+}
+
+static void game_record_neutral_standby(game_context_t *ctx, track_node *target,
+                                        int completed) {
+    game_role_slot_t *neutral;
+
+    if (!ctx || !target) return;
+
+    neutral = &ctx->slots[GAME_ROLE_NEUTRAL];
+    neutral->standby_target = target;
+    neutral->standby_sensor_num = (uint16_t)(target->num + 1);
+    neutral->standby_dispatched = 1;
+    neutral->standby_completed = completed ? 1 : 0;
 }
 
 static track_node *game_pos_final_target_node(const train_pos_t *pos) {
@@ -380,6 +476,48 @@ void game_sync_slot_completion_from_position(game_context_t *ctx, game_role_t ro
     }
 
     if (changed) ui_mark_position_dirty();
+}
+
+int game_deadlock_should_resume_after_yield(int train_num) {
+    game_context_t *ctx = &g_game;
+
+    if (!game_deadlock_mode_active()) return 1;
+    return game_role_index_from_train(ctx, train_num) != GAME_ROLE_NEUTRAL;
+}
+
+void game_note_neutral_deadlock_yield(int train_num, track_node *blocked_target,
+                                      track_node *yield_target) {
+    game_context_t *ctx = &g_game;
+    game_role_slot_t *neutral;
+    char buf[144];
+    char *p = buf;
+    char *end = buf + sizeof(buf) - 1;
+
+    (void)blocked_target;
+
+    if (!game_deadlock_mode_active() || !yield_target) return;
+    if (game_role_index_from_train(ctx, train_num) != GAME_ROLE_NEUTRAL) return;
+
+    neutral = &ctx->slots[GAME_ROLE_NEUTRAL];
+    game_record_neutral_standby(ctx, yield_target, 0);
+    game_set_neutral_detour_hint(ctx, yield_target, "yielding at");
+
+    if (neutral->reported_detour_target &&
+        game_targets_same_sensor(neutral->reported_detour_target, yield_target)) {
+        ui_mark_position_dirty();
+        return;
+    }
+    neutral->reported_detour_target = yield_target;
+
+    p = buf_append_cap(p, end, "game: neutral rerouted ");
+    p = buf_append_cap(p, end,
+                       neutral->target && neutral->target->name ? neutral->target->name : "-");
+    p = buf_append_cap(p, end, " -> ");
+    p = buf_append_cap(p, end, yield_target->name ? yield_target->name : "-");
+    p = buf_append_cap(p, end, " (deadlock yield, no resume)");
+    *p = '\0';
+    game_log_line(buf);
+    ui_mark_position_dirty();
 }
 
 static void game_log_neutral_detour_if_needed(game_context_t *ctx) {
@@ -469,7 +607,7 @@ void game_reset_round_state(game_context_t *ctx) {
     }
 }
 
-static track_node *game_pick_best_ai_target(game_context_t *ctx) {
+static track_node *game_pick_online_ai_target(game_context_t *ctx) {
     game_role_slot_t *slot = &ctx->slots[GAME_ROLE_AI];
     train_pos_t *pos = pos_get(slot->train_num);
     track_node *origins[2];
@@ -521,7 +659,46 @@ static track_node *game_pick_best_ai_target(game_context_t *ctx) {
     return NULL;
 }
 
-static track_node *game_draw_neutral_target(game_context_t *ctx) {
+static track_node *game_pick_fixed_ai_target(game_context_t *ctx) {
+    game_role_slot_t *slot = &ctx->slots[GAME_ROLE_AI];
+    train_pos_t *pos = pos_get(slot->train_num);
+    pos_target_query_t *query = &ctx->game_query_primary;
+    const game_ai_fixed_target_plan_t *plan;
+    int require_min_trip;
+
+    if (!ctx || !pos || !pos->cur_sensor || !pos->cur_sensor->name) return NULL;
+
+    plan = game_find_ai_fixed_target_plan(pos->cur_sensor->name);
+    if (!plan) return NULL;
+
+    require_min_trip = game_train_has_min_trip_candidate(ctx, slot->train_num);
+
+    for (int pass = 0; pass < 2; pass++) {
+        for (int i = 0; i < GAME_AI_FIXED_TARGET_SLOTS; i++) {
+            track_node *cand;
+            pos_target_query_status_t status;
+
+            if (!plan->targets[i]) continue;
+
+            cand = track_find_node(plan->targets[i]);
+            if (!cand || cand->type != NODE_SENSOR || !cand->name) continue;
+            if (game_targets_same_sensor(pos->cur_sensor, cand)) continue;
+            if (game_is_sensor_currently_occupied(ctx, cand->num)) continue;
+
+            status = pos_query_target(slot->train_num, cand, query);
+            if (status == POS_TARGET_UNREACHABLE) continue;
+            if (pass == 0 && require_min_trip &&
+                query->plan.total_dist_mm < GAME_MIN_TRIP_MM) {
+                continue;
+            }
+            return cand;
+        }
+    }
+
+    return NULL;
+}
+
+static track_node *game_pick_online_neutral_target(game_context_t *ctx) {
     game_role_slot_t *slot = &ctx->slots[GAME_ROLE_NEUTRAL];
     game_role_slot_t *ai_slot = &ctx->slots[GAME_ROLE_AI];
     pos_target_query_t *query = &ctx->game_query_primary;
@@ -626,6 +803,48 @@ static track_node *game_draw_neutral_target(game_context_t *ctx) {
     return NULL;
 }
 
+static track_node *game_pick_fixed_neutral_target(game_context_t *ctx) {
+    game_role_slot_t *slot = &ctx->slots[GAME_ROLE_NEUTRAL];
+    train_pos_t *pos = pos_get(slot->train_num);
+    pos_target_query_t *query = &ctx->game_query_primary;
+    const game_neutral_fixed_target_plan_t *plan;
+
+    if (!ctx || !slot || !pos || !pos->cur_sensor || !pos->cur_sensor->name) {
+        return NULL;
+    }
+
+    plan = game_find_neutral_fixed_target_plan(pos->cur_sensor->name);
+    if (!plan) return NULL;
+
+    for (int ready_only = 1; ready_only >= 0; ready_only--) {
+        for (int pass = 0; pass < 2; pass++) {
+            for (int i = 0; i < GAME_NEUTRAL_FIXED_TARGET_SLOTS; i++) {
+                track_node *cand;
+                pos_target_query_status_t status;
+
+                if (!plan->targets[i]) continue;
+
+                cand = track_find_node(plan->targets[i]);
+                if (!cand || cand->type != NODE_SENSOR || !cand->name) continue;
+                if (cand->num < 0 || cand->num >= GAME_SENSOR_KEYS) continue;
+                if (ctx->neutral_used[cand->num]) continue;
+                if (game_targets_same_sensor(pos->cur_sensor, cand)) continue;
+                if (game_is_sensor_currently_occupied(ctx, cand->num)) continue;
+
+                status = pos_query_target(slot->train_num, cand, query);
+                if (status == POS_TARGET_UNREACHABLE) continue;
+                if (ready_only && status != POS_TARGET_READY) continue;
+                if (pass == 0 && query->plan.total_dist_mm < GAME_MIN_TRIP_MM) continue;
+
+                ctx->neutral_used[cand->num] = 1;
+                return cand;
+            }
+        }
+    }
+
+    return NULL;
+}
+
 static track_node *game_pick_neutral_standby_target(game_context_t *ctx) {
     game_role_slot_t *slot = &ctx->slots[GAME_ROLE_NEUTRAL];
     pos_target_query_t *query = &ctx->game_query_primary;
@@ -673,10 +892,16 @@ static int game_dispatch_target(game_context_t *ctx, game_role_t role, track_nod
 
 void game_begin_wait_pick(game_context_t *ctx) {
     ctx->round_priority = game_current_priority_role(ctx);
-    ctx->slots[GAME_ROLE_AI].target = game_pick_best_ai_target(ctx);
+    ctx->slots[GAME_ROLE_AI].target = game_pick_fixed_ai_target(ctx);
+    if (!ctx->slots[GAME_ROLE_AI].target) {
+        ctx->slots[GAME_ROLE_AI].target = game_pick_online_ai_target(ctx);
+    }
     ctx->slots[GAME_ROLE_AI].target_sensor_num =
         ctx->slots[GAME_ROLE_AI].target ? (uint16_t)(ctx->slots[GAME_ROLE_AI].target->num + 1) : 0;
-    ctx->slots[GAME_ROLE_NEUTRAL].target = game_draw_neutral_target(ctx);
+    ctx->slots[GAME_ROLE_NEUTRAL].target = game_pick_fixed_neutral_target(ctx);
+    if (!ctx->slots[GAME_ROLE_NEUTRAL].target) {
+        ctx->slots[GAME_ROLE_NEUTRAL].target = game_pick_online_neutral_target(ctx);
+    }
     ctx->slots[GAME_ROLE_NEUTRAL].target_sensor_num =
         ctx->slots[GAME_ROLE_NEUTRAL].target ? (uint16_t)(ctx->slots[GAME_ROLE_NEUTRAL].target->num + 1) : 0;
 
@@ -839,6 +1064,8 @@ static void game_try_redirect_neutral(game_context_t *ctx, track_node *standby, 
     }
     *p = '\0';
     game_log_line(buf);
+    neutral->reported_detour_target = standby;
+    game_set_neutral_detour_hint(ctx, standby, "yielding at");
     ui_mark_position_dirty();
 }
 
@@ -851,10 +1078,8 @@ static void game_mark_neutral_resolved_at_standby(game_context_t *ctx, track_nod
 
     if (!standby) return;
 
-    neutral->standby_target = standby;
-    neutral->standby_sensor_num = (uint16_t)(standby->num + 1);
-    neutral->standby_dispatched = 1;
-    neutral->standby_completed = 1;
+    game_record_neutral_standby(ctx, standby, 1);
+    neutral->reported_detour_target = standby;
 
     p = buf_append_cap(p, end, "game: neutral resolved at ");
     p = buf_append_cap(p, end, standby->name ? standby->name : "-");
@@ -865,8 +1090,16 @@ static void game_mark_neutral_resolved_at_standby(game_context_t *ctx, track_nod
     }
     *p = '\0';
     game_log_line(buf);
-    game_set_hint(ctx, "Neutral resolved at standby");
+    game_set_neutral_detour_hint(ctx, standby, "resolved at");
     ui_mark_position_dirty();
+}
+
+static track_node *game_neutral_resolve_target(const game_role_slot_t *neutral,
+                                               const train_pos_t *neutral_pos) {
+    if (neutral_pos && neutral_pos->cur_sensor) return neutral_pos->cur_sensor;
+    if (neutral && neutral->standby_target) return neutral->standby_target;
+    if (neutral) return neutral->target;
+    return NULL;
 }
 
 void game_try_resolve_neutral_cases(game_context_t *ctx) {
@@ -876,10 +1109,25 @@ void game_try_resolve_neutral_cases(game_context_t *ctx) {
 
     if (ctx->state != GAME_STATE_ROUND_RUNNING) return;
     game_log_neutral_detour_if_needed(ctx);
-    if (neutral->standby_dispatched || neutral->completed) return;
+    if (neutral->completed) return;
 
     neutral_pos = pos_get(neutral->train_num);
     if (!neutral_pos) return;
+
+    if (ctx->slots[GAME_ROLE_HUMAN].completed &&
+        ctx->slots[GAME_ROLE_AI].completed &&
+        (neutral_pos->route_state == TRAIN_STATE_WAIT_RESOURCE ||
+         neutral_pos->route_state == TRAIN_STATE_STOPPED)) {
+        game_mark_neutral_resolved_at_standby(
+            ctx,
+            game_neutral_resolve_target(neutral, neutral_pos),
+            neutral_pos->route_state == TRAIN_STATE_WAIT_RESOURCE
+                ? "players finished while neutral waiting"
+                : "players finished while neutral stopped");
+        return;
+    }
+
+    if (neutral->standby_dispatched) return;
 
     if (neutral_pos->route_state == TRAIN_STATE_STOPPED) {
         for (int role = GAME_ROLE_HUMAN; role <= GAME_ROLE_AI; role++) {

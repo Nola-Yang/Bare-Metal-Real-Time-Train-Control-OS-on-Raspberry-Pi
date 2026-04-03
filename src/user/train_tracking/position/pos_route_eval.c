@@ -363,7 +363,7 @@ static pos_route_eval_result_t pos_evaluate_target_plan_internal(train_pos_t *po
     int32_t threshold;
 
     d_stop = pos_route_authority_stop_dist_mm(pos);
-    min_dist_mm = route_goto_min_dist_mm(pos ? pos->goto_speed : 0, d_stop);
+    min_dist_mm = pos_route_min_dist_mm(pos, d_stop);
     threshold = pos_route_authority_min_mm(pos);
     if (d_stop <= 0 || min_dist_mm <= 0 || threshold <= 0) {
         if (out) {

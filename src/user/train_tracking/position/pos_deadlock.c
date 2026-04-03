@@ -708,6 +708,10 @@ static int deadlock_apply_selected_reroute(train_pos_t *victim,
 
     if (!victim || !parts || !yield_target) return 0;
 
+    if (!game_deadlock_should_resume_after_yield(victim->train_num)) {
+        resume_after_yield = 0;
+    }
+
     blocked_target = deadlock_current_target(victim, &blocked_offset);
     if (!blocked_target) return 0;
 
@@ -768,6 +772,9 @@ static int deadlock_apply_selected_reroute(train_pos_t *victim,
                           yield_target, resume_after_yield ? resume_target : NULL,
                           0,
                           now_us + DEADLOCK_NOTICE_RESOLVED_US, 0);
+    if (!resume_after_yield) {
+        game_note_neutral_deadlock_yield(victim->train_num, blocked_target, yield_target);
+    }
     return 1;
 }
 

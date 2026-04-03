@@ -2,6 +2,7 @@
 #include "train_tracking/pos_route_internal.h"
 #include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
+#include "game_manager.h"
 #include "../traffic/traffic_window_internal.h"
 #include "track.h"
 #include "timer.h"
@@ -179,6 +180,34 @@ uint8_t pos_wait_resource_current_blocker_mask(train_pos_t *pos) {
     }
 }
 
+static int pos_same_physical_sensor(track_node *a, track_node *b) {
+    if (!a || !b) return 0;
+    return a == b || a->reverse == b || b->reverse == a;
+}
+
+static int pos_game_can_skip_resume_threshold(train_pos_t *pos,
+                                              const route_plan_t *remaining_plan) {
+    track_node *final_target;
+    track_node *plan_end;
+
+    if (!pos || !remaining_plan || remaining_plan->path_count <= 0) return 0;
+    if (!game_is_active()) return 0;
+    if (pos->route_state != TRAIN_STATE_WAIT_RESOURCE) return 0;
+    if ((pos_wait_mode_t)pos->replan.wait_mode != POS_WAIT_RESUME_ROUTE) return 0;
+    if (!pos->cur_sensor) return 0;
+
+    final_target = pos_route_current_goal(pos);
+    if (!final_target) return 0;
+    if (pos_same_physical_sensor(pos->cur_sensor, final_target)) return 0;
+
+    plan_end = &g_track[remaining_plan->path_nodes[remaining_plan->path_count - 1]];
+    if (!pos_same_physical_sensor(plan_end, final_target)) return 0;
+
+    /* Only bypass the rolling threshold when nothing specific is blocking the
+     * remaining committed route and the train can finish its current mission. */
+    return pos_wait_resource_current_blocker_mask(pos) == 0;
+}
+
 static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
     int reserved_end_cursor = -1;
     int start_cursor = 0;
@@ -201,6 +230,10 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
 
     if (wait_mode == POS_WAIT_RESUME_ROUTE &&
         g_pos_try_reserve_plan.total_dist_mm < pos_route_authority_min_mm(pos)) {
+        if (pos_game_can_skip_resume_threshold(pos, &g_pos_try_reserve_plan) &&
+            pos_try_launch_committed_route_short(pos, now_us)) {
+            return 1;
+        }
         if (pos_deadlock_preserve_committed_route(pos, &g_pos_try_reserve_plan,
                                                   wait_mode, now_us)) {
             return 1;
@@ -225,6 +258,15 @@ static int pos_try_launch_committed_route(train_pos_t *pos, uint64_t now_us) {
                 ? authority_blocker_mask
                 : pos_blocker_mask_from_plan_and_switches(pos->train_num,
                                                           &g_pos_try_reserve_plan);
+        /* In game mode, a stale prelaunch route can become launch-ineligible
+         * without any concrete blocker after an off-route recovery. Waiting on
+         * that committed route would stall forever, so fall back to a fresh
+         * replan from the current stop instead. */
+        if (game_is_active() &&
+            wait_mode == POS_WAIT_PRELAUNCH_ROUTE &&
+            blocker_mask == 0) {
+            return pos_replan_from_current_stop(pos);
+        }
         pos_enter_wait_resource(pos, now_us, blocker_mask, wait_mode);
         return 1;
     }

@@ -35,6 +35,9 @@ void game_get_ui_summary(game_ui_summary_t *out, uint64_t now_us);
 int game_deadlock_mode_active(void);
 int game_deadlock_victim_rank(int train_num);
 track_node *game_deadlock_preferred_yield_target(int train_num);
+int game_deadlock_should_resume_after_yield(int train_num);
+void game_note_neutral_deadlock_yield(int train_num, track_node *blocked_target,
+                                      track_node *yield_target);
 int game_deadlock_handle_no_solution(const int *cycle_trains, int cycle_count,
                                      int victim_train, track_node *blocked_target);
 
