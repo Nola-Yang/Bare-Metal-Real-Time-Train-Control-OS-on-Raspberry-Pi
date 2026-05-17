@@ -204,7 +204,19 @@ void ui_server_task(void) {
                 if (owner_tid != tid || owner_mode != UI_SERVER_BATCH_COMMAND) {
                     reply.status = -1;
                 } else {
-                    term_puts_chunked(term_tid, "\r\033[2Kcmd> ", 10);
+                    char buf[64];
+                    char *p = buf;
+                    char *end = buf + sizeof(buf) - 1;
+                    p = buf_append_cap(p, end, "\r\033[2K");
+                    if (req.len > 0) {
+                        for (int i = 0; i < req.len && p < end; i++) {
+                            *p++ = req.str[i];
+                        }
+                    } else {
+                        p = buf_append_cap(p, end, "cmd> ");
+                    }
+                    *p = '\0';
+                    term_puts_chunked(term_tid, buf, (int)(p - buf));
                     reply.status = 0;
                 }
                 Reply(tid, (const char *)&reply, sizeof(reply));
@@ -214,15 +226,23 @@ void ui_server_task(void) {
                 if (owner_tid != tid || owner_mode != UI_SERVER_BATCH_COMMAND) {
                     reply.status = -1;
                 } else {
-                    char *buf = buf_get_temp();
+                    char buf[64];
                     char *p = buf;
-                    p = buf_append(p, "\033[");
-                    p = buf_append_int(p, UI_CMD_SCROLL_TOP);
-                    p = buf_append(p, ";");
-                    p = buf_append_int(p, UI_CMD_SCROLL_BOTTOM);
-                    p = buf_append(p, "r\033[");
-                    p = buf_append_int(p, UI_CMD_SCROLL_TOP);
-                    p = buf_append(p, ";1Hcmd> ");
+                    char *end = buf + sizeof(buf) - 1;
+                    p = buf_append_cap(p, end, "\033[");
+                    p = buf_append_int_cap(p, end, UI_CMD_SCROLL_TOP);
+                    p = buf_append_cap(p, end, ";");
+                    p = buf_append_int_cap(p, end, UI_CMD_SCROLL_BOTTOM);
+                    p = buf_append_cap(p, end, "r\033[");
+                    p = buf_append_int_cap(p, end, UI_CMD_SCROLL_TOP);
+                    p = buf_append_cap(p, end, ";1H");
+                    if (req.len > 0) {
+                        for (int i = 0; i < req.len && p < end; i++) {
+                            *p++ = req.str[i];
+                        }
+                    } else {
+                        p = buf_append_cap(p, end, "cmd> ");
+                    }
                     *p = '\0';
 
                     term_puts_chunked(term_tid, buf, (int)(p - buf));
@@ -323,21 +343,29 @@ int UIServerCmdEnter(int tid) {
 }
 
 int UIServerCmdPrompt(int tid) {
+    return UIServerCmdPromptLabel(tid, NULL, 0);
+}
+
+int UIServerPrepareCmd(int tid) {
+    return UIServerPrepareCmdLabel(tid, NULL, 0);
+}
+
+int UIServerCmdPromptLabel(int tid, const char *label, int len) {
     if (ui_server_begin_batch(tid, UI_SERVER_BATCH_COMMAND) != 0) {
         return -1;
     }
     int ret = ui_server_send_simple(tid, UI_SERVER_MSG_CMD_PROMPT,
-                                    UI_SERVER_BATCH_COMMAND, 0, NULL, 0);
+                                    UI_SERVER_BATCH_COMMAND, 0, label, len);
     ui_server_end_batch(tid, UI_SERVER_BATCH_COMMAND);
     return ret;
 }
 
-int UIServerPrepareCmd(int tid) {
+int UIServerPrepareCmdLabel(int tid, const char *label, int len) {
     if (ui_server_begin_batch(tid, UI_SERVER_BATCH_COMMAND) != 0) {
         return -1;
     }
     int ret = ui_server_send_simple(tid, UI_SERVER_MSG_CMD_PREPARE,
-                                    UI_SERVER_BATCH_COMMAND, 0, NULL, 0);
+                                    UI_SERVER_BATCH_COMMAND, 0, label, len);
     ui_server_end_batch(tid, UI_SERVER_BATCH_COMMAND);
     return ret;
 }

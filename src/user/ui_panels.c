@@ -3,6 +3,7 @@
 #include "util.h"
 #include "track.h"
 #include "demo_manager.h"
+#include "game_manager.h"
 #include "timer.h"
 #include "train_tracking/position.h"
 #include "train_tracking/traffic_manager.h"
@@ -113,17 +114,69 @@ static char *ui_append_field(char *p, const char *text, int width) {
     return p;
 }
 
-static void ui_build_dest_text(const train_pos_t *pos, char *out, int cap) {
+static char *ui_append_colored_field(char *p, const char *text, int width,
+                                     const char *color) {
+    if (color) p = buf_append(p, color);
+    p = ui_append_field(p, text, width);
+    if (color) p = buf_append(p, "\033[0m");
+    return p;
+}
+
+static int ui_targets_same_sensor(track_node *a, track_node *b) {
+    if (!a || !b) return 0;
+    return a == b || a->reverse == b || b->reverse == a;
+}
+
+static int ui_pos_is_parked_for_target(const train_pos_t *pos) {
+    if (!pos) return 0;
+    return pos->route_state == TRAIN_STATE_STOPPED ||
+           pos->route_state == TRAIN_STATE_WAIT_RESOURCE ||
+           pos->route_state == TRAIN_STATE_WAIT_SWITCH_SETTLE;
+}
+
+static const char *ui_target_highlight_color(const train_pos_t *pos,
+                                             pos_target_col_t column) {
+    if (!ui_pos_is_parked_for_target(pos)) return NULL;
+    if (pos->parked_target_col != (uint8_t)column) return NULL;
+    return "\033[30;42m";
+}
+
+/* Keep the final mission target stable in UI even when authority top-up or a
+ * mid-route reversal temporarily changes pos->target_sensor. */
+static track_node *ui_final_target_node(const train_pos_t *pos) {
+    if (!pos) return NULL;
+    if (pos->orig_user_target) return pos->orig_user_target;
+    if (pos->midrev.active && pos->midrev.final_target) return pos->midrev.final_target;
+    return pos->target_sensor;
+}
+
+static void ui_build_final_target_text(const train_pos_t *pos, char *out, int cap) {
     int n = 0;
-    if (!pos || !pos->target_sensor || !pos->target_sensor->name) {
+    track_node *final_target = ui_final_target_node(pos);
+
+    if (!final_target || !final_target->name) {
         n = ui_limited_append_char(out, n, cap, '-');
     } else {
+        n = ui_limited_append_str(out, n, cap, final_target->name);
+    }
+    ui_limited_finish(out, n, cap);
+}
+
+static void ui_build_stage_target_text(const train_pos_t *pos, char *out, int cap) {
+    int n = 0;
+    track_node *final_target = ui_final_target_node(pos);
+
+    if (!pos || !pos->target_sensor || !pos->target_sensor->name ||
+        ui_targets_same_sensor(pos->target_sensor, final_target)) {
+        n = ui_limited_append_char(out, n, cap, '-');
+    } else {
+        const char *prefix =
+            (pos->midrev.active &&
+             ui_targets_same_sensor(pos->target_sensor, pos->midrev.sensor))
+                ? "REV:"
+                : "AUTH:";
+        n = ui_limited_append_str(out, n, cap, prefix);
         n = ui_limited_append_str(out, n, cap, pos->target_sensor->name);
-        if (pos->midrev.active && pos->midrev.final_target &&
-            pos->midrev.final_target->name) {
-            n = ui_limited_append_char(out, n, cap, '>');
-            n = ui_limited_append_str(out, n, cap, pos->midrev.final_target->name);
-        }
     }
     ui_limited_finish(out, n, cap);
 }
@@ -176,8 +229,11 @@ static char *ui_append_blank_row(char *p, int row) {
 }
 
 static char *ui_append_position_row(char *p, int row, int train, const train_pos_t *pos) {
-    char dest_buf[64];
+    char final_buf[32];
+    char stage_buf[32];
     char rem_buf[24];
+    const char *final_color;
+    const char *stage_color;
     const char *cur_name = (pos && pos->cur_sensor && pos->cur_sensor->name)
                            ? pos->cur_sensor->name : "-";
     const char *next_name = (pos && pos->pred.next_sensor && pos->pred.next_sensor->name)
@@ -186,8 +242,11 @@ static char *ui_append_position_row(char *p, int row, int train, const train_pos
                                pos->queued_target->name)
                               ? pos->queued_target->name : "-";
 
-    ui_build_dest_text(pos, dest_buf, sizeof(dest_buf));
+    ui_build_final_target_text(pos, final_buf, sizeof(final_buf));
+    ui_build_stage_target_text(pos, stage_buf, sizeof(stage_buf));
     ui_build_rem_text(pos, rem_buf, sizeof(rem_buf));
+    final_color = ui_target_highlight_color(pos, POS_TARGET_COL_FINAL);
+    stage_color = ui_target_highlight_color(pos, POS_TARGET_COL_STAGE);
 
     p = ui_move_to_row(p, row);
     if (train > 0) p = buf_append_int(p, train);
@@ -195,10 +254,11 @@ static char *ui_append_position_row(char *p, int row, int train, const train_pos
     p = ui_append_field(p, "", (train > 0) ? 1 : 2);
     p = ui_append_field(p, cur_name, 7);
     p = ui_append_field(p, next_name, 7);
-    p = ui_append_field(p, dest_buf, 24);
-    p = ui_append_field(p, pos ? ui_state_long(pos->route_state) : "-", 15);
+    p = ui_append_colored_field(p, final_buf, 10, final_color);
+    p = ui_append_colored_field(p, stage_buf, 12, stage_color);
+    p = ui_append_field(p, pos ? ui_state_long(pos->route_state) : "-", 13);
     p = ui_append_field(p, rem_buf, 9);
-    p = ui_append_field(p, queued_name, 24);
+    p = ui_append_field(p, queued_name, 10);
     p = buf_append(p, "\033[K");
     return p;
 }
@@ -231,6 +291,145 @@ static void ui_build_demo_tuning_line(uint64_t now_us, char *out, int cap) {
     demo_get_ui_summary(&summary, now_us);
     n = ui_limited_append_str(out, n, cap, "Tuning: gold_min_trip_mm=");
     n = ui_limited_append_int(out, n, cap, summary.gold_min_trip_mm);
+    n = ui_limited_append_str(out, n, cap, "  missions_completed=");
+    n = ui_limited_append_int(out, n, cap, summary.missions_completed);
+    ui_limited_finish(out, n, cap);
+}
+
+static void ui_build_wait_line(const int *trains, char *out, int cap) {
+    int n = 0;
+
+    n = ui_limited_append_str(out, n, cap, "Wait: ");
+    for (int i = 0; i < 5; i++) {
+        int train = trains ? trains[i] : -1;
+        train_pos_t *pos = (train > 0) ? pos_get(train) : NULL;
+        pos_wait_info_t wait_info;
+
+        if (i > 0) {
+            n = ui_limited_append_str(out, n, cap, "  ");
+        }
+
+        n = ui_limited_append_str(out, n, cap, "tr");
+        if (train > 0) n = ui_limited_append_int(out, n, cap, train);
+        else n = ui_limited_append_char(out, n, cap, '-');
+        n = ui_limited_append_char(out, n, cap, '=');
+
+        if (pos && pos->route_state == TRAIN_STATE_WAIT_SWITCH_SETTLE) {
+            n = ui_limited_append_str(out, n, cap, "settle");
+            continue;
+        }
+
+        pos_get_wait_info(train, &wait_info);
+        if (!wait_info.active) {
+            n = ui_limited_append_char(out, n, cap, '-');
+            continue;
+        }
+
+        if (wait_info.node && wait_info.node->name) {
+            n = ui_limited_append_str(out, n, cap, wait_info.node->name);
+        } else if (wait_info.blocked_by_switch && wait_info.switch_num > 0) {
+            n = ui_limited_append_str(out, n, cap, "SW");
+            n = ui_limited_append_int(out, n, cap, wait_info.switch_num);
+        } else {
+            n = ui_limited_append_char(out, n, cap, '?');
+        }
+
+        if (wait_info.blocker_train > 0) {
+            n = ui_limited_append_char(out, n, cap, '@');
+            n = ui_limited_append_int(out, n, cap, wait_info.blocker_train);
+        }
+    }
+
+    ui_limited_finish(out, n, cap);
+}
+
+static int ui_limited_append_score_half(char *dst, int pos, int cap, int half_points) {
+    int whole = half_points / 2;
+    int half = half_points & 1;
+
+    pos = ui_limited_append_int(dst, pos, cap, whole);
+    pos = ui_limited_append_char(dst, pos, cap, '.');
+    pos = ui_limited_append_char(dst, pos, cap, half ? '5' : '0');
+    return pos;
+}
+
+#define CLR_HUMAN  "\033[36m"   /* cyan    */
+#define CLR_AI     "\033[33m"   /* yellow  */
+#define CLR_RESET  "\033[0m"
+
+static void ui_build_game_header_line(uint64_t now_us, char *out, int cap) {
+    game_ui_summary_t summary;
+    int n = 0;
+
+    game_get_ui_summary(&summary, now_us);
+    n = ui_limited_append_str(out, n, cap, "Game: ");
+    n = ui_limited_append_str(out, n, cap, summary.state_name);
+    n = ui_limited_append_str(out, n, cap, "  R=");
+    n = ui_limited_append_int(out, n, cap, summary.round_num);
+    n = ui_limited_append_str(out, n, cap, "/");
+    n = ui_limited_append_int(out, n, cap, GAME_ROUNDS);
+    n = ui_limited_append_str(out, n, cap, "  Priority=");
+    n = ui_limited_append_str(out, n, cap, summary.priority_name);
+    n = ui_limited_append_str(out, n, cap, "  ");
+    n = ui_limited_append_str(out, n, cap, CLR_HUMAN);
+    n = ui_limited_append_str(out, n, cap, "H=");
+    n = ui_limited_append_int(out, n, cap, summary.human_train);
+    n = ui_limited_append_str(out, n, cap, CLR_RESET " ");
+    n = ui_limited_append_str(out, n, cap, CLR_AI);
+    n = ui_limited_append_str(out, n, cap, "AI=");
+    n = ui_limited_append_int(out, n, cap, summary.ai_train);
+    n = ui_limited_append_str(out, n, cap, CLR_RESET " N=");
+    n = ui_limited_append_int(out, n, cap, summary.neutral_train);
+    ui_limited_finish(out, n, cap);
+}
+
+static void ui_build_game_score_line(uint64_t now_us, char *out, int cap) {
+    game_ui_summary_t summary;
+    const char *result_color;
+    int n = 0;
+
+    game_get_ui_summary(&summary, now_us);
+    n = ui_limited_append_str(out, n, cap, "Score: ");
+    n = ui_limited_append_str(out, n, cap, CLR_HUMAN);
+    n = ui_limited_append_str(out, n, cap, "Human=");
+    n = ui_limited_append_score_half(out, n, cap, summary.human_score_half);
+    n = ui_limited_append_str(out, n, cap, CLR_RESET "  ");
+    n = ui_limited_append_str(out, n, cap, CLR_AI);
+    n = ui_limited_append_str(out, n, cap, "AI=");
+    n = ui_limited_append_score_half(out, n, cap, summary.ai_score_half);
+    n = ui_limited_append_str(out, n, cap, CLR_RESET "  Result=");
+
+    if (summary.result_text[0] == 'H')      result_color = CLR_HUMAN;
+    else if (summary.result_text[0] == 'A') result_color = CLR_AI;
+    else if (summary.result_text[0] == 'D') result_color = "\033[35m"; /* magenta */
+    else                                    result_color = NULL;
+
+    if (result_color) n = ui_limited_append_str(out, n, cap, result_color);
+    n = ui_limited_append_str(out, n, cap, summary.result_text);
+    if (result_color) n = ui_limited_append_str(out, n, cap, CLR_RESET);
+    ui_limited_finish(out, n, cap);
+}
+
+static void ui_build_game_detail_line(uint64_t now_us, char *out, int cap) {
+    game_ui_summary_t summary;
+    int n = 0;
+
+    game_get_ui_summary(&summary, now_us);
+    if (!summary.reveal_targets) {
+        n = ui_limited_append_str(out, n, cap, "Prompt: ");
+        n = ui_limited_append_str(out, n, cap, summary.hint_text);
+    } else {
+        n = ui_limited_append_str(out, n, cap, "Targets: ");
+        n = ui_limited_append_str(out, n, cap, CLR_HUMAN);
+        n = ui_limited_append_str(out, n, cap, "H=");
+        n = ui_limited_append_str(out, n, cap, summary.human_target_name);
+        n = ui_limited_append_str(out, n, cap, CLR_RESET " ");
+        n = ui_limited_append_str(out, n, cap, CLR_AI);
+        n = ui_limited_append_str(out, n, cap, "AI=");
+        n = ui_limited_append_str(out, n, cap, summary.ai_target_name);
+        n = ui_limited_append_str(out, n, cap, CLR_RESET " N=");
+        n = ui_limited_append_str(out, n, cap, summary.neutral_target_name);
+    }
     ui_limited_finish(out, n, cap);
 }
 
@@ -244,7 +443,7 @@ static char *ui_append_deadlock_warn(char *p, const pos_deadlock_notice_t *notic
     if (!notice || !notice->active) return p;
 
     p = buf_append(p, "deadlock ");
-    for (int i = 0; i < notice->cycle_count; i++) {
+    for (int i = 0; i < notice->cycle_count && i < DEADLOCK_MAX_TRAINS; i++) {
         if (i > 0) p = buf_append(p, ",");
         p = buf_append_int(p, notice->cycle_trains[i]);
     }
@@ -267,10 +466,24 @@ static char *ui_append_deadlock_warn(char *p, const pos_deadlock_notice_t *notic
     return p;
 }
 
+static char *ui_append_dead_track_warn(char *p, int train_num) {
+    p = buf_append(p, "\033[31mtr");
+    p = buf_append_int(p, train_num);
+    p = buf_append(p, " dead-track\033[0m");
+    return p;
+}
+
 typedef struct {
     uint16_t idx;
     uint8_t  hidden;
 } ui_reservation_display_node_t;
+
+static ui_reservation_display_node_t g_ui_reservation_nodes[TRACK_MAX];
+static int g_ui_position_trains[5];
+static char g_ui_position_line_buf[160];
+static char g_ui_reservation_blocks[UI_RESERVATION_TRAIN_COUNT]
+                                   [UI_RESERVATION_BLOCK_ROWS]
+                                   [UI_RESERVATION_COL_WIDTH + 1];
 
 static int ui_node_index(const track_node *node) {
     if (!node) return -1;
@@ -425,7 +638,7 @@ static void ui_build_reservation_block_lines(
     int train_num,
     char lines[UI_RESERVATION_BLOCK_ROWS][UI_RESERVATION_COL_WIDTH + 1]
 ) {
-    ui_reservation_display_node_t nodes[TRACK_MAX];
+    ui_reservation_display_node_t *nodes = g_ui_reservation_nodes;
     int total = ui_collect_reservation_display_nodes(train_num, nodes, TRACK_MAX);
     int hidden_total = 0;
     int fill = total;
@@ -521,13 +734,13 @@ static void ui_build_reservation_block_lines(
 void ui_draw_position(void) {
     char *temp_buf = buf_get_temp();
     char *p = temp_buf;
-    int trains[5];
+    int *trains = g_ui_position_trains;
     uint64_t now_us = read_timer();
-    char line_buf[160];
+    char *line_buf = g_ui_position_line_buf;
+    int line_cap = (int)sizeof(g_ui_position_line_buf);
     static const int RESERVATION_TRAINS[UI_RESERVATION_TRAIN_COUNT] = {13, 14, 15, 17, 18, 55};
-    char reservation_blocks[UI_RESERVATION_TRAIN_COUNT]
-                           [UI_RESERVATION_BLOCK_ROWS]
-                           [UI_RESERVATION_COL_WIDTH + 1];
+    char (*reservation_blocks)[UI_RESERVATION_BLOCK_ROWS][UI_RESERVATION_COL_WIDTH + 1] =
+        g_ui_reservation_blocks;
 
     ui_build_train_rows(trains);
 
@@ -536,9 +749,10 @@ void ui_draw_position(void) {
     p = ui_append_field(p, "TR", 3);
     p = ui_append_field(p, "CUR", 7);
     p = ui_append_field(p, "NEXT", 7);
-    p = ui_append_field(p, "TARGET", 24);
-    p = ui_append_field(p, "STATE", 15);
-    p = ui_append_field(p, "REMAIN", 9);
+    p = ui_append_field(p, "FINAL", 10);
+    p = ui_append_field(p, "STAGE", 12);
+    p = ui_append_field(p, "STATE", 13);
+    p = ui_append_field(p, "LEG_MM", 9);
     p = buf_append(p, "QUEUED\033[K");
 
     for (int i = 0; i < 5; i++) {
@@ -547,7 +761,12 @@ void ui_draw_position(void) {
         p = ui_append_position_row(p, 24 + i, train, pos);
     }
 
+    ui_build_wait_line(trains, line_buf, line_cap);
     p = ui_move_to_row(p, 29);
+    p = buf_append(p, line_buf);
+    p = buf_append(p, "\033[K");
+
+    p = ui_move_to_row(p, 30);
     p = buf_append(p, "Warn: ");
     {
         pos_deadlock_notice_t deadlock_notice;
@@ -557,10 +776,9 @@ void ui_draw_position(void) {
         for (int i = 0; i < MAX_POS_TRAINS; i++) {
             train_pos_t *pos = pos_get_by_index(i);
             if (!pos || pos->train_num < 0) continue;
-            if (pos->route_state == TRAIN_STATE_DEAD_TRACK) {
-                p = buf_append(p, "tr");
-                p = buf_append_int(p, pos->train_num);
-                p = buf_append(p, " dead-track");
+            if (pos->route_state == TRAIN_STATE_DEAD_TRACK ||
+                pos->dead_track_warn_active) {
+                p = ui_append_dead_track_warn(p, pos->train_num);
                 warned = 1;
                 break;
             }
@@ -602,20 +820,35 @@ void ui_draw_position(void) {
     }
     p = buf_append(p, "\033[K");
 
-    p = ui_append_section_bar(p, 30, "Demo Status");
-    ui_build_demo_sensor_line(now_us, line_buf, sizeof(line_buf));
-    p = ui_move_to_row(p, 31);
-    p = buf_append(p, line_buf);
-    p = buf_append(p, "\033[K");
-
-    ui_build_demo_tuning_line(now_us, line_buf, sizeof(line_buf));
+    p = ui_append_section_bar(p, 31, game_is_active() ? "Game Status" : "Demo Status");
+    if (game_is_active()) {
+        ui_build_game_header_line(now_us, line_buf, line_cap);
+    } else {
+        ui_build_demo_sensor_line(now_us, line_buf, line_cap);
+    }
     p = ui_move_to_row(p, 32);
     p = buf_append(p, line_buf);
     p = buf_append(p, "\033[K");
 
-    p = ui_append_blank_row(p, 33);
+    if (game_is_active()) {
+        ui_build_game_score_line(now_us, line_buf, line_cap);
+    } else {
+        ui_build_demo_tuning_line(now_us, line_buf, line_cap);
+    }
+    p = ui_move_to_row(p, 33);
+    p = buf_append(p, line_buf);
+    p = buf_append(p, "\033[K");
 
-    p = ui_append_section_bar(p, 34, "Reservations");
+    if (game_is_active()) {
+        ui_build_game_detail_line(now_us, line_buf, line_cap);
+        p = ui_move_to_row(p, 34);
+        p = buf_append(p, line_buf);
+        p = buf_append(p, "\033[K");
+    } else {
+        p = ui_append_blank_row(p, 34);
+    }
+
+    p = ui_append_section_bar(p, 35, "Reservations");
     for (int i = 0; i < UI_RESERVATION_TRAIN_COUNT; i++) {
         ui_build_reservation_block_lines(RESERVATION_TRAINS[i], reservation_blocks[i]);
     }

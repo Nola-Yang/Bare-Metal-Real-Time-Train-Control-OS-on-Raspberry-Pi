@@ -20,7 +20,7 @@
 #define TASK_STATE_REPLY_BLOCKED  6
 #define TASK_STATE_EVENT_BLOCKED  7
 
-#define TASK_STACK_SIZE 4096
+#define TASK_STACK_SIZE 8192
 
 /* Stack canary magic value for overflow detection */
 #define STACK_CANARY_VALUE 0xDEADBEEFCAFEBABEULL

@@ -34,6 +34,10 @@ int traffic_can_reserve_plan(int train_num, const route_plan_t *plan);
 /* Release all reservations owned by train_num. */
 void traffic_release_train(int train_num);
 
+/* Release the reservation on `node` and its reverse-direction twin only.
+ * Returns 1 if any reservation entry changed, 0 otherwise. */
+int traffic_release_physical_node(track_node *node);
+
 /* Release all reservations except the current travel window:
  * keep `body_mm` behind `last_hit`, the track from `last_hit` to `next_hit`
  * (if reachable), and `body_mm` ahead of `next_hit`, all relative to the
@@ -45,12 +49,30 @@ void traffic_release_train_keep_body(int train_num, track_node *last_hit,
 void traffic_refresh_route_reservation(int train_num, track_node *cur_sensor,
                                        track_node *next_hit,
                                        const uint16_t *path, int path_cursor,
+                                       int path_end_cursor,
                                        int path_count);
+
+/* Refresh a bootstrap/dead-track reservation window anchored at cur_sensor:
+ * keep cur_sensor, rear_mm behind it, and every reachable node on the path
+ * from cur_sensor to pred_sensor. */
+void traffic_refresh_sensor_prediction_reservation(int train_num,
+                                                   track_node *cur_sensor,
+                                                   track_node *pred_sensor,
+                                                   int32_t rear_mm);
 
 /* Check if it is safe to set a switch.
  * Any reservation on the switch envelope blocks the change, including self-owned
  * reservations. Returns -1 when safe; otherwise returns the blocking train number. */
 int traffic_can_set_switch(int sw_num, int requester_train);
+
+/* Record or clear deadlock-only planning overrides for user-selected switches. */
+void traffic_deadlock_allow_switch_override(int sw_num);
+void traffic_deadlock_clear_switch_overrides(void);
+
+/* Planning-only switch safety check.
+ * Deadlock overrides temporarily treat matching switches as changeable even when
+ * their envelopes are occupied. Returns -1 when safe; otherwise the blocker. */
+int traffic_can_set_switch_for_plan(int sw_num, int requester_train);
 
 /* Collect unique train numbers that currently block reserving `plan`.
  * Returns total unique blocker count and fills up to max_trains entries. */
@@ -62,6 +84,14 @@ int traffic_collect_plan_blockers(int requester_train, const route_plan_t *plan,
 int traffic_collect_switch_envelope_blockers(int sw_num, int *out_trains,
                                              int max_trains);
 
+/* Return the first conflicting reserved node for `plan`, or NULL if none. */
+track_node *traffic_find_plan_blocking_node(int requester_train,
+                                            const route_plan_t *plan,
+                                            int *out_owner);
+
+/* Return the first occupied node in the switch safety envelope, or NULL if clear. */
+track_node *traffic_find_switch_blocking_node(int sw_num, int *out_owner);
+
 /* Copy and restore the current reservation owner map for local simulations. */
 void traffic_snapshot_reservations(int out_owners[TRACK_MAX]);
 void traffic_restore_reservations(const int owners[TRACK_MAX]);
@@ -69,7 +99,7 @@ void traffic_restore_reservations(const int owners[TRACK_MAX]);
 /* Simulate a stopped train holding the same keep-body window that
  * traffic_release_train_keep_body() would preserve after stopping at last_hit. */
 void traffic_simulate_parked_train(int train_num, track_node *last_hit,
-                                   track_node *next_hit);
+                                   int32_t body_mm, track_node *next_hit);
 
 /* Attribute a sensor hit to the best train, or return owner=NULL when the
  * event remains spurious after all rescue logic. */

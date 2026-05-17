@@ -3,7 +3,7 @@
 
 #include "task_scheduler.h"
 
-// Runtime worker: owns track/pos/demo/rv state changes.
-void train_runtime_task(void);
+// Runtime coordinator: owns startup/shutdown and routes structured events.
+void runtime_core_task(void);
 
 #endif /* _train_runtime_h_ */

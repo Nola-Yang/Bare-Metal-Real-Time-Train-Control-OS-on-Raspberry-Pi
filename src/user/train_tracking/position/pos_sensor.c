@@ -1,7 +1,7 @@
 #include "train_tracking/position_priv.h"
 #include "train_tracking/route_priv.h"
 #include "train_tracking/traffic_manager.h"
-#include "traffic_manager_internal.h"
+#include "../traffic/traffic_manager_internal.h"
 #include "track.h"
 #include "train_tracking/track_data.h"
 #include "kassert.h"
@@ -29,44 +29,10 @@ static int route_path_hit_cursor(const train_pos_t *pos, track_node *hit) {
     return -1;
 }
 
-static track_node *route_path_first_remaining_sensor(const train_pos_t *pos) {
-    if (!pos || pos->route_path_count <= 0) return NULL;
-
-    int start = pos->route_path_cursor;
-    if (start < 0) start = 0;
-    if (start >= pos->route_path_count) return NULL;
-
-    for (int i = start; i < pos->route_path_count; i++) {
-        int idx = (int)pos->route_path[i];
-        if (idx < 0 || idx >= TRACK_MAX) continue;
-        if (g_track[idx].type == NODE_SENSOR) return &g_track[idx];
-    }
-    return NULL;
-}
-
 static int branch_dir_reaches_sensor(track_node *branch, int dir,
                                      track_node *sensor) {
     if (!branch || branch->type != NODE_BRANCH || !sensor) return 0;
     return follow_dist(branch->edge[dir].dest, sensor, OFF_ROUTE_PATH_MAX_HOPS) >= 0;
-}
-
-static int branch_planned_dir(const train_pos_t *pos, track_node *branch) {
-    if (!branch || branch->type != NODE_BRANCH) return -1;
-
-    track_node *planned_sensor = route_path_first_remaining_sensor(pos);
-    if (!planned_sensor && pos) planned_sensor = pos->pred.next_sensor;
-
-    if (planned_sensor) {
-        int straight = branch_dir_reaches_sensor(branch, DIR_STRAIGHT, planned_sensor);
-        int curved = branch_dir_reaches_sensor(branch, DIR_CURVED, planned_sensor);
-        if (straight != curved) return straight ? DIR_STRAIGHT : DIR_CURVED;
-    }
-
-    int sw_idx = track_switch_to_index(branch->num);
-    char state = (sw_idx >= 0) ? track_get_switch_state()[sw_idx].state : '?';
-    if (state == 'S') return DIR_STRAIGHT;
-    if (state == 'C') return DIR_CURVED;
-    return -1;
 }
 
 static int current_leg_alt_branch_hit(const train_pos_t *pos, track_node *hit) {
@@ -81,7 +47,7 @@ static int current_leg_alt_branch_hit(const train_pos_t *pos, track_node *hit) {
         if (cur == pos->pred.next_sensor || cur->type == NODE_SENSOR) return 0;
         if (cur->type != NODE_BRANCH) continue;
 
-        int planned_dir = branch_planned_dir(pos, cur);
+        int planned_dir = route_branch_planned_dir(pos, cur);
         if (planned_dir != DIR_STRAIGHT && planned_dir != DIR_CURVED) return 0;
 
         int alt_dir = (planned_dir == DIR_STRAIGHT) ? DIR_CURVED : DIR_STRAIGHT;
@@ -137,10 +103,18 @@ static void update_sensor_stats(train_pos_t *pos, track_node *hit,
     }
 }
 
-/* DEAD_TRACK is terminal: ignore any later attributed sensor and keep the train
- * parked in place. */
+/* While waiting out the dead-track timeout, ignore any later attributed sensor
+ * and keep the train parked in place. */
 static void handle_dead_track_sensor(train_pos_t *pos) {
     if (!pos) return;
+    if (pos->cur_sensor) {
+        track_node *keep_pred = pos_release_keep_end(pos->cur_sensor, NULL);
+        pos->offroute_expected_sensor = keep_pred;
+        traffic_refresh_sensor_prediction_reservation(pos->train_num,
+                                                      pos->cur_sensor,
+                                                      keep_pred,
+                                                      TRAIN_BODY_MM);
+    }
     track_set_speed(pos->train_num, 0);
     pos->effective_v = 0;
     pos->is_accelerating = 0;
@@ -183,17 +157,17 @@ void pos_revive_dead_track_for_current_hit(train_pos_t *pos) {
     pos->orig_user_target = orig_target;
     pos->orig_target_offset = orig_offset_mm;
     pos->dist_to_target_mm = 0;
+    pos->parked_target_col = POS_TARGET_COL_NONE;
     pos->effective_v = 0;
     pos->user_speed = 0;
     pos->is_accelerating = 0;
     pos->awaiting_post_launch_sensor = 0;
-    pos->route_path_count = 0;
-    pos->route_path_cursor = 0;
-    pos->route_rem_tick_us = 0;
+    pos_clear_committed_route(pos);
     pos->offroute_valid = 0;
     pos->offroute_expected_sensor = NULL;
     pos->force_offroute_on_next_sensor = 1;
     pos->dead_track_rescue_pending = 1;
+    pos->dead_track_retry_due_us = 0;
     pos_clear_prediction(pos);
 }
 
@@ -215,7 +189,7 @@ static void update_next_prediction(train_pos_t *pos, track_node *hit, uint64_t t
     pos->pred.trigger_time = (dt_pred > 0) ? time_us + dt_pred : 0;
     
     pos->dead_track_deadline_us =
-        pos_dead_track_deadline_from_interval(time_us, dt_pred);
+        pos_dead_track_deadline_from_interval(time_us, dt_pred, pos);
 }
 
 static void enter_recovery_stop(train_pos_t *pos,
@@ -281,7 +255,9 @@ void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) 
         return;
     }
 
-    /* FIND_POS: stop on first sensor to acquire position. */
+    pos->dead_track_warn_active = 0;
+
+    /* FIND_POS: stop on the first sensor hit to acquire position. */
     if (pos->route_state == TRAIN_STATE_FIND_POS) {
         track_set_speed(pos->train_num, 0);
         pos->stopping_since_us = time_us;
@@ -297,12 +273,7 @@ void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) 
         pos->target_sensor) {
         if (route_hit_cursor >= 0) {
             pos->route_path_cursor = route_hit_cursor;
-            int32_t pd = route_path_dist_from(pos->route_path, route_hit_cursor,
-                                              pos->route_path_count);
-            if (pd >= 0) {
-                pos->dist_to_target_mm = pd + pos->target_offset_mm;
-                if (pos->dist_to_target_mm < 0) pos->dist_to_target_mm = 0;
-            }
+            pos_route_authority_sync_target(pos);
             pos->route_rem_tick_us = time_us;
         }
     }
@@ -311,11 +282,20 @@ void pos_handle_sensor_hit(train_pos_t *pos, track_node *hit, uint64_t time_us) 
         pos->offroute_expected_sensor = NULL;
     }
     update_next_prediction(pos, hit, time_us);
+    if (pos->route_state == TRAIN_STATE_STOPPING_GOTO &&
+        pos->stop_after_find_pos) {
+        traffic_refresh_sensor_prediction_reservation(pos->train_num,
+                                                      pos->cur_sensor,
+                                                      pos_release_keep_end(pos->cur_sensor,
+                                                                           pos->pred.next_sensor),
+                                                      TRAIN_BODY_MM);
+    }
     if (pos->route_state == TRAIN_STATE_ON_ROUTE) {
         traffic_refresh_route_reservation(pos->train_num, hit,
                                           pos->pred.next_sensor,
                                           pos->route_path,
                                           pos->route_path_cursor,
+                                          pos->route_reserved_end_cursor,
                                           pos->route_path_count);
     }
 

@@ -30,14 +30,12 @@ typedef struct {
 /* Global track graph */
 extern track_node g_track[TRACK_MAX];
 
-// Initialize track module with the CAN server TID.
-void track_init(int can_server_tid);
-
 // State management functions
 void track_log_sensor(uint16_t sensor_id, uint64_t time_us, uint8_t state);
 void track_update_switch(int sw_id, char state);
 const sensor_entry_t* track_get_sensor_log(int *head);
 const switch_entry_t* track_get_switch_state(void);
+track_node *track_find_node(const char *name);
 
 // Switch number mapping (user number 1-18, 153-156 to array index 0-21)
 int track_switch_to_index(int sw_num);
@@ -52,6 +50,7 @@ void track_reverse(int train);
 void track_send_direction(int train_num, uint8_t dir);
 void track_set_switch(int sw, char dir);
 void track_set_light(int train, int on);
+void track_reset_to_startup(void);
 
 // Reverse state machine
 int track_start_reverse(int train);

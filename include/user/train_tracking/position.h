@@ -7,6 +7,10 @@
 
 /* Maximum number of trains tracked simultaneously */
 #define MAX_POS_TRAINS 5
+#define DEADLOCK_MAX_TRAINS 3
+
+/* Physical train body length (mm). */
+#define TRAIN_BODY_MM 200
 
 /* ---------- Train route state ---------- */
 
@@ -20,7 +24,7 @@ typedef enum {
     TRAIN_STATE_FIND_POS     = 6,  /* position unknown; running until first sensor hit */
     TRAIN_STATE_RECOVERY_STOPPING = 7,  /* off-route deviation; stopping -> replan */
     TRAIN_STATE_STOPPING_GOTO     = 8, /* goto while running; stop sent -> replan */
-    TRAIN_STATE_DEAD_TRACK        = 9, /* terminal: stuck on dead track, reservation held in place */
+    TRAIN_STATE_DEAD_TRACK        = 9, /* dead track detected; pause, then retry launch from cur_sensor */
     TRAIN_STATE_WAIT_RESOURCE     = 10, /* route blocked by reservation; stopped and waiting */
     TRAIN_STATE_WAIT_SWITCH_SETTLE = 11, /* switches set; waiting for turnout settle before launch */
 } train_route_state_t;
@@ -30,6 +34,19 @@ typedef enum {
     POS_SWITCH_SETTLE_NORMAL = 1,
     POS_SWITCH_SETTLE_REVERSED = 2,
 } pos_switch_settle_mode_t;
+
+typedef enum {
+    POS_WAIT_NONE = 0,
+    POS_WAIT_PRELAUNCH_ROUTE = 1,
+    POS_WAIT_RESUME_ROUTE = 2,
+    POS_WAIT_MIDREV_SECOND_LEG = 3,
+} pos_wait_mode_t;
+
+typedef enum {
+    POS_TARGET_COL_NONE  = 0,
+    POS_TARGET_COL_FINAL = 1,
+    POS_TARGET_COL_STAGE = 2,
+} pos_target_col_t;
 
 /* ---------- Prediction sub-state ---------- */
 
@@ -66,6 +83,9 @@ typedef struct {
     uint32_t rand_state;     /* LCG state for jitter randomization */
     uint32_t seen_generation; /* last reservation-change generation observed */
     uint8_t  blocker_mask;   /* bitmask of trains currently blocking this replan */
+    uint8_t  wait_mode;      /* committed-route wait strategy */
+    uint8_t  need_initial_reverse; /* saved launch metadata for prelaunch waits */
+    track_node *launch_origin; /* chosen origin for the committed launch route */
 } pos_replan_t;
 
 typedef struct {
@@ -81,17 +101,19 @@ typedef struct {
     track_node *yield_target;
     uint8_t    wait_start_mask;
     uint8_t    parked_at_yield;
+    uint64_t   parked_since_us;
 } pos_deadlock_recover_t;
 
 typedef struct {
     uint8_t    active;
     uint8_t    unresolved;
     int        victim_train;
-    int        cycle_trains[6];
+    int        cycle_trains[DEADLOCK_MAX_TRAINS];
     int        cycle_count;
     track_node *blocked_target;
     track_node *yield_target;
     track_node *resume_target;
+    uint64_t   detect_us;
     uint64_t   expire_us;
 } pos_deadlock_notice_t;
 
@@ -106,6 +128,7 @@ typedef struct {
     uint64_t    cur_sensor_time;   // us 
     int32_t     effective_v;    /* EMA-corrected speed estimate (mm/s) */
     int         user_speed;     /* 0-14 */
+    int         goto_speed;
 
     /* Prediction */
     pos_pred_t  pred;
@@ -129,6 +152,7 @@ typedef struct {
 
     /* 1 = forward direction; 0 = reverse direction. */
     int going_forward;
+    int prev_going_forward;
     uint8_t position_known;
 
     /* Original user-specified goto target, preserved across route execution
@@ -144,10 +168,16 @@ typedef struct {
     /* Timestamp (us) when route_state entered TRAIN_STATE_STOPPING.
      * Used by pos_on_tick() to fire the STOPPING → STOPPED transition. */
     uint64_t    stopping_since_us;
+    track_node *stopping_target_sensor; /* exact stop target frozen when braking starts */
 
     /* 1 when the last STOPPED state was reached after physically hitting the
      * route target sensor; reverse replans should anchor at cur_sensor->reverse. */
     uint8_t     stopped_on_target_hit;
+
+    /* UI latch for the last logical stop target: keep the reached target
+     * column highlighted until a new destination overrides it. */
+    uint8_t     parked_target_col;
+    uint8_t     parked_restart_block_initial_reverse;
 
     /* Deferred launch after issuing switch commands. */
     uint64_t    switch_settle_due_us;
@@ -159,6 +189,7 @@ typedef struct {
     /* Deadline for observing the next predicted progress sensor.
      * Typically now + DEAD_TRACK_DEADLINE_MULTIPLIER * T1. */
     uint64_t    dead_track_deadline_us;
+    uint64_t    dead_track_retry_due_us;
 
     /* Per-speed EMA cache.
      * cached_v[s] holds the last calibrated effective_v for user speed s.
@@ -171,7 +202,7 @@ typedef struct {
      * Decremented by the measured edge distance on each sensor trigger. */
     int32_t     speed_warmup_mm;
 
-    /* Acceleration model (0 → GOTO_USER_SPEED).
+    /* Acceleration model (0 → constant speed).
      * accel_a_eff : fixed mm/s² constant seeded from GOTO_ACCEL_MM_S2.
      * is_accelerating : 1 while the train is in the ramp-up phase;
      *                   cleared automatically when full speed is reached.
@@ -183,6 +214,7 @@ typedef struct {
     uint8_t     awaiting_post_launch_sensor; /* 1 until the first hit after a goto launch */
     uint8_t     force_offroute_on_next_sensor;
     uint8_t     dead_track_rescue_pending;
+    uint8_t     dead_track_warn_active; /* UI latch: dead-track pause/retry is in progress. */
     pos_dead_track_recover_t dead_track_recover;
     pos_deadlock_recover_t deadlock_recover;
 
@@ -197,11 +229,15 @@ typedef struct {
     uint16_t route_path[TRACK_MAX];
     int      route_path_count;
     int      route_path_cursor;
+    int      route_reserved_end_cursor;
     uint64_t route_rem_tick_us;
+    uint32_t authority_seen_generation;
+    uint64_t authority_next_us;
 
-    /* If 1: started via pos_start_direction_find; stop after direction confirmed
-     * instead of planning a route to a target. */
-    uint8_t  find_pos_only;
+    /* If 1: the current FIND_POS pass brakes on the first sensor hit before
+     * deciding what to do next. Plain findpos stops there; dead-track
+     * recovery may immediately replan the preserved mission target. */
+    uint8_t  stop_after_find_pos;
 
 } train_pos_t;
 
@@ -229,7 +265,46 @@ typedef struct {
     uint16_t   path_nodes[TRACK_MAX];
     int        path_count2;
     uint16_t   path_nodes2[TRACK_MAX];
+
+    /* Extra nodes reserved beyond the stop target, typically the branch
+     * immediately after an authority stop so its switch cannot be stolen. */
+    int        extra_reserve_count;
+    uint16_t   extra_reserve_nodes[4];
 } route_plan_t;
+
+typedef enum {
+    POS_TARGET_UNREACHABLE = 0,
+    POS_TARGET_BLOCKED     = 1,
+    POS_TARGET_READY       = 2,
+} pos_target_query_status_t;
+
+typedef struct {
+    pos_target_query_status_t status;
+    route_plan_t             plan;
+    uint8_t                  blocker_mask;
+} pos_target_query_t;
+
+typedef struct {
+    uint8_t    active;
+    uint8_t    blocked_by_switch;
+    track_node *node;
+    int        blocker_train;
+    int        switch_num;
+} pos_wait_info_t;
+
+typedef enum {
+    POS_GAME_EVENT_NONE       = 0,
+    POS_GAME_EVENT_SENSOR_HIT = 1,
+    POS_GAME_EVENT_GOAL_STOP  = 2,
+} pos_game_event_type_t;
+
+typedef struct {
+    uint32_t              seq;
+    pos_game_event_type_t type;
+    int                   train_num;
+    uint16_t              sensor_num;
+    uint64_t              time_us;
+} pos_game_event_t;
 
 /* ---------- Public API ---------- */
 
@@ -239,7 +314,7 @@ void pos_init(void);
  * Tries to attribute the event to the correct tracked train. */
 void pos_on_sensor_trigger(uint16_t sensor_id, uint64_t time_us);
 
-/* Called on every 10 ms tick to handle predicted-sensor timeouts. */
+/* Called on every 30 ms tick to handle predicted-sensor timeouts. */
 void pos_on_tick(uint64_t now_us);
 
 void pos_replan_on_tick(uint64_t now_us);
@@ -257,12 +332,12 @@ void pos_on_reverse(int train_num);
 
 
 /* Execute a goto */
-int pos_goto(int train_num, track_node *target, int32_t offset_mm);
+int pos_goto(int train_num, track_node *target, int speed_level, int32_t offset_mm);
 
-/* Start an UNKNOWN train moving to find direction; stop once direction is confirmed.
- * No destination is planned — train transitions to STOPPED at the second sensor.
+/* Start an UNKNOWN train moving to find its current sensor anchor.
+ * No destination is planned — train transitions to STOPPED after the first hit.
  * Returns 1 on success, 0 if train is not UNKNOWN or slot unavailable. */
-int pos_start_direction_find(int train_num);
+int pos_start_find_pos(int train_num, int speed_level);
 
 
 /* Returns 1 if the given train has an active goto in progress; 0 otherwise. */
@@ -279,16 +354,19 @@ train_pos_t *pos_get(int train_num);
 train_pos_t *pos_get_by_index(int i);
 
 /* Queue a goto for an already-active train. last-write-wins. */
-int pos_queue_goto(int train_num, track_node *target, int32_t offset_mm);
+int pos_queue_goto(int train_num, track_node *target, int speed_level, int32_t offset_mm);
+
+int pos_read_game_events(uint32_t *io_seq, pos_game_event_t *out, int max_events);
+
+pos_target_query_status_t pos_query_target(int train_num, track_node *target,
+                                           pos_target_query_t *out);
+
+void pos_get_wait_info(int train_num, pos_wait_info_t *out);
 
 void pos_mark_routes_dirty(void);
 
 void pos_reset_dead_train(int train_num);
 
 void pos_get_deadlock_notice(pos_deadlock_notice_t *out);
-
-/* Find a track node by name.
- * Returns NULL if not found. */
-track_node *pos_find_node(const char *name);
 
 #endif /* _position_h_ */

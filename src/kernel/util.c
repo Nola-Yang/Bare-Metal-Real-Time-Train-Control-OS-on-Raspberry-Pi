@@ -116,6 +116,31 @@ int str2int(const char *str) {
     return result * sign;
 }
 
+int str_parse_int(const char *tok, int *out) {
+    if (!tok || !tok[0] || !out) return 0;
+
+    const char *p = tok;
+    if (*p == '+' || *p == '-') p++;
+    if (!*p) return 0;
+
+    while (*p) {
+        if (*p < '0' || *p > '9') return 0;
+        p++;
+    }
+
+    *out = str2int(tok);
+    return 1;
+}
+
+int str_eq(const char *a, const char *b) {
+    if (!a || !b) return 0;
+    while (*a && *b && *a == *b) {
+        a++;
+        b++;
+    }
+    return (*a == '\0' && *b == '\0');
+}
+
 // Buffer formatting helpers
 
 char* buf_append(char *p, const char *str) {
@@ -146,6 +171,34 @@ char* buf_append_uint(char *p, unsigned int value) {
 
 char* buf_get_temp(void) {
     return temp_buf;
+}
+
+char* buf_append_cap(char *p, char *end, const char *str) {
+    if (!p || !end || !str) return p;
+    while (*str && p < end) {
+        *p++ = *str++;
+    }
+    return p;
+}
+
+char* buf_append_char_cap(char *p, char *end, char c) {
+    if (!p || !end) return p;
+    if (p < end) {
+        *p++ = c;
+    }
+    return p;
+}
+
+char* buf_append_int_cap(char *p, char *end, int value) {
+    char num_buf[12];
+    i2a(value, num_buf);
+    return buf_append_cap(p, end, num_buf);
+}
+
+char* buf_append_uint_cap(char *p, char *end, unsigned int value) {
+    char num_buf[12];
+    ui2a(value, 10, num_buf);
+    return buf_append_cap(p, end, num_buf);
 }
 
 // Render elapsed microseconds as mm:ss.t string

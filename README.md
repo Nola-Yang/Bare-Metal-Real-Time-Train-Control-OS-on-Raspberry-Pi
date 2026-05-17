@@ -86,4 +86,109 @@ Enter commands at the prompt:
 | `init` | init all switch to straight |
 | `li <train> <1|0>` | Turn on/off the train light |
 | `goto <train> <node id> [offset+-mm]` | Make the train pick up a constant speed (fixed at speed step 8) and stops at a specific track node |
-| `demo start <train1> <train2> [train3] [train4]` | Controls multiple trains on the track | 
+| `findpos <train1> [train2] [train3] [train4]` | Find positions for one or more trains |
+| `demo <speed> <train1> [train2] [train3] [train4] [seed]` | Start demo: trains roam randomly at the given speed level |
+| `demo stop` | Stop demo gracefully (no new missions assigned) |
+| `demo stop force` | Stop demo immediately and reset runtime state back to startup defaults |
+| `demo seed <u32>` | Set the RNG seed used for random route selection |
+| `demo tune trip <mm>` | Set minimum trip distance (mm) for random route selection |
+| `game` | Enter interactive game setup; each setup input is a bare train number and triggers one `findpos` before the next prompt |
+| `<sensor>` | During game round, enter a bare sensor name (e.g. `A3`) to choose the human player's target |
+| `game stop` | Stop the current game |
+| `game status` | Show current game state and scores |
+
+## Starting a Game
+
+1. Make sure all three trains are stopped (or in unknown state) and positioned on the track.
+2. Type `game` at the prompt. The system enters setup mode and the prompt changes to `game> `.
+3. Enter the **human player's train number** as a bare number only, for example `55`.
+4. The system immediately runs one `findpos` bootstrap for that train.
+   While it is locating, the prompt changes to `wait> `.
+5. After that train has confirmed position and stopped, the system prompts for the **AI train number**.
+6. Enter the AI train number as a bare number only, for example `13`.
+7. The system again runs `findpos` for that train, waits for it to finish, then prompts for the **neutral train number**.
+8. Enter the neutral train number as a bare number only, for example `14`.
+9. After the neutral train has also finished its setup `findpos`, the game enters Round 1 and waits for a sensor input.
+10. During each round, the human player types a bare sensor name (e.g. `A3`) to choose a destination.
+11. To stop a running game gracefully, type `game stop`. To abort immediately, type `game stop force`.
+
+> Note: while in game setup mode, train inputs are bare numbers only and other commands are blocked. Type `q` to quit without launching.
+
+---
+
+## Two-Round Competitive Game Rules
+
+### Overview
+
+- The match lasts for `2` rounds.
+- There are `3` trains on the track during the game:
+  - `2` scoring trains: one controlled by the human player and one controlled by the AI.
+  - `1` neutral train: it creates traffic pressure but never scores.
+- In every round, all three trains receive exactly one destination sensor and depart in the same round.
+- The player only chooses a destination sensor. The system handles route planning, reservation, switches, launch timing, deadlock handling, and yielding automatically.
+- A train is considered to have reached its round target when the system determines that it has arrived and stopped there. The final target sensor does not need to physically trigger.
+
+### Round Priority
+
+- Priority alternates in a fixed order across the two rounds.
+- Before Round 1, the system performs one random draw to decide which scoring player has priority first.
+- Round 2 gives priority to the other scoring player.
+- Each scoring player therefore receives priority in exactly `1` round.
+
+### Round Flow
+
+1. The human player secretly chooses one destination sensor.
+2. The AI secretly chooses one destination sensor.
+3. The neutral train's destination sensor is drawn publicly for that round.
+4. All three destinations are revealed at the same time.
+5. The system plans and reserves routes in this order:
+   - the scoring player with round priority
+   - the other scoring player
+   - the neutral train
+6. All three trains execute their movements within the same round.
+7. The round ends when:
+   - both scoring trains have completed their round targets, and
+   - the neutral train has either completed its own round target or has been redirected to a safe standby location and marked as resolved.
+
+There is no round time limit.
+
+### Neutral Train Rules
+
+- The neutral train receives one official destination sensor per round.
+- Its round destination is chosen by a public draw without replacement, so the same neutral destination is not repeated within the same 2-round match.
+- The neutral destination pool contains only physical sensors.
+- At draw time, the neutral destination must not be the current sensor occupied by any train.
+- The system should prefer reachable neutral destinations whose shortest path from the neutral train is at least `1400 mm`.
+- If no such candidate exists in the current round, the draw may fall back to any reachable physical sensor.
+- The neutral train starts the next round from wherever it stopped at the end of the previous round.
+- The neutral train never scores and never consumes any sensor reward that could otherwise be earned by a scoring player.
+
+### Scoring
+
+- Only the two scoring trains can earn points.
+- Points are awarded only when a scoring train physically triggers a new physical sensor.
+- Logical arrival at a round target does not award points by itself.
+- If a sensor was used as a final destination but did not physically trigger on arrival, it remains available for future scoring if it is physically triggered later.
+- Each physical sensor can award points at most twice during the whole match:
+  - The first scoring player to physically trigger that sensor earns `1.5` points.
+  - The other scoring player earns `1.0` point the first time they physically trigger that same sensor later.
+- A player earns `0` additional points for re-triggering a sensor they have already scored from.
+- After both scoring players have already earned from the same physical sensor, that sensor awards no further points.
+- Scoring is tracked by physical sensor, not by directional node.
+- The neutral train does not affect first-touch or second-touch scoring rewards.
+- Any newly triggered scoring sensor during a yielding movement still counts normally.
+
+### Yielding and Conflict Resolution
+
+- Between the two scoring players, the original rule still applies:
+  - if the later-planned scoring player still cannot complete their target after the earlier-planned scoring player has already arrived and stopped, and the earlier player's stopped train is the blocking cause, then the earlier player must yield.
+- The yielding location is computed automatically by the system.
+- A scoring player who yields after already completing their own target does not need to return to that target afterward.
+- If a scoring player is blocked by the neutral train's stopped position, the neutral train must yield first.
+- If the neutral train is the only unfinished train at the end of the round and its remaining block comes only from already-completed scoring trains, the scoring trains are not forced to yield for it.
+- In that case, the system redirects the neutral train to a safe standby location and considers the neutral train resolved for the round.
+
+### Winning the Match
+
+- After 2 rounds, the scoring player with the higher total score wins.
+- If both scoring players have the same total score, the match ends in a draw.

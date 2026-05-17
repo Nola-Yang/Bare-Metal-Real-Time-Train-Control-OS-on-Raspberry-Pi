@@ -19,8 +19,18 @@
 #define TERMINAL_SERVER_PRIORITY      2  // Same as clock server
 #define CAN_SERVER_PRIORITY           2  // Same as clock server
 #define UI_SERVER_PRIORITY            2  // Serialized terminal UI output
-#define TRAIN_CONTROL_PRIORITY        3  // Application task
-#define TRAIN_COURIER_PRIORITY        4  
+#define RUNTIME_CAN_INGRESS_PRIORITY  3
+#define TRACK_SERVER_PRIORITY         3
+#define POSITION_SERVER_PRIORITY      4
+#define RUNTIME_FAST_TICK_PRIORITY    4
+#define TRAIN_CONTROL_PRIORITY        5
+#define RUNTIME_CORE_PRIORITY         5
+#define KEYBOARD_BUFFER_PRIORITY      5
+#define RUNTIME_SLOW_TICK_PRIORITY    6
+#define DEMO_SERVER_PRIORITY          6
+#define GAME_SERVER_PRIORITY          6
+#define UI_TICK_PRIORITY              6
+#define TRAIN_COURIER_PRIORITY        6
 
 #define CAN_NOTIFIER_PRIORITY  1
 

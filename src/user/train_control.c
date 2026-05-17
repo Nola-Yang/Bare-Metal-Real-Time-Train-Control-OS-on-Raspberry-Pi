@@ -1,5 +1,7 @@
 #include "train_control.h"
 #include "train_runtime.h"
+#include "runtime_protocol.h"
+#include "command.h"
 #include "syscall.h"
 #include "server/nameserver.h"
 #include "server/clock_server.h"
@@ -9,6 +11,7 @@
 #include "timer.h"
 #include "task_manager.h"
 #include "ring_buffer.h"
+#include "util.h"
 #include "kassert.h"
 
 #define KEYBOARD_QUEUE_SIZE 1024
@@ -40,9 +43,8 @@ static int keyboard_buffer_putc(int tid, char ch) {
     req.type = KEYBOARD_MSG_PUT_CHAR;
     req.ch = ch;
 
-    int ret = Send(tid, (const char *)&req, sizeof(req),
-                   (char *)&reply, sizeof(reply));
-    if (ret < 0) {
+    if (Send(tid, (const char *)&req, sizeof(req),
+             (char *)&reply, sizeof(reply)) < 0) {
         return -1;
     }
     return reply.status;
@@ -55,9 +57,9 @@ static int keyboard_buffer_getc(int tid) {
     req.type = KEYBOARD_MSG_GET_CHAR;
     req.ch = 0;
 
-    int ret = Send(tid, (const char *)&req, sizeof(req),
-                   (char *)&reply, sizeof(reply));
-    if (ret < 0 || reply.status < 0) {
+    if (Send(tid, (const char *)&req, sizeof(req),
+             (char *)&reply, sizeof(reply)) < 0 ||
+        reply.status < 0) {
         return -1;
     }
     return (unsigned char)reply.ch;
@@ -82,7 +84,8 @@ static void keyboard_buffer_task(void) {
                     KeyboardReply_t waiter_reply;
                     waiter_reply.status = 0;
                     waiter_reply.ch = req.ch;
-                    Reply(waiter_tid, (const char *)&waiter_reply, sizeof(waiter_reply));
+                    Reply(waiter_tid, (const char *)&waiter_reply,
+                          sizeof(waiter_reply));
                     waiter_tid = -1;
                 } else {
                     if (ring_buffer_is_full(&queue)) {
@@ -138,13 +141,10 @@ void ui_tick_task(void) {
 
     KASSERT(clock_tid >= 0);
 
-    const int tick_interval = 4;  // 4 ticks * 10ms = 40ms
-
     for (;;) {
-        Delay(clock_tid, tick_interval);
+        Delay(clock_tid, 4);
 
-        uint64_t tick_now = read_timer();
-        ui_update_clock(ui_start_us, tick_now);
+        ui_update_clock(ui_start_us, read_timer());
         ui_update_idle(get_idle_percentage());
 
         if (ui_is_switches_dirty()) {
@@ -167,43 +167,45 @@ void ui_tick_task(void) {
 void train_control_task(void) {
     int tid;
     int runtime_tid;
-    TrainControlMsg_t msg;
-    TrainControlReply_t reply;
-    TrainControlReply_t runtime_reply;
+    int running = 1;
+    runtime_event_t event;
+    runtime_reply_t reply;
+    runtime_reply_t runtime_reply;
 
     int term_tid = WhoIs(TERMINAL_SERVER_NAME);
     KASSERT(term_tid >= 0);
 
-    runtime_tid = Create(TRAIN_CONTROL_PRIORITY, train_runtime_task);
+    runtime_tid = Create(RUNTIME_CORE_PRIORITY, runtime_core_task);
     KASSERT(runtime_tid >= 0);
 
-    int msglen = Receive(&tid, (char *)&msg, sizeof(msg));
-    (void)msglen;
-    KASSERT(tid == runtime_tid);
-    KASSERT(msg.type == TRAIN_MSG_RUNTIME_READY);
-    reply.status = 0;
-    Reply(tid, (const char *)&reply, sizeof(reply));
+    {
+        int msglen = Receive(&tid, (char *)&event, sizeof(event));
+        (void)msglen;
+        KASSERT(tid == runtime_tid);
+        KASSERT(event.type == RUNTIME_EVENT_RUNTIME_READY);
+        reply.status = 0;
+        Reply(tid, (const char *)&reply, sizeof(reply));
+    }
 
     ui_start_us = read_timer();
     ui_init(term_tid);
-    keyboard_buffer_tid = Create(TRAIN_CONTROL_PRIORITY, keyboard_buffer_task);
+
+    keyboard_buffer_tid = Create(KEYBOARD_BUFFER_PRIORITY, keyboard_buffer_task);
     KASSERT(keyboard_buffer_tid >= 0);
 
     Create(TRAIN_COURIER_PRIORITY, keyboard_rx_task);
     Create(TRAIN_COURIER_PRIORITY, command_input_task);
-    Create(TRAIN_COURIER_PRIORITY, ui_tick_task);
-
-    int running = 1;
+    Create(UI_TICK_PRIORITY, ui_tick_task);
 
     while (running) {
-        int msglen = Receive(&tid, (char *)&msg, sizeof(msg));
+        int msglen = Receive(&tid, (char *)&event, sizeof(event));
         (void)msglen;
 
         reply.status = 0;
 
-        switch (msg.type) {
-            case TRAIN_MSG_COMMAND:
-                if (Send(runtime_tid, (const char *)&msg, sizeof(msg),
+        switch (event.type) {
+            case RUNTIME_EVENT_COMMAND:
+                if (Send(runtime_tid, (const char *)&event, sizeof(event),
                          (char *)&runtime_reply, sizeof(runtime_reply)) < 0) {
                     reply.status = -1;
                 } else {
@@ -224,33 +226,39 @@ void train_control_task(void) {
     Shutdown();
 }
 
-
 void command_input_task(void) {
     int parent = MyParentTid();
-    KASSERT(keyboard_buffer_tid >= 0);
-
-    TrainControlMsg_t msg;
-    TrainControlReply_t reply;
+    runtime_event_t event;
+    runtime_reply_t reply;
     char cmdline[TRAIN_CMD_MAX_LEN];
+    char prompt_label[16];
+    char last_prompt_label[16];
     int cmdlen = 0;
 
-    msg.type = TRAIN_MSG_COMMAND;
+    KASSERT(keyboard_buffer_tid >= 0);
+
+    event.type = RUNTIME_EVENT_COMMAND;
+    ui_get_cmd_prompt_label(last_prompt_label, sizeof(last_prompt_label));
 
     for (;;) {
         int c = keyboard_buffer_getc(keyboard_buffer_tid);
-        if (c < 0) {
-            continue;
+        if (c < 0) continue;
+
+        ui_get_cmd_prompt_label(prompt_label, sizeof(prompt_label));
+        if (!str_eq(prompt_label, last_prompt_label)) {
+            cmdlen = 0;
+            for (int i = 0; i < (int)sizeof(last_prompt_label); i++) {
+                last_prompt_label[i] = prompt_label[i];
+                if (prompt_label[i] == '\0') break;
+            }
         }
 
         if (c == '\r' || c == '\n') {
             cmdline[cmdlen] = '\0';
             ui_scroll_cmd();
 
-            if (cmdlen > 0) {
-                for (int i = 0; i <= cmdlen; i++) {
-                    msg.cmdline[i] = cmdline[i];
-                }
-                Send(parent, (const char *)&msg, sizeof(msg),
+            if (cmdlen > 0 && parse_train_command(cmdline, &event.command)) {
+                Send(parent, (const char *)&event, sizeof(event),
                      (char *)&reply, sizeof(reply));
             }
 

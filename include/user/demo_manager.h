@@ -9,6 +9,7 @@ typedef struct {
     const char *state_name;
     uint32_t seed;
     uint32_t uptime_sec;
+    uint32_t missions_completed;
     int gold_min_trip_mm;
     traffic_sensor_stats_t sensor_stats;
 } demo_ui_summary_t;
@@ -20,6 +21,9 @@ void demo_init(void);
  * Returns 1 on success/no extra output, 2 on usage or command output. */
 int demo_handle_command(int argc, char *argv[]);
 
+/* Start a locate (findpos) session for the given trains. */
+int demo_start_locate(int train_count, const int *trains);
+
 /* Periodic scheduler hook (10 ms). */
 void demo_on_tick(uint64_t now_us);
 
@@ -28,11 +32,13 @@ void demo_get_ui_summary(demo_ui_summary_t *out, uint64_t now_us);
 
 /* Return 1 while demo gold is still auto-dispatching new targets. */
 int demo_is_auto_dispatching_targets(void);
+int demo_is_active(void);
 
 // get_demo_train_ind: Retrieves the index based on the train number
 int get_demo_train_ind(int train_num);
 
 int gold_dispatch_next_by_ind(int demo_train_ind);
 int demo_retry_train_by_ind(int demo_train_ind);
+int demo_try_resolve_unresolved_deadlock_ready_target(void);
 
 #endif /* _demo_manager_h_ */

@@ -10,6 +10,7 @@ static int ui_server_tid = -1;
 static int ui_switches_dirty  = 1;
 static int ui_sensors_dirty   = 1;
 static int ui_position_dirty  = 1;
+static char ui_cmd_prompt_label[16] = "cmd> ";
 
 static char last_clock_buf[8] = "00:00.0";
 static int last_idle_percent = -1;
@@ -51,7 +52,7 @@ void ui_init(int terminal_tid) {
     ui_puts("\033[2J\033[H\033[?25l");
     ui_puts("=== Train Control System CS652 K4 ===\r\n");
     ui_puts("Version: " __DATE__ " / " __TIME__ "\r\n");
-    ui_puts("Cmds: tr|sw|rv|li|goto|findpos|demo|q\r\n");
+    ui_puts("Cmds: tr|sw|rv|li|goto|findpos|demo|game|q\r\n");
     ui_puts("\r\n");
     ui_puts("Time: 00:00.0\r\n");
     ui_puts("Idle: 0%\r\n");
@@ -72,7 +73,9 @@ void ui_prepare_cmd(void) {
         return;
     }
 
-    UIServerPrepareCmd(ui_server_tid);
+    UIServerPrepareCmdLabel(ui_server_tid,
+                            ui_cmd_prompt_label,
+                            ui_strlen(ui_cmd_prompt_label));
 }
 
 void ui_scroll_cmd(void) {
@@ -88,7 +91,28 @@ void ui_cmd_newprompt(void) {
         return;
     }
 
-    UIServerCmdPrompt(ui_server_tid);
+    UIServerCmdPromptLabel(ui_server_tid,
+                           ui_cmd_prompt_label,
+                           ui_strlen(ui_cmd_prompt_label));
+}
+
+void ui_cmd_clear_line(void) {
+    if (ui_server_tid < 0) {
+        return;
+    }
+
+    UIServerCmdPuts(ui_server_tid, "\r\033[2K", 5);
+}
+
+void ui_cmd_log_line(const char *str) {
+    if (ui_server_tid < 0 || str == NULL) {
+        return;
+    }
+
+    ui_cmd_clear_line();
+    ui_cmd_puts(str);
+    ui_cmd_puts("\r\n");
+    ui_cmd_newprompt();
 }
 
 void ui_cmd_backspace(void) {
@@ -107,6 +131,32 @@ void ui_cmd_putc(char c) {
     UIServerCmdPutc(ui_server_tid, c);
 }
 
+void ui_set_cmd_prompt_label(const char *label) {
+    int i = 0;
+
+    if (!label || !label[0]) {
+        label = "cmd> ";
+    }
+
+    while (label[i] && i + 1 < (int)sizeof(ui_cmd_prompt_label)) {
+        ui_cmd_prompt_label[i] = label[i];
+        i++;
+    }
+    ui_cmd_prompt_label[i] = '\0';
+}
+
+void ui_get_cmd_prompt_label(char *out, int cap) {
+    int i = 0;
+
+    if (!out || cap <= 0) return;
+
+    while (ui_cmd_prompt_label[i] && i + 1 < cap) {
+        out[i] = ui_cmd_prompt_label[i];
+        i++;
+    }
+    out[i] = '\0';
+}
+
 void ui_update_clock(uint64_t start_us, uint64_t now) {
     uint64_t elapsed = now - start_us;
     char clock_buf[8];
@@ -121,15 +171,16 @@ void ui_update_clock(uint64_t start_us, uint64_t now) {
     }
 
     if (has_changes) {
-        char *temp_buf = buf_get_temp();
+        char temp_buf[64];
         char *p = temp_buf;
+        char *end = temp_buf + sizeof(temp_buf) - 1;
 
         for (int i = 0; i < 7; i++) {
             if (clock_buf[i] != last_clock_buf[i]) {
-                p = buf_append(p, "\033[5;");
-                p = buf_append_int(p, 7 + i);
-                p = buf_append_char(p, 'H');
-                p = buf_append_char(p, clock_buf[i]);
+                p = buf_append_cap(p, end, "\033[5;");
+                p = buf_append_int_cap(p, end, 7 + i);
+                p = buf_append_char_cap(p, end, 'H');
+                p = buf_append_char_cap(p, end, clock_buf[i]);
                 last_clock_buf[i] = clock_buf[i];
             }
         }
@@ -149,12 +200,13 @@ void ui_update_idle(int percent) {
         return;
     }
 
-    char *temp_buf = buf_get_temp();
+    char temp_buf[32];
     char *p = temp_buf;
+    char *end = temp_buf + sizeof(temp_buf) - 1;
 
-    p = buf_append(p, "\033[6;1HIdle: ");
-    p = buf_append_int(p, percent);
-    p = buf_append(p, "%\033[K");
+    p = buf_append_cap(p, end, "\033[6;1HIdle: ");
+    p = buf_append_int_cap(p, end, percent);
+    p = buf_append_cap(p, end, "%\033[K");
     *p = '\0';
 
     ui_puts(temp_buf);
